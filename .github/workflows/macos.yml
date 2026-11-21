@@ -1,134 +1,64 @@
-name: macOS gpui backend
+name: macOS portable renderer
 
-# The first macOS lane in CI: the gpui backend (engine/backends/gpui) and
-# the macos-app host (hosts/macos) are standalone crates excluded from the
-# ubuntu release workspace, so this is the only place they build. The lane
-# also runs the TS surfaces its path filter watches (contract drift, the
-# platform/note/font-bake tests, and a real macos-app plan+bundle build of
-# the note). gpui needs a window server for anything more; runtime behavior
-# is pinned by the note --proof acceptance run (docs/BACKENDS.md).
+# Exercise Metal rendering for the shared UI renderer used by widgets and Pocket3D.
 
 on:
   pull_request:
-    paths:
+    paths: &paths
+      - ".bun-version"
       - ".github/workflows/macos.yml"
-      - "contracts/spec/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
       - "engine/core/**"
-      - "engine/crates/pocket-ui-surface/**"
-      - "engine/backends/gpui/**"
-      - "hosts/macos/**"
-      - "tools/macos.ts"
-      - "apps/note/**"
-      - "apps/desk98/**"
-      - "framework/compiler/**"
-      - "assets/fonts/**"
-      - "tests/platform-contracts.test.ts"
-      - "tests/note.test.ts"
-      - "tests/desk98.test.ts"
-      - "tests/desk98-sim.test.ts"
-      - "tests/font-bake.test.ts"
-      - "tests/npm-package.test.ts"
-      - "package.json"
+      - "engine/spec/**"
+      - "engine/drivers/**"
+      - "engine/raster/**"
+      - "engine/package/**"
+      - "engine/modules/media/**"
+      - "engine/render/Cargo.toml"
+      - "engine/render/src/**"
+      - "engine/ui-surface/**"
+      - "engine/text/**"
+      - "engine/ui-wgpu/**"
+      - "engine/runtime/**"
+      - "engine/guest-rquickjs/**"
+      - "engine/pocket3d/crates/pocket3d/**"
+      - "devices/wgpu/pocket-wgpu-render/**"
+      - "framework/compiler/plan.ts"
+      - "framework/compiler/host-build-inputs.ts"
   push:
     branches: [main]
-    paths:
-      - ".github/workflows/macos.yml"
-      - "contracts/spec/**"
-      - "engine/core/**"
-      - "engine/crates/pocket-ui-surface/**"
-      - "engine/backends/gpui/**"
-      - "hosts/macos/**"
-      - "tools/macos.ts"
-      - "apps/note/**"
-      - "apps/desk98/**"
-      - "framework/compiler/**"
-      - "assets/fonts/**"
-      - "tests/platform-contracts.test.ts"
-      - "tests/note.test.ts"
-      - "tests/desk98.test.ts"
-      - "tests/desk98-sim.test.ts"
-      - "tests/font-bake.test.ts"
-      - "tests/npm-package.test.ts"
-      - "package.json"
+    paths: *paths
   workflow_dispatch: {}
 
 permissions:
   contents: read
 
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   rust:
-    name: gpui backend + host
+    name: Metal renderer
     runs-on: macos-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
-
+      - name: Read fixed Rust toolchain
+        id: rust-pin
+        shell: bash
+        run: echo "version=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy, rustfmt
-          # note.test.ts boots the sim host, which builds the wasm core.
+          toolchain: ${{ steps.rust-pin.outputs.version }}
+          components: clippy
           targets: wasm32-unknown-unknown
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: |
-            engine/backends/gpui
-            hosts/macos
-            engine/wasm
+          workspaces: .
 
-      - uses: oven-sh/setup-bun@v2
-
-      - name: Install JS dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Contract + note + desk98 + platform + npm package tests
-        run: bun test tests/platform-contracts.test.ts tests/note.test.ts tests/desk98.test.ts tests/font-bake.test.ts tests/npm-package.test.ts && bun tests/contract.ts
-
-      - name: Compile the note against macos-app (plan + bundle + pak)
-        run: |
-          bun -e '
-          import { validateAndResolveBuildPlan } from "./framework/src/manifest/resolve.ts";
-          import { mkdirSync } from "node:fs";
-          const m = await Bun.file("apps/note/pocket.json").json();
-          const r = validateAndResolveBuildPlan(m, { target: "macos-app" });
-          if (!r.ok) throw new Error(JSON.stringify(r.diagnostics));
-          mkdirSync(".pocket/macos-app", { recursive: true });
-          await Bun.write(".pocket/macos-app/note-main.plan.json", JSON.stringify(r.plan, null, 2) + "\n");'
-          bun tools/build.ts --plan=.pocket/macos-app/note-main.plan.json
-
-      - name: Compile desk98 against macos-app (vue-vapor, W95FA pak.json splice + SVG icons)
-        run: |
-          bun -e '
-          import { validateAndResolveBuildPlan } from "./framework/src/manifest/resolve.ts";
-          import { mkdirSync } from "node:fs";
-          const m = await Bun.file("apps/desk98/pocket.json").json();
-          const r = validateAndResolveBuildPlan(m, { target: "macos-app" });
-          if (!r.ok) throw new Error(JSON.stringify(r.diagnostics));
-          mkdirSync(".pocket/macos-app", { recursive: true });
-          await Bun.write(".pocket/macos-app/desk98-main.plan.json", JSON.stringify(r.plan, null, 2) + "\n");'
-          bun tools/build.ts --plan=.pocket/macos-app/desk98-main.plan.json
-
-      - name: desk98 sim smoke (vue-vapor bundle)
-        run: |
-          bun tools/build.ts desk98-main --framework=vue-vapor
-          bun test --conditions=browser tests/desk98-sim.test.ts
-
-      - name: Test core (TEXT_RUN + native measure gates)
-        run: cargo test --locked --manifest-path engine/core/Cargo.toml
-
-      - name: Test ui surface (svcOpen deny-by-default, string ops)
-        run: cargo test --locked --manifest-path engine/Cargo.toml -p pocket-ui-surface
-
-      - name: rustfmt
-        run: |
-          cargo fmt --check --manifest-path engine/backends/gpui/Cargo.toml
-          cargo fmt --check --manifest-path hosts/macos/Cargo.toml
-
-      - name: Clippy gpui backend
-        run: cargo clippy --locked --manifest-path engine/backends/gpui/Cargo.toml -- -D warnings
-
-      - name: Clippy macos-app host
-        run: cargo clippy --locked --manifest-path hosts/macos/Cargo.toml -- -D warnings
-
-      - name: Build macos-app host
-        run: cargo build --locked --manifest-path hosts/macos/Cargo.toml
+      - name: Test Metal DrawList rendering
+        run: cargo test --locked --manifest-path Cargo.toml -p pocket-ui-wgpu -p pocket-wgpu-render -- --include-ignored

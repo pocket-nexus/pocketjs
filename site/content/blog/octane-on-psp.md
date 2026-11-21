@@ -2,7 +2,7 @@
 
 <p class="text-sm text-slate-500 -mt-4">The hero demo's "pressed" moment — a committed 480×272 PPSSPP golden from the Octane e2e suite, shown at 2×. The counter under the button is <code>useState</code>. The 60 in the corner is real.</p>
 
-When we first benchmarked JavaScript frameworks on the PSP ([PR #6](https://github.com/pocket-stack/pocketjs/pull/6)), React was the one that didn't make it: after the measurements, the writeup's conclusion was that original React has no viable path on a 333 MHz MIPS handheld with 32 MB of RAM. Solid and Vue Vapor became PocketJS's two frameworks, and "React on a PSP" went into the drawer labeled *not with that runtime*.
+When we first benchmarked JavaScript frameworks on the PSP ([PR #6](https://github.com/pocket-nexus/pocketjs/pull/6)), React was the one that didn't make it: after the measurements, the writeup's conclusion was that original React has no viable path on a 333 MHz MIPS handheld with 32 MB of RAM. Solid and Vue Vapor became PocketJS's two frameworks, and "React on a PSP" went into the drawer labeled *not with that runtime*.
 
 [Octane](https://github.com/octanejs/octane) reopened the drawer. It is Dominic Gannaway's compiled implementation of the React programming model — `useState`, `useEffect`, JSX, the works — with no virtual DOM and no reconciler, because a compiler resolved the component tree's shape before the app ever shipped. That is not a performance detail. It is the difference between "React can't run here" and "the React *model* compiles to something that can."
 
@@ -213,7 +213,7 @@ One cost stays, named: a button press is still one replay, and on the PSP that i
 
 ## The benchmark PR #6 couldn't run
 
-PR #6's React column was empty because nothing bootable existed to measure. This time all three columns are full: 7 apps × 3 frameworks × 7 samples on deterministic headless PPSSPP — repeated runs are byte-identical — with geomean-vs-Solid ratios and bootstrap CIs, archived in [`docs/bench/`](https://github.com/pocket-stack/pocketjs/tree/grass-responsibility/docs/bench). (For the record: the first full dataset, taken before the fixes above, read avg frame work at **15.58×** Solid. This is the same suite after them.)
+PR #6's React column was empty because nothing bootable existed to measure. This time all three columns are full: 7 apps × 3 frameworks × 7 samples on deterministic headless PPSSPP — repeated runs are byte-identical — with geomean-vs-Solid ratios and bootstrap CIs, archived in [`docs/bench/`](https://github.com/pocket-nexus/pocketjs/tree/grass-responsibility/docs/bench). (For the record: the first full dataset, taken before the fixes above, read avg frame work at **15.58×** Solid. This is the same suite after them.)
 
 | geomean vs Solid (lower is better) | Vue Vapor | Octane |
 |---|---:|---:|
@@ -303,6 +303,6 @@ The [playground](/playground/) grew a third toggle. The real Octane universal co
 
 The gaps, named, because that is house policy: a button press is one root replay and costs a visible 150–250 ms hitch on the PSP until the replay walk is fixed upstream in Octane (the identity-path caching described above); the per-replay memory residue on the pinned engine is still real — replays are now rare enough that it no longer bounds a session, but the quickjs-rs GC repair and repin remain owed, as does an upstream report for the ten-line WeakMap repro that also reproduces on bellard master; the benchmark numbers above are emulator numbers from PPSSPP's software renderer, but the post-fix builds have since been re-tested on the same physical PSP that failed the first run — smooth, spinner turning; and `gallery`, the eighth demo, ports and builds like the rest but is not yet in the golden suite.
 
-Everything here — adapter, compiler wiring, eight ports, playground, docs, benchmark — lands in [#203](https://github.com/pocket-stack/pocketjs/pull/203). Three frameworks now compile into the same native tree on the same 2004 handheld, and the newest one writes like React because, at the source level, it is: hooks, JSX, and a compiler that did the reconciler's job before the code left your machine.
+Everything here — adapter, compiler wiring, eight ports, playground, docs, benchmark — lands in [#203](https://github.com/pocket-nexus/pocketjs/pull/203). Three frameworks now compile into the same native tree on the same 2004 handheld, and the newest one writes like React because, at the source level, it is: hooks, JSX, and a compiler that did the reconciler's job before the code left your machine.
 
 Follow [@pocket_js](https://x.com/pocket_js) for what's next. The pocket keeps getting deeper.

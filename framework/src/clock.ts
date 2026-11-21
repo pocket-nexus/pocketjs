@@ -58,6 +58,9 @@ interface Timer {
   cb: () => void;
 }
 let timers: Timer[] = [];
+/** No timer is due before this frame. Cancelling leaves it early, which only
+ *  costs one extra scan. */
+let nextDue = Infinity;
 
 /** Snap an arbitrary rate to the nearest exact divisor of TICKS_PER_SECOND. */
 export function normalizeHz(raw: number): number {
@@ -104,6 +107,7 @@ export function after(seconds: number, cb: () => void): () => void {
     cb,
   };
   timers.push(t);
+  if (t.at < nextDue) nextDue = t.at;
   return () => {
     const i = timers.indexOf(t);
     if (i >= 0) timers.splice(i, 1);
@@ -116,6 +120,7 @@ export function resetClock(): void {
   hz = typeof raw === "number" ? normalizeHz(raw) : TICKS_PER_SECOND;
   frame = -1;
   timers = [];
+  nextDue = Infinity;
   timerSeq = 0;
 }
 
@@ -126,9 +131,10 @@ export function resetClock(): void {
  */
 export function __advanceClock(): void {
   frame = frame < 0 ? 0 : frame + 1;
-  if (timers.length === 0) return;
+  if (timers.length === 0 || frame < nextDue) return;
   const due = timers.filter((t) => t.at <= frame).sort((a, b) => a.at - b.at || a.seq - b.seq);
-  if (due.length === 0) return;
-  timers = timers.filter((t) => t.at > frame);
+  if (due.length > 0) timers = timers.filter((t) => t.at > frame);
+  nextDue = Infinity;
+  for (const t of timers) if (t.at < nextDue) nextDue = t.at;
   for (const t of due) t.cb();
 }

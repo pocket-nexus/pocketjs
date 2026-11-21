@@ -1,0 +1,49 @@
+#ifndef POCKET_GUEST_QUICKJS_H
+#define POCKET_GUEST_QUICKJS_H
+#include "pocket_runtime.h"
+#include "quickjs.h"
+#ifdef __cplusplus
+extern "C" {
+#endif
+typedef struct pocket_guest_quickjs pocket_guest_quickjs;
+typedef enum { POCKET_QJS_CANONICAL, POCKET_QJS_IDF } pocket_qjs_profile;
+/* The owned form creates a realm during initialize. The attached form leaves
+ * the caller's context/runtime alive; destroy it only after guest shutdown.
+ * Shutdown removes this guest's ui/__pak properties and invalidates callbacks.
+ * Initialize requires POCKET_BINDING_GENERATION before creating engine state
+ * or changing the attached realm. Namespace/coercion profiles do not change it.
+ * Canonical/IDF guests mount globalThis.__pak over the environment's package
+ * bytes without a copy. That storage stays valid through guest shutdown, which
+ * detaches the buffer so retained views read nothing afterwards. QuickJS-NG
+ * marks the buffer immutable, rejecting JS writes and transfer(); without that
+ * API a JS write lands in the package bytes and transfer() aliases them past
+ * shutdown. */
+pocket_guest_quickjs *pocket_guest_quickjs_create(pocket_qjs_profile profile);
+pocket_guest_quickjs *pocket_guest_quickjs_attach(JSContext *context, pocket_qjs_profile profile);
+const pocket_guest_v1 *pocket_guest_quickjs_vtable(void);
+const char *pocket_guest_quickjs_error(const pocket_guest_quickjs *guest);
+JSContext *pocket_guest_quickjs_context(pocket_guest_quickjs *guest);
+/* The engine ABI of this guest's QuickJS build: 32 borrowed bytes from
+ * contracts/generated/pocket_quickjs_abi.h, or NULL. A package's bytecode
+ * section is evaluated when its digest is this one; otherwise
+ * evaluate_bytecode answers UNSUPPORTED and the runtime evaluates source.
+ * Set before the runtime boots. */
+void pocket_guest_quickjs_set_engine_abi(pocket_guest_quickjs *guest, const uint8_t *digest);
+/* Optional per-instance profiling. Hooks observe boundaries only; they must
+ * not reenter or destroy the guest. Set before initialize on its owning thread. */
+typedef enum { POCKET_QJS_PHASE_IDLE, POCKET_QJS_PHASE_EVAL, POCKET_QJS_PHASE_FRAME, POCKET_QJS_PHASE_JOBS } pocket_qjs_phase;
+typedef void (*pocket_qjs_phase_hook)(void *context, pocket_qjs_phase phase);
+int pocket_guest_quickjs_set_phase_hook(pocket_guest_quickjs *guest, pocket_qjs_phase_hook hook, void *context);
+/* Optional per-instance console sink. Message bytes are UTF-8 borrowed only
+ * through the callback. Hooks run on the guest's owning thread and must not
+ * reenter or destroy it. Without a hook, console output retains its stderr
+ * behavior. An existing global console is preserved and does not use this
+ * hook. Set before initialize. */
+typedef enum { POCKET_QJS_DEBUG = 0, POCKET_QJS_LOG = 1, POCKET_QJS_INFO = 2, POCKET_QJS_WARN = 3, POCKET_QJS_ERROR = 4 } pocket_qjs_log_level;
+typedef void (*pocket_qjs_log_hook)(void *context, pocket_qjs_log_level level, const uint8_t *message, size_t length);
+int pocket_guest_quickjs_set_log_hook(pocket_guest_quickjs *guest, pocket_qjs_log_hook hook, void *context);
+void pocket_guest_quickjs_destroy(pocket_guest_quickjs *guest);
+#ifdef __cplusplus
+}
+#endif
+#endif

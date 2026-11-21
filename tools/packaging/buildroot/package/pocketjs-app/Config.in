@@ -1,0 +1,11 @@
+config BR2_PACKAGE_POCKETJS_APP
+	bool "Install a compiled PocketJS application"
+	depends on BR2_PACKAGE_POCKETJS
+	help
+	  Install the product CI's compiled bundle (.pkb) without invoking Bun
+	  or an application compiler. Runtime admits its plan on boot.
+
+if BR2_PACKAGE_POCKETJS_APP
+config BR2_PACKAGE_POCKETJS_APP_FILE
+	string "Compiled bundle (.pkb) file"
+endif

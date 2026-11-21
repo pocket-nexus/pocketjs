@@ -1,86 +1,40 @@
 # Reactivity
 
-PocketJS uses the selected framework's reactive system directly. Solid apps
-import signals and lifecycle from `solid-js`; Vue Vapor apps import refs,
-computed values, watchers, and lifecycle from `vue`; Octane apps import hooks
-from `octane`. There is no PocketJS
-reactivity wrapper.
+**Ordinary guest applications use their framework's reactive primitives.**
+Solid state, memos and effects come from `solid-js`; Vue refs, computeds and
+watchers come from `vue`; Octane hooks come from `octane`. PocketJS lifecycle
+and host APIs come from `@pocketjs/framework/*`.
 
-:::framework-code
-```ts solid
-import {
-  createSignal,
-  createEffect,
-  createMemo,
-  onMount,
-  onCleanup,
-  batch,
-  untrack,
-} from "solid-js";
-```
+The examples on this page describe that ordinary application path. Compiled
+TypeScript models use the framework-owned reaction schedule and the
+[Model AOT import rules](/docs/typescript-support/#reactive-state-and-regions).
+The [support reference](/docs/typescript-support/) defines their source subset
+and the differences from AOT view expressions.
 
-```ts vue-vapor
-import {
-  ref,
-  computed,
-  watchEffect,
-  onMounted,
-  onScopeDispose,
-} from "vue";
-```
+If you know the framework, you know the API. This page puts the three side by
+side so you can read one column and skip the rest, then states what the runtime
+adds. Which framework a build uses is set once, as `app.framework` in
+`pocket.host.config.ts` — see
+[Frameworks](/docs/frameworks/).
 
-```ts octane
-import {
-  useState,
-  useEffect,
-  useMemo,
-  useRef,
-  useLayoutEffect,
-  useEffectEvent,
-} from "octane";
-```
-:::
+## The primitives, side by side
 
-If you already know the framework, you know the API. Solid and Vue Vapor are
-fine-grained
-reactive primitives, not React hooks: they aren't dependency-array driven, and a
-state write updates the native nodes that read it. Octane *is* React's hooks
-model, compiled: dependency arrays may be omitted (the compiler infers them
-from captures), and hooks are tracked by call site — a hook inside an `if`
-block is fine, hooks in loops are not.
+| | Solid | Vue Vapor | Octane |
+| --- | --- | --- | --- |
+| One reactive value | `createSignal` | `ref` / `shallowRef` | `useState` |
+| Derived, cached | `createMemo` | `computed` | `useMemo` |
+| Side effect on change | `createEffect` | `watchEffect` | `useEffect` |
+| After first render | `onMount` | `onMounted` | `useEffect` with no deps |
+| On teardown | `onCleanup` | `onUnmounted` | `useEffect` cleanup return |
+| Escape tracking | `untrack` | — | dependency arrays |
 
-## The no-VDOM model
+Solid and Vue Vapor are fine-grained reactive systems: a write updates the
+native nodes that read the value, and nothing re-runs the component. Octane is
+React's hooks model compiled — dependency arrays may be omitted because the
+compiler infers them from captures, and hooks are tracked by call site, so a
+hook inside an `if` is allowed and hooks in a loop are not.
 
-React re-renders a component, builds a new virtual tree, and diffs it against the
-old one. PocketJS's supported frameworks avoid that virtual-tree path. Solid and
-Vue Vapor never re-run a component after
-setup: setup wires reactive reads to native mutations, and after that the work is
-limited to the effects or bindings whose dependencies changed. Octane keeps
-React's re-render model but compiles it: a state write re-executes the
-component function, and the compiler's static host plans mean only the dynamic
-slots that actually changed are applied to the native tree — there is no
-virtual tree and no reconciliation walk. PocketJS's frame loop flushes Octane's
-microtask-scheduled re-renders synchronously inside each frame, so a state
-write commits in the same frame.
-
-That property is what makes PocketJS viable on a 2005 handheld:
-
-- **No diffing.** There is no reconciliation walk per frame. A signal update
-  touches only the nodes that actually depend on it.
-- **One FFI crossing per frame.** The renderer keeps a JS *mirror tree* of the
-  native node tree, so Solid's reconciler reads (parent, children, siblings)
-  never cross into Rust. Only *mutations* — `setText`, `setStyle`, `setProp`,
-  `insertBefore` — cross, and they're flushed as one batch per frame. See
-  [Architecture](/docs/architecture/) and the [native contract](/docs/native-contract/).
-- **Effects only fire on interaction.** In steady state (no signal changed) the
-  JS side does essentially nothing; the Rust core still ticks animations and
-  layout at a fixed 1/60 s. Idle screens cost no JS work.
-
-## Signal / ref / state
-
-A Solid signal is a getter/setter pair. A Vue ref is an object with a `.value`.
-An Octane `useState` returns a `[value, setValue]` pair. Each represents one
-reactive value.
+## State
 
 :::framework-code
 ```tsx solid
@@ -103,10 +57,10 @@ function Counter() {
 
 ```tsx vue-vapor
 import { View, Text } from "@pocketjs/framework/components";
-import { ref } from "vue";
+import { shallowRef } from "vue";
 
 function Counter() {
-  const count = ref(0);
+  const count = shallowRef(0);
   return () => (
     <View
       class="px-4 py-2 rounded-xl bg-blue-600 focus:bg-blue-500"
@@ -140,271 +94,144 @@ function Counter() {
 ```
 :::
 
-### Signals in text
+A reactive value inside `<Text>` is not a special construct. The static prefix
+and the dynamic expression **fold into one measured inline run**, and a change
+calls the native `replaceText` op on the dynamic segment alone — the prefix
+re-measures when the prefix itself changes. Mix as many segments as you want
+inside one `<Text>`; they all fold into that one run. See
+[Components](/docs/components/) for the text model.
 
-`Count: {count()}` / `Count: {count.value}` is not a special construct — it's a
-`<Text>` element with a static string and a dynamic expression. The renderer lays
-both out as a **single concatenated inline run** (one measure, not two flex
-items), and when the reactive value changes the renderer calls `replaceText` on
-just the dynamic segment. The static prefix never re-measures unless it too
-changes.
+## Derived values
 
-You can mix as many static and dynamic segments as you like inside one `<Text>`;
-they all fold into one inline run. See [Components](/docs/components/) for the
-text model.
-
-## Effect / watcher
-
-An effect/watcher runs immediately, tracks every reactive value it reads, and
-re-runs whenever any of them changes. Use it for side effects — driving an
-animation, logging, imperative work — not for producing values you render.
+A derived value re-computes when a source it read changes, and caches until
+then. Reach for one when a computation is shared by several readers or costs
+more than a property access; a plain function call in the render is cheaper for
+the rest.
 
 :::framework-code
-```tsx solid
-import { createSignal, createEffect } from "solid-js";
+```ts solid
+import { createMemo } from "solid-js";
 
-const [level, setLevel] = createSignal(0);
+const total = createMemo(() => items().length);
+```
+
+```ts vue-vapor
+import { computed } from "vue";
+
+const total = computed(() => items.value.length);
+```
+
+```ts octane
+import { useMemo } from "octane";
+
+const total = useMemo(() => items.length);
+```
+:::
+
+## Effects
+
+An effect runs once on creation, tracks every reactive value it read, and runs
+again when one of them changes. Use it for work that leaves the tree — driving
+an animation, writing a file, logging. A value you render belongs in a derived
+value instead.
+
+:::framework-code
+```ts solid
+import { createEffect } from "solid-js";
 
 createEffect(() => {
-  // Re-runs every time level() changes.
-  if (level() >= 100) console.log("charged");
+  console.log("selection is", selected());
 });
 ```
 
-```tsx vue-vapor
-import { ref, watchEffect } from "vue";
-
-const level = ref(0);
+```ts vue-vapor
+import { watchEffect } from "vue";
 
 watchEffect(() => {
-  // Re-runs every time level.value changes.
-  if (level.value >= 100) console.log("charged");
+  console.log("selection is", selected.value);
 });
 ```
 
-```tsx octane
-import { useEffect, useState } from "octane";
-
-// Inside a component — hooks only run in components:
-const [level, setLevel] = useState(0);
+```ts octane
+import { useEffect } from "octane";
 
 useEffect(() => {
-  // Re-runs every time level changes — the dep array is omitted and
-  // the compiler infers it from the captured `level`.
-  if (level >= 100) console.log("charged");
+  console.log("selection is", selected);
 });
 ```
 :::
 
-Effects are the right place to bridge reactive state to imperative APIs like
-[`animate()`](/docs/animation/): read a signal, and when it changes, kick a
-native tween.
-
-## Memo / computed
-
-A memo/computed value is a derived, cached reactive value. It re-computes only
-when one of its inputs changes.
-
-:::framework-code
-```tsx solid
-import { createSignal, createMemo } from "solid-js";
-
-const [items, setItems] = createSignal<string[]>([]);
-const total = createMemo(() => items().length);
-
-// total() is cached; it recomputes only when items() changes.
-```
-
-```tsx vue-vapor
-import { computed, ref } from "vue";
-
-const items = ref<string[]>([]);
-const total = computed(() => items.value.length);
-
-// total.value is cached; it recomputes only when items.value changes.
-```
-
-```tsx octane
-import { useMemo, useState } from "octane";
-
-// Inside a component:
-const [items, setItems] = useState<string[]>([]);
-const total = useMemo(() => items.length);
-
-// total is cached; it recomputes only when items changes (inferred deps).
-```
-:::
+Host result deliveries enter at frame boundaries. Reactive effects use the
+selected framework's scheduler; compiled model effects use the separate
+[model schedule](/docs/microts-model/#reactions-and-cached-values).
+[Native contract](/docs/native-contract/) describes guest frame order.
 
 ## Mount and cleanup
 
-`onMount` / `onMounted` runs a callback once, after the component's initial
-render — the place to do one-time imperative setup. Octane uses
-`useLayoutEffect(fn, [])`, which runs once before the first paint. It's exactly
-where the hero
-demo starts its underline sweep:
-
 :::framework-code
-```tsx solid
-import { View, type NodeMirror } from "@pocketjs/framework/components";
-import { animate } from "@pocketjs/framework/animation";
-import { onMount } from "solid-js";
+```ts solid
+import { onMount, onCleanup } from "@pocketjs/framework/solid/lifecycle";
 
-function Underline() {
-  let underline: NodeMirror | undefined;
-  onMount(() => {
-    // Runs once; the tween ticks natively — zero steady-state JS.
-    if (underline) animate(underline, "width", 210, { dur: 700, easing: "out", delay: 150 });
-  });
-  return <View ref={underline} class="h-1 w-0 rounded-full bg-blue-500" />;
-}
+onMount(() => list.scrollToIndex(0));
+onCleanup(() => handle.dispose());
 ```
 
-```tsx vue-vapor
-import { View, type NodeMirror } from "@pocketjs/framework/components";
-import { animate } from "@pocketjs/framework/animation";
-import { onMounted } from "vue";
+```ts vue-vapor
+import { onMounted, onUnmounted } from "@pocketjs/framework/vue-vapor/lifecycle";
 
-function Underline() {
-  let underline: NodeMirror | undefined;
-  onMounted(() => {
-    // Runs once; the tween ticks natively - zero steady-state JS.
-    if (underline) animate(underline, "width", 210, { dur: 700, easing: "out", delay: 150 });
-  });
-  return () => (
-    <View
-      nodeRef={(node) => {
-        underline = node ?? undefined;
-      }}
-      class="h-1 w-0 rounded-full bg-blue-500"
-    />
-  );
-}
+onMounted(() => list.scrollToIndex(0));
+onUnmounted(() => handle.dispose());
 ```
 
-```tsx octane
-import { View, type NodeMirror } from "@pocketjs/framework/components";
-import { animate } from "@pocketjs/framework/animation";
-import { useLayoutEffect, useRef } from "octane";
-
-function Underline() {
-  const underline = useRef<NodeMirror | null>(null);
-  useLayoutEffect(() => {
-    // Runs once (empty deps); the tween ticks natively - zero steady-state JS.
-    if (underline.current) {
-      animate(underline.current, "width", 210, { dur: 700, easing: "out", delay: 150 });
-    }
-  }, []);
-  return (
-    <View
-      nodeRef={(node: NodeMirror | null) => {
-        underline.current = node;
-      }}
-      class="h-1 w-0 rounded-full bg-blue-500"
-    />
-  );
-}
-```
-:::
-
-Cleanup callbacks run when the enclosing scope is disposed — a component
-unmounting, or an effect/watcher re-running. Use them to release anything you
-acquired imperatively.
-
-:::framework-code
-```tsx solid
-import { createEffect, onCleanup } from "solid-js";
-import { animate, cancelAnim } from "@pocketjs/framework/animation";
-
-createEffect(() => {
-  const anim = animate(node, "opacity", 1, { dur: 300 });
-  onCleanup(() => cancelAnim(anim)); // runs before the next re-run / on dispose
-});
-```
-
-```tsx vue-vapor
-import { onScopeDispose, watchEffect } from "vue";
-import { animate, cancelAnim } from "@pocketjs/framework/animation";
-
-watchEffect((onCleanup) => {
-  const anim = animate(node, "opacity", 1, { dur: 300 });
-  onCleanup(() => cancelAnim(anim)); // runs before the next re-run
-});
-
-onScopeDispose(() => {
-  // runs when the component scope is disposed
-});
-```
-
-```tsx octane
+```ts octane
 import { useEffect } from "octane";
-import { animate, cancelAnim } from "@pocketjs/framework/animation";
 
 useEffect(() => {
-  const anim = animate(node, "opacity", 1, { dur: 300 });
-  // The returned cleanup runs before the next re-run / on unmount.
-  return () => cancelAnim(anim);
+  list.scrollToIndex(0);
+  return () => handle.dispose();
 });
 ```
 :::
 
-## batch and untrack
+PocketJS APIs that register something for the life of a component take the
+teardown hook for you: [`createGesture`](/docs/api/#creategesture-and-attachgesture)
+binds `onCleanup` under Solid and `onScopeDispose` under Vue Vapor, so a
+recognizer unregisters with the component that created it.
 
-`batch` groups multiple signal writes so dependent effects run **once** at the end
-instead of after each write — useful when you update several related signals
-together.
+## What the runtime adds
 
-```tsx
-import { batch } from "solid-js";
+**A state write in a handler commits in the frame that handled it.** The input
+bridge batches handlers and flushes updates before node reclamation. Octane queues re-renders as
+microtasks, and the frame handler in `framework/src/index-octane.ts` drains that
+queue inside `flushUniversalSync()` before the sweep that ships the frame's
+mutations to the core.
 
-batch(() => {
-  setX(10);
-  setY(20); // effects that read x() and y() run once, after the batch
-});
-```
+**The banned-import lint fires on Solid builds only.** The Babel plugin in
+`framework/compiler/jsx-plugin.ts` rejects `createResource`, `useTransition`,
+and `startTransition` when they come from `solid-js`, and its import visitor
+returns without checking when the build framework is not Solid. Those three are
+Solid's async and concurrent features and want a task queue the PSP's QuickJS
+host does not have. Use a signal plus an effect for state over time, and
+[`animate()`](/docs/animation/) for motion.
 
-`untrack` reads a signal **without** subscribing to it — the current effect or
-memo won't re-run when that signal later changes.
+**QuickJS has no event loop, so the runtime installs the globals framework
+schedulers assume.** `framework/src/scheduler-polyfill.ts` — the prelude for
+both the Vue Vapor and the Octane entries — defines `queueMicrotask`,
+`setTimeout`, and `clearTimeout` where the host lacks them. `setTimeout` there
+lowers onto the promise job queue and drops its delay, so it is not a timer.
+Time a delay with `after()` from `@pocketjs/framework/clock`, which fires off
+the virtual clock the frame handler advances.
 
-```tsx
-import { untrack } from "solid-js";
+**Continuous motion does not come from per-frame state.** A value rewritten
+from JS every frame costs a commit every frame on all three frameworks.
+[`animate()`](/docs/animation/), baked keyframe timelines, `<Sprite>` atlases
+and `setTextContent` run the same motion from the Rust core with no per-frame
+JS.
 
-createEffect(() => {
-  const live = trigger();           // tracked: re-runs when trigger() changes
-  const snapshot = untrack(config); // read once, not a dependency
-  apply(live, snapshot);
-});
-```
+## Related
 
-## What is banned — and why
-
-The PSP runs JavaScript on **QuickJS** (Bellard's engine, roughly ES2023).
-Critically, that host has **no scheduler**: there is no `setTimeout`, no
-`MessageChannel`, and no `performance`. `queueMicrotask` is polyfilled via
-`Promise.resolve().then(...)`, which is enough for Solid's synchronous batching —
-but nothing that needs real timers or a task queue can work.
-
-That rules out Solid's async and concurrent features. These are **compile errors**
-in PocketJS — the build's Babel plugin lints their imports and fails the
-[build](/docs/build-pipeline/) rather than shipping something that would break at
-runtime on hardware:
-
-| Banned import | Why |
-|---|---|
-| `createResource` | Needs async scheduling; QuickJS has no task queue / timers. |
-| `useTransition` | Time-slicing needs a scheduler (`setTimeout` / `MessageChannel`). |
-| `startTransition` | Same — concurrent scheduling is unavailable on PSP. |
-
-### What to use instead
-
-- **For state that changes over time:** signals + `createEffect`. There's no
-  "pending" transition state to model — updates are synchronous and cheap.
-- **For motion:** don't reach for transitions to smooth a change. Declare motion
-  with [`animate()`](/docs/animation/) or a Tailwind `transition-*` class. Those
-  tick in Rust at a fixed 1/60 s, so animation is a pure function of frame index
-  (which is what makes byte-exact goldens possible) and costs the JS side nothing
-  per frame.
-- **For "async" data:** load it at build time into the app bundle / pak, or
-  drive it from host input. There is no runtime fetch on the PSP.
-
-Everything you need for interactive UI — derive with memos, react with effects,
-animate natively — is covered by the seven primitives above.
+- [Frameworks](/docs/frameworks/) — choosing one, the config, and which
+  subpaths each resolves.
+- [Components](/docs/components/) — the host primitives and the text model.
+- [Animation](/docs/animation/) — motion that costs no per-frame JS.
+- [API reference](/docs/api/) — signatures for every PocketJS subpath.

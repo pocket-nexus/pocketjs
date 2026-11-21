@@ -72,7 +72,7 @@ The result is a steady-state frame that crosses the FFI once, and a draw budget 
 
 ## 4. Tailwind as a compiler, not a stylesheet
 
-There is no CSS engine at runtime, because there is no CSS at runtime. During the build, PocketJS collects every class string in your app straight from the AST, validates each literal all-or-nothing against a pinned [Tailwind subset](/docs/tailwind/) (unsupported tokens are loud compile errors, not silent no-ops), and compiles the survivors into a binary style table shipped next to your bundle. At runtime, styling a node is `setStyle(node, styleId)` — an integer.
+There is no CSS engine at runtime, because there is no CSS at runtime. During the build, PocketJS collects every class string in your app straight from the AST, validates each literal all-or-nothing against a pinned [Tailwind subset](/docs/styling/) (unsupported tokens are loud compile errors, not silent no-ops), and compiles the survivors into a binary style table shipped next to your bundle. At runtime, styling a node is `setStyle(node, styleId)` — an integer.
 
 Interaction states come along for free: `focus:` and `active:` variants are part of the compiled style record and are switched *inside the native core*. When focus moves in a PocketJS app, zero JavaScript styling code runs.
 
@@ -109,6 +109,6 @@ PocketJS v1 has a pinned scope and loud errors at its edges: no `hover:` (there 
 - **[Playground](/playground/)** — the full toolchain and core, in your browser.
 - **[Getting started](/docs/getting-started/)** — build and run your first app.
 - **[Architecture](/docs/architecture/)** — the deep dive this post summarizes.
-- **[GitHub](https://github.com/pocket-stack/pocketjs)** — MIT, contributions welcome.
+- **[GitHub](https://github.com/pocket-nexus/pocketjs)** — MIT, contributions welcome.
 
 Follow [@pocket_js](https://x.com/pocket_js) for what's next — there is more in the pocket than a framework.

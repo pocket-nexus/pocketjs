@@ -13,20 +13,35 @@
 // A tape asserted against stored hashes is a SESSION GOLDEN: a real
 // interaction sequence replayed byte-for-byte against every future build
 // (same determinism contract as tests/golden.ts — fixed dt, no RNG/wall
-// clock). `--assert` exits 1 and names the first divergent frame.
+// clock). `--assert` validates the golden schema before booting and exits 1
+// on the first divergent frame; a missing, malformed, sparse, or partial
+// golden exits 1 before booting as well — a broken assert never degrades
+// into a partial or disabled check. A present but valueless `--assert`
+// (no following path, an empty string, `--assert=`, or a flag where the
+// path should be) is a command-line error and exits 1 before the tape is
+// even read; omitting `--assert` entirely stays a plain, unchecked replay.
+// `--assert` may appear at most once: every occurrence is scanned, so a
+// valueless or second occurrence later in a composed command line is
+// rejected too — the first valid value never wins by default.
 
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join, resolve } from "node:path";
-import { createWasmUi } from "../hosts/web/wasm-ops.js";
+import { createWasmUi } from "../platforms/web/wasm-ops.js";
 import {
   expandTape,
   expandTapeAnalog,
+  expandTapeRightAnalog,
   expandTapeTouch,
+  expandTapeTouchSurfaces,
+  expandTapeAxes,
+  expandTapeMotion,
   type Tape,
 } from "../framework/src/devtools.ts";
+import { EMPTY_AXIS_DELTAS, type AxisDelta } from "../framework/src/relative-axis.ts";
+import type { MotionState } from "../framework/src/motion.ts";
 import { __packTouch } from "../framework/src/touch.ts";
-import { encodePNG } from "../tests/png.ts";
+import { encodePNG } from "./png.ts";
 import { SCREEN_H, SCREEN_W } from "../contracts/spec/spec.ts";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -35,7 +50,7 @@ const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 // Each invocation rebuilds serially into this dedicated runtime directory.
 const RUNTIME_DIST = join(ROOT, "dist/tape-runtime/");
 const CAPTURE_DIST = join(ROOT, "dist/tape");
-const WASM_PATH = join(ROOT, "hosts/web/pocketjs.wasm");
+const WASM_PATH = join(ROOT, "platforms/web/pocketjs.wasm");
 
 function ensureBuilt(path: string, cmd: string[]): void {
   if (existsSync(path)) return;
@@ -65,6 +80,96 @@ function argValue(flag: string): string | undefined {
   return i >= 0 ? process.argv[i + 1] : undefined;
 }
 
+// ---------------------------------------------------------------------------
+// --assert option parsing (absent vs. present-but-valueless are distinct,
+// and the flag may appear at most once)
+// ---------------------------------------------------------------------------
+
+export type AssertArg =
+  | { readonly kind: "absent" }
+  | { readonly kind: "value"; readonly value: string }
+  | { readonly kind: "missing"; readonly reason: string }
+  | { readonly kind: "duplicate"; readonly reason: string };
+
+/**
+ * Resolve every `--assert` occurrence in argv, accepting both
+ * `--assert PATH` and `--assert=PATH`.
+ *
+ * - "absent" — the flag is not there: a plain replay, the historical
+ *   no-golden behaviour.
+ * - "value" — exactly one occurrence carrying a non-empty path that is not
+ *   itself a flag.
+ * - "missing" — an occurrence is present but its value is absent: it is the
+ *   last token, it is an empty string (`--assert ""`, the classic empty-env-
+ *   var expansion), it is `--assert=`, or the next token starts with `--`.
+ *   That is a command-line mistake, never a disabled assertion.
+ * - "duplicate" — two or more occurrences carry values: which golden wins
+ *   must not be an accident of argv order, so the command is rejected.
+ *
+ * The whole argv is scanned. A malformed occurrence short-circuits immediately
+ * (it is the first such occurrence in argv order, and nothing later can
+ * outrank it); valid occurrences are collected, so a valueless or second
+ * occurrence after a valid one is rejected instead of being ignored.
+ * Callers exit non-zero before reading the tape, building, or booting.
+ *
+ * A lone "-" or any other value is treated as a literal path; a path that
+ * starts with "--" can be passed with the attached form `--assert=--path`.
+ */
+export function parseAssertArg(argv: readonly string[]): AssertArg {
+  const values: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    const token = argv[i];
+    if (token === "--assert") {
+      const next = argv[i + 1];
+      if (next === undefined) {
+        return {
+          kind: "missing",
+          reason:
+            "--assert requires a golden hashes file path, but no value follows it " +
+            "(--assert is the last argument)",
+        };
+      }
+      if (next === "") {
+        return {
+          kind: "missing",
+          reason:
+            "--assert requires a golden hashes file path, but got an empty string " +
+            "(did an empty variable expand into --assert \"\"?)",
+        };
+      }
+      if (next.startsWith("--")) {
+        return {
+          kind: "missing",
+          reason:
+            `--assert requires a golden hashes file path, but the next argument is the flag "${next}" ` +
+            "(use --assert=<path> if the path itself starts with --)",
+        };
+      }
+      values.push(next);
+      i++; // the value token is consumed, not rescanned as an option
+      continue;
+    }
+    if (token.startsWith("--assert=")) {
+      const value = token.slice("--assert=".length);
+      if (value === "") {
+        return {
+          kind: "missing",
+          reason: "--assert requires a golden hashes file path, but got an empty value (--assert=)",
+        };
+      }
+      values.push(value);
+    }
+  }
+  if (values.length === 0) return { kind: "absent" };
+  if (values.length === 1) return { kind: "value", value: values[0] };
+  return {
+    kind: "duplicate",
+    reason:
+      `--assert may be given at most once, but it appeared ${values.length} times with paths ` +
+      values.map((v) => JSON.stringify(v)).join(", "),
+  };
+}
+
 /** FNV-1a 32-bit over the RGBA framebuffer — cheap, deterministic, hex. */
 function fnv1a(bytes: Uint8Array): string {
   let h = 0x811c9dc5;
@@ -76,7 +181,16 @@ function fnv1a(bytes: Uint8Array): string {
 }
 
 interface BootResult {
-  frame: (buttons: number, analog?: number, touches?: readonly number[]) => void;
+  frame: (
+    buttons: number,
+    analog?: number,
+    touches?: readonly number[],
+    hits?: readonly number[],
+    touchSurfaces?: readonly number[],
+    rightAnalog?: number,
+    axisDeltas?: readonly AxisDelta[],
+    motion?: MotionState | null,
+  ) => void;
   tick: () => void;
   render: () => Uint8Array;
   outbox: string[];
@@ -137,36 +251,153 @@ function loadTape(path: string): Tape {
 }
 
 // ---------------------------------------------------------------------------
+// --assert golden schema (fail closed)
+// ---------------------------------------------------------------------------
+
+/** fnv1a frame hashes are 8 lowercase hex chars. */
+const FRAME_HASH_RE = /^[0-9a-f]{8}$/;
+
+/**
+ * Validate an `--assert` golden document and return its dense hash list.
+ *
+ * A golden written by `replay --hashes` is `{app, frames, hashes}`. Every
+ * structural defect throws an Error whose message names `path`; the CLI maps
+ * that to exit 1 before booting. Checks: plain-object root, `app` equal to
+ * the replayed app, integer `frames` equal to the array length, `hashes` a
+ * real (Array.isArray) dense array whose length equals the frames the tape
+ * expands to, every entry an 8-char lowercase hex string.
+ */
+export function parseAssertHashes(
+  doc: unknown,
+  path: string,
+  app: string,
+  frameCount: number,
+): string[] {
+  if (typeof doc !== "object" || doc === null || Array.isArray(doc)) {
+    const kind = doc === null ? "null" : Array.isArray(doc) ? "array" : typeof doc;
+    throw new Error(`${path}: assert root must be an object {app, frames, hashes} (got ${kind})`);
+  }
+  // A real plain JSON object: JSON.parse only produces Object.prototype roots.
+  // A class instance (Date, Map, …) carrying lookalike fields is not a golden.
+  const proto = Object.getPrototypeOf(doc);
+  if (proto !== Object.prototype && proto !== null) {
+    throw new Error(
+      `${path}: assert root must be an object {app, frames, hashes} ` +
+        "(got an object with a non-standard prototype)",
+    );
+  }
+  const root = doc as Record<string, unknown>;
+  if (typeof root.app !== "string") {
+    throw new Error(`${path}: assert golden must set string field "app"`);
+  }
+  if (root.app !== app) {
+    throw new Error(`${path}: golden app "${root.app}" does not match replayed app "${app}"`);
+  }
+  if (typeof root.frames !== "number" || !Number.isSafeInteger(root.frames) || root.frames < 0) {
+    throw new Error(`${path}: assert golden must set non-negative integer field "frames"`);
+  }
+  if (!Object.hasOwn(root, "hashes")) {
+    throw new Error(`${path}: assert golden is missing field "hashes"`);
+  }
+  const rawHashes = root.hashes;
+  if (!Array.isArray(rawHashes)) {
+    const kind = rawHashes === null ? "null" : typeof rawHashes;
+    throw new Error(`${path}: "hashes" must be an array of 8-char hex frame hashes (got ${kind})`);
+  }
+  if (rawHashes.length !== frameCount) {
+    throw new Error(
+      `${path}: hashes length ${rawHashes.length} does not match the ${frameCount} frames this tape replays`,
+    );
+  }
+  if (root.frames !== rawHashes.length) {
+    throw new Error(`${path}: field "frames" is ${root.frames} but hashes.length is ${rawHashes.length}`);
+  }
+  const hashes: string[] = [];
+  for (let i = 0; i < rawHashes.length; i++) {
+    if (!Object.hasOwn(rawHashes, i)) {
+      throw new Error(`${path}: "hashes" is sparse: no hash at index ${i}`);
+    }
+    const entry = rawHashes[i];
+    if (typeof entry !== "string" || !FRAME_HASH_RE.test(entry)) {
+      throw new Error(
+        `${path}: hashes[${i}] is not an 8-char lowercase hex string (got ${JSON.stringify(entry)})`,
+      );
+    }
+    hashes.push(entry);
+  }
+  return hashes;
+}
+
+/** Read and validate the `--assert` golden; any defect exits 1, never throws. */
+function loadAssertHashes(path: string, app: string, frameCount: number): string[] {
+  const fail = (message: string): never => {
+    console.error(`tape: ${message}`);
+    process.exit(1);
+  };
+  let raw: string;
+  try {
+    raw = readFileSync(path, "utf8");
+  } catch (err) {
+    return fail(`cannot read --assert file ${path}: ${(err as Error).message}`);
+  }
+  let doc: unknown;
+  try {
+    doc = JSON.parse(raw);
+  } catch (err) {
+    return fail(`${path}: invalid JSON: ${(err as Error).message}`);
+  }
+  try {
+    return parseAssertHashes(doc, path, app, frameCount);
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // commands
 // ---------------------------------------------------------------------------
 
-const [, , cmd, app, tapePathArg] = process.argv;
-
-async function cmdReplay(): Promise<void> {
+async function cmdReplay(app: string, tapePathArg: string): Promise<void> {
+  // Parse --assert before touching the tape, the build, or the replay: a
+  // present-but-valueless flag (typo, empty env expansion) or a repeated flag
+  // is a command-line error, and the assertion request must never degrade
+  // into no assertions or a first-wins guess.
+  const assertArg = parseAssertArg(process.argv);
+  if (assertArg.kind === "missing" || assertArg.kind === "duplicate") {
+    console.error(`tape: ${assertArg.reason}`);
+    console.error("usage: bun tools/tape.ts replay <app> <tape.json> --assert <hashes.json>");
+    process.exit(1);
+  }
+  const assertPath = assertArg.kind === "value" ? assertArg.value : undefined;
   const tape = loadTape(tapePathArg);
   const masks = expandTape(tape);
   const analogs = expandTapeAnalog(tape);
+  const rightAnalogs = expandTapeRightAnalog(tape);
   const touches = expandTapeTouch(tape);
+  const touchSurfaces = expandTapeTouchSurfaces(tape);
+  const axes = expandTapeAxes(tape);
+  const motion = expandTapeMotion(tape);
   const hashesOut = argValue("--hashes");
-  const assertPath = argValue("--assert");
   const pngFrames = new Set(
     (argValue("--png") ?? "").split(",").filter(Boolean).map((s) => Number(s)),
   );
   const outdir = argValue("--outdir") ?? CAPTURE_DIST;
+  // Validate before booting: a malformed golden must fail without spending a
+  // build, and the schema guarantees a dense string[] of the right length.
   const expected: string[] | null = assertPath
-    ? (JSON.parse(readFileSync(assertPath, "utf8")) as { hashes: string[] }).hashes
+    ? loadAssertHashes(assertPath, app, masks.length)
     : null;
 
   const b = await boot(app);
   if (pngFrames.size) mkdirSync(outdir, { recursive: true });
   const hashes: string[] = [];
   for (let f = 0; f < masks.length; f++) {
-    b.frame(masks[f], analogs[f], touches[f]);
+    b.frame(masks[f], analogs[f], touches[f], undefined, touchSurfaces[f], rightAnalogs[f], axes[f] ?? EMPTY_AXIS_DELTAS, motion[f] ?? null);
     b.tick();
     const fb = b.render();
     const h = fnv1a(fb);
     hashes.push(h);
-    if (expected && expected[f] !== undefined && expected[f] !== h) {
+    if (expected && expected[f] !== h) {
       console.error(`tape: FIRST DIVERGENT FRAME ${f} — expected ${expected[f]}, got ${h}`);
       mkdirSync(outdir, { recursive: true });
       writeFileSync(`${outdir}/divergent.${f}.png`, encodePNG(fb.slice(), SCREEN_W, SCREEN_H));
@@ -179,10 +410,7 @@ async function cmdReplay(): Promise<void> {
     }
   }
   if (expected) {
-    if (expected.length !== hashes.length) {
-      console.error(`tape: frame count changed — expected ${expected.length}, replayed ${hashes.length}`);
-      process.exit(1);
-    }
+    // Length equality was validated against masks.length before the loop.
     console.log(`tape: OK — ${hashes.length} frames match ${assertPath}`);
     return;
   }
@@ -194,21 +422,25 @@ async function cmdReplay(): Promise<void> {
   }
 }
 
-async function cmdTree(): Promise<void> {
+async function cmdTree(app: string, tapePathArg: string): Promise<void> {
   const tape = loadTape(tapePathArg);
   const masks = expandTape(tape);
   const analogs = expandTapeAnalog(tape);
+  const rightAnalogs = expandTapeRightAnalog(tape);
   const touches = expandTapeTouch(tape);
+  const touchSurfaces = expandTapeTouchSurfaces(tape);
+  const axes = expandTapeAxes(tape);
+  const motion = expandTapeMotion(tape);
   const at = Number(argValue("--at") ?? masks.length);
   const upTo = Math.min(at, masks.length);
   const b = await boot(app);
   for (let f = 0; f < upTo; f++) {
-    b.frame(masks[f], analogs[f], touches[f]);
+    b.frame(masks[f], analogs[f], touches[f], undefined, touchSurfaces[f], rightAnalogs[f], axes[f] ?? EMPTY_AXIS_DELTAS, motion[f] ?? null);
     b.tick();
   }
   b.outbox.length = 0;
   b.pushCommand(JSON.stringify({ t: "getTree" }));
-  b.frame(0); // poll runs at wrapper start: tree reflects state after frame `at`
+  b.frame(0, undefined, undefined, undefined, undefined, undefined, EMPTY_AXIS_DELTAS, null); // poll runs at wrapper start: tree reflects state after frame `at`
   for (const line of b.outbox) {
     const msg = JSON.parse(line);
     if (msg.t === "tree") {
@@ -220,7 +452,7 @@ async function cmdTree(): Promise<void> {
   process.exit(1);
 }
 
-async function cmdRecord(): Promise<void> {
+async function cmdRecord(app: string): Promise<void> {
   const frames = Number(argValue("--frames") ?? 300);
   const out = argValue("--out") ?? `${app}.tape.json`;
   // e2e-style input script: "frame:mask,frame:mask" — mask holds until the
@@ -271,15 +503,24 @@ async function cmdRecord(): Promise<void> {
   console.log(`tape: wrote ${out} (${frames} frames)`);
 }
 
-if (cmd === "replay" && app && tapePathArg) await cmdReplay();
-else if (cmd === "tree" && app && tapePathArg) await cmdTree();
-else if (cmd === "record" && app) await cmdRecord();
-else {
-  console.log(
-    "usage:\n" +
-      '  bun tools/tape.ts record <app> --frames N [--input "f:mask,..."] [--touch "f:id,x,y;f:-"] --out t.json\n' +
-      "  bun tools/tape.ts replay <app> <tape.json> [--hashes out.json | --assert hashes.json | --png f1,f2 [--outdir d]]\n" +
-      "  bun tools/tape.ts tree   <app> <tape.json> --at N",
-  );
-  process.exit(cmd ? 1 : 0);
+// ---------------------------------------------------------------------------
+// CLI entry (guarded so tests can import the validator without replaying)
+// ---------------------------------------------------------------------------
+
+async function main(): Promise<void> {
+  const [, , cmd, app, tapePathArg] = process.argv;
+  if (cmd === "replay" && app && tapePathArg) await cmdReplay(app, tapePathArg);
+  else if (cmd === "tree" && app && tapePathArg) await cmdTree(app, tapePathArg);
+  else if (cmd === "record" && app) await cmdRecord(app);
+  else {
+    console.log(
+      "usage:\n" +
+        '  bun tools/tape.ts record <app> --frames N [--input "f:mask,..."] [--touch "f:id,x,y;f:-"] --out t.json\n' +
+        "  bun tools/tape.ts replay <app> <tape.json> [--hashes out.json | --assert hashes.json | --png f1,f2 [--outdir d]]\n" +
+        "  bun tools/tape.ts tree   <app> <tape.json> --at N",
+    );
+    process.exit(cmd ? 1 : 0);
+  }
 }
+
+if (import.meta.main) await main();

@@ -76,6 +76,27 @@ describe("contact lifecycle", () => {
     pump(Array.from({ length: 12 }, (_, i) => [i, i, i] as Contact));
     expect(downs).toBe(8);
   });
+
+  test("routes equal contact ids independently on primary and auxiliary surfaces", () => {
+    const log: string[] = [];
+    attachGesture({
+      onDown: (contact) => log.push(`primary:${contact.surface}:${contact.x}`),
+    });
+    attachGesture({
+      surface: "auxiliary",
+      onDown: (contact) => log.push(`auxiliary:${contact.surface}:${contact.x}`),
+    });
+
+    __advanceClock();
+    __setTouches(
+      [__packTouch(1, 10, 20), __packTouch(1, 200, 30)],
+      undefined,
+      [0, 1],
+    );
+    __runGestures();
+
+    expect(log).toEqual(["primary:primary:10", "auxiliary:auxiliary:200"]);
+  });
 });
 
 describe("tap", () => {
@@ -330,5 +351,115 @@ describe("handles", () => {
     h.cancel();
     expect(cancelled).toHaveLength(1);
     expect(cancelled[0].dx).toBe(5);
+  });
+});
+
+describe("pinch", () => {
+  test("diverging fingers on a locked axis pinch, claim both, and cancel sibling owners", () => {
+    const log: string[] = [];
+    const sibling: string[] = [];
+    attachGesture({
+      axis: "y",
+      onPinchStart: (p) => log.push(`start span=${p.span} from=${p.startSpan} d=${p.dspan}`),
+      onPinchMove: (p) => log.push(`move span=${p.span} f=${p.fdspan}`),
+      onPinchEnd: (p) => log.push(`end span=${p.span}`),
+      onTap: () => log.push("tap"),
+    });
+    // Registered later = higher priority, yet the pinch still wins the pair.
+    attachGesture({
+      axis: "y",
+      onPanStart: () => sibling.push("pan"),
+      onCancel: () => sibling.push("cancel"),
+    });
+    pump([[1, 100, 100], [2, 100, 140]]); // pair forms: base span 40
+    pump([[1, 100, 90], [2, 100, 160]]); // span 70, dspan 30 > slop, centroid +5
+    pump([[1, 100, 80], [2, 100, 170]]); // span 90
+    pump([[2, 100, 170]]); // finger 1 lifts: pinch ends
+    pump([]);
+    expect(log).toEqual([
+      "start span=70 from=40 d=30",
+      "move span=90 f=20",
+      "end span=90",
+    ]);
+    expect(sibling).toEqual(["cancel", "cancel"]);
+  });
+
+  test("two fingers travelling together stay a pan, never a pinch", () => {
+    const pinched: string[] = [];
+    const pans: number[] = [];
+    attachGesture({
+      axis: "y",
+      onPinchStart: () => pinched.push("start"),
+    });
+    attachGesture({
+      axis: "y",
+      onPanStart: (c) => pans.push(c.id),
+    });
+    pump([[1, 100, 100], [2, 100, 140]]);
+    pump([[1, 100, 130], [2, 100, 170]]); // span steady, centroid +30
+    expect(pinched).toEqual([]);
+    expect(pans.sort()).toEqual([1, 2]);
+  });
+
+  test("span change within pinchSlop does not start a pinch", () => {
+    const pinched: string[] = [];
+    attachGesture({ axis: "y", onPinchStart: () => pinched.push("start") });
+    pump([[1, 100, 100], [2, 100, 140]]);
+    pump([[1, 100, 97], [2, 100, 145]]); // dspan 8 <= default slop 10
+    expect(pinched).toEqual([]);
+  });
+
+  test("a contact already claimed by a pan never joins a pinch", () => {
+    const pinched: string[] = [];
+    attachGesture({ axis: "y", onPinchStart: () => pinched.push("start") });
+    attachGesture({ axis: "y", onPanMove: () => {} });
+    pump([[1, 100, 100]]);
+    pump([[1, 100, 130]]); // pan claims contact 1
+    pump([[1, 100, 130], [2, 100, 200]]);
+    pump([[1, 100, 120], [2, 100, 240]]); // spans diverge, but 1 is claimed
+    expect(pinched).toEqual([]);
+  });
+
+  test("pinching handle state and dispose mid-pinch fires onPinchEnd", () => {
+    const log: string[] = [];
+    const h = attachGesture({
+      axis: "y",
+      onPinchStart: () => log.push("start"),
+      onPinchEnd: () => log.push("end"),
+    });
+    pump([[1, 100, 100], [2, 100, 140]]);
+    expect(h.pinching).toBe(false);
+    pump([[1, 100, 85], [2, 100, 155]]);
+    expect(h.pinching).toBe(true);
+    h.dispose();
+    expect(h.pinching).toBe(false);
+    expect(log).toEqual(["start", "end"]);
+  });
+
+  test("pushTouchBlock cancels an in-flight pinch", () => {
+    const log: string[] = [];
+    attachGesture({
+      axis: "y",
+      onPinchStart: () => log.push("start"),
+      onPinchEnd: () => log.push("end"),
+      onCancel: () => log.push("cancel"),
+    });
+    pump([[1, 100, 100], [2, 100, 140]]);
+    pump([[1, 100, 85], [2, 100, 155]]);
+    const release = pushTouchBlock();
+    release();
+    expect(log).toEqual(["start", "end", "cancel", "cancel"]);
+  });
+
+  test("euclidean span drives the default axis and survives late pairing", () => {
+    const log: string[] = [];
+    attachGesture({
+      onPinchStart: (p) => log.push(`start ${p.span} c=${p.cx},${p.cy}`),
+    });
+    pump([[1, 100, 100]]);
+    pump([[1, 100, 100]]);
+    pump([[1, 100, 100], [2, 103, 104]]); // pair forms late: base span 5
+    pump([[1, 91, 88], [2, 103, 104]]); // span 20, dspan 15, centroid moved 7.5
+    expect(log).toEqual(["start 20 c=97,96"]);
   });
 });

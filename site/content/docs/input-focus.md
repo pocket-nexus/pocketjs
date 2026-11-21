@@ -3,12 +3,12 @@
 PocketJS's portable interaction baseline is a d-pad and a handful of face
 buttons. A single **focus manager** tracks one focused node, the d-pad moves
 focus between focusable nodes, and **CIRCLE** activates whatever is focused.
-The Vita profile additionally exposes front-panel contacts without changing
-that controller fallback, and apps that want a pointer instead of a focus
-walk can opt in to the [virtual cursor](#virtual-cursor).
+Targets that declare the `input.touch` capability expose front-panel contacts
+without changing that controller fallback, and apps that want a pointer
+instead of a focus walk can opt in to the [virtual cursor](#virtual-cursor).
 
-Everything here runs identically on real PSP hardware, PPSSPP, the browser host, and
-headless Bun. The browser and Bun hosts just remap keys onto the same
+The same code runs on real PSP hardware, PPSSPP, the browser host, and
+headless Bun. The browser and Bun hosts remap keys onto the same
 [`BTN`](#buttons) bitmask the console reads from the hardware controller.
 
 ## Buttons
@@ -20,20 +20,10 @@ currently held. The bit values live in the spec and never change across hosts.
 import { BTN } from "@pocketjs/framework/input";
 ```
 
-| Member | Bit | Notes |
-| --- | --- | --- |
-| `BTN.SELECT` | `0x0001` | |
-| `BTN.START` | `0x0008` | |
-| `BTN.UP` | `0x0010` | d-pad |
-| `BTN.RIGHT` | `0x0020` | d-pad |
-| `BTN.DOWN` | `0x0040` | d-pad |
-| `BTN.LEFT` | `0x0080` | d-pad |
-| `BTN.LTRIGGER` | `0x0100` | shoulder |
-| `BTN.RTRIGGER` | `0x0200` | shoulder |
-| `BTN.TRIANGLE` | `0x1000` | |
-| `BTN.CIRCLE` | `0x2000` | default "confirm" / press |
-| `BTN.CROSS` | `0x4000` | |
-| `BTN.SQUARE` | `0x8000` | |
+The twelve members and their bit values are in the
+[API reference](/docs/api/#btn). `CIRCLE` is the default confirm and press
+button; `UP`/`RIGHT`/`DOWN`/`LEFT` are the d-pad and `LTRIGGER`/`RTRIGGER` the
+shoulders.
 
 Test a button with a bitwise `&`, and combine buttons with `|`:
 
@@ -62,18 +52,39 @@ onFrame(() => {
 });
 ```
 
-The snapshot is immutable and becomes empty after release. PocketJS reports
-contacts rather than prescribing tap, drag, or pinch semantics, so reusable
-gesture recognizers remain ordinary deterministic application code. Put
-`input.touch` in `enhances` when the same app must still build for PSP.
+The snapshot is immutable and becomes empty after release. It is the raw
+contact latch: one frame of positions, with nothing interpreted on top. Tap,
+long press, axis-lockable pan and two-contact pinch recognizers ship in
+`@pocketjs/framework/gesture`, and **mounting an app installs a tap-to-`onPress`
+recognizer**, so a `Focusable` with an `onPress` answers a tap with no extra
+wiring. Read `touches()` yourself only for behavior the recognizers do not
+cover — see [Touch & gestures](/docs/touch-gestures/). An app that lists
+`input.touch` in its `features` still builds for the PSP, where the feature
+compiles to `false`; keep a button path behind `hasFeature("input.touch")`.
+
+Targets with a separate touch display expose `input.touch.auxiliary` instead:
+
+```ts
+import { auxiliaryTouches } from "@pocketjs/framework/input";
+
+const contact = auxiliaryTouches()[0];
+```
+
+**`touches()` contains only primary-surface contacts;
+`auxiliaryTouches()` contains only auxiliary-surface contacts.** Each contact's
+`surface` field is `"primary"` or `"auxiliary"`, and `x`/`y` stay in that
+surface's logical coordinate space. Touch activation and
+[gestures](/docs/touch-gestures/) resolve hits only against the matching
+surface tree. The two capability ids are independent:
+a bottom-screen touch panel does not imply that the primary display is touchable.
 
 ## Virtual cursor
 
 Targets that provide `input.cursor` can replace the d-pad focus walk with a
 **pointer**: the analog nub steers a cursor sprite, hovering applies the
 `focus:` variant, and a press button clicks whatever is under the arrow. It is
-opt-in — declare the capability in `pocket.json` (`requires` or `enhances`)
-and enable it at runtime:
+opt-in — list the feature in the `features` of the application's
+`pocket.host.config.ts` and enable it at runtime:
 
 ```ts
 import { enableCursor } from "@pocketjs/framework/input";
@@ -88,43 +99,27 @@ What changes while the cursor is enabled:
   doubles as the hover style with no new machinery. Hit testing follows paint
   order: a node claims the point where it paints in any variant (background,
   border, bevel, image, text — `focus:`-styled hotspots count before they are
-  hovered), fully-faded subtrees take no hits, and transparent layout
+  hovered), a subtree faded to zero takes no hits, and transparent layout
   wrappers — including the framework's own overlay layers — pass through.
   The test runs only on frames where the answer can change (cursor movement,
   tree/style mutations, press edges) — a parked cursor costs nothing.
 - **The press button clicks.** CIRCLE (configurable) holds the `active:`
   variant while down over the armed node — drag off to pop it back up, drag
-  back to re-press — and fires `onPress` on release over it, bubbling exactly
-  like the classic model.
+  back to re-press — and fires `onPress` on release over it, bubbling the way
+  the classic model does.
 - **D-pad traversal and the classic CIRCLE press are suppressed.**
   `onButtonPress` hooks and focus scopes keep working; modal backgrounds stay
   inert because hover resolution respects the active scope.
 
-Options (all optional):
+The sprite, hotspot, speed, press button, and start position are
+`CursorOptions`, and the disposer `enableCursor` returns restores the d-pad
+model — signatures in the
+[API reference](/docs/api/#virtual-cursor).
 
-```ts
-interface CursorOptions {
-  image?: string | Uint8Array; // pak IMG key or raw IMG entry; default: built-in arrow
-  hotspot?: [number, number];  // sprite px the position points at (default [0, 0])
-  size?: [number, number];     // logical draw size (default: the texture's own size)
-  speed?: number;              // px per virtual second at full deflection (default 240)
-  dpadSpeed?: number;          // d-pad steering px/s; 0 (default) leaves the d-pad alone
-  button?: number;             // press mask (default BTN.CIRCLE)
-  start?: [number, number];    // initial position (default: viewport center)
-}
-```
-
-`enableCursor` returns a disposer that restores the d-pad model; calling it
-again while enabled updates the options in place (theme switches swap the
-sprite this way — an unchanged image keeps its uploaded texture). On hosts
-that predate the cursor ops the classic d-pad model stays active.
-`cursorX()` / `cursorY()` read the current position, `NaN` while disabled.
-
-Determinism is unchanged: the cursor is a pure function of the button/analog
-frame inputs, which the DevTools tape already records — speed is expressed per
-*virtual* second, so a tape replays pixel-identically at every `simulationHz`.
-At the default speed, full deflection moves exactly 4 px per frame at 60 Hz;
-`dpadSpeed: 60` steers exactly 1 px per frame for hand-authored tapes.
+Determinism is unchanged: the cursor is a function of the button and analog
+frame inputs the DevTools tape records, and its speed is expressed per
+*virtual* second, so a tape replays to the same pixels at every
+`simulationHz`.
 
 ## The focus model
 
@@ -145,12 +140,12 @@ Each frame, before the render sweep, the manager edge-detects the bitmask and:
   [`focus:` style variant](#focus-and-active-variants) with zero further JS.
 
 That is the entire default interaction loop. For most screens you never touch the
-input API directly — you just mark nodes focusable and give them an `onPress`.
+input API directly — you mark nodes focusable and give them an `onPress`.
 
 ## Making things focusable
 
 Any `View` becomes focusable with the `focusable` prop, and gains a CIRCLE handler
-with `onPress`. The [`Focusable`](/docs/app-shell/) component is just a `View` with
+with `onPress`. The [`Focusable`](/docs/app-shell/) component is a `View` with
 `focusable` preset to `true`.
 
 ```tsx
@@ -203,17 +198,18 @@ function Menu() {
 }
 ```
 
-| Function | Signature | Behavior |
-| --- | --- | --- |
-| `focusNode` | `(node: NodeMirror \| null) => void` | Focus a node; `null` clears focus. |
-| `getFocused` | `() => NodeMirror \| null` | The currently focused node, or `null`. |
+`focusNode(node)` focuses a node and `focusNode(null)` clears focus;
+`getFocused()` returns the focused node or `null`. Signatures, and the rest of
+the imperative surface — `pressNode`, `setActiveNode`, `pushFocusController`,
+`hitFocusable`, `hitNode` — are in the
+[API reference](/docs/api/#pocketjsframeworkinput).
 
-Turning off a node's `focusable` while it is focused automatically clears focus.
+Turning off a node's `focusable` while it is focused clears focus.
 
 ## Focus scopes
 
 A **focus scope** temporarily restricts d-pad traversal and CIRCLE press to one
-subtree — exactly what a dialog or a menu wants so the background can't be navigated.
+subtree — what a dialog or a menu wants, so the background can't be navigated.
 The declarative [`FocusScope`](/docs/app-shell/) component (and
 [`Modal`](/docs/app-shell/), which is built on it) is the usual way in; the imperative
 primitive underneath is `pushFocusScope`.
@@ -227,12 +223,8 @@ const dispose = pushFocusScope(panel, { autoFocus: true, restoreFocus: true });
 onCleanup(dispose); // always release the scope when it unmounts
 ```
 
-```ts
-interface FocusScopeOptions {
-  autoFocus?: boolean;    // focus the scope's first focusable on push (default true)
-  restoreFocus?: boolean; // restore the previously focused node on dispose (default true)
-}
-```
+`FocusScopeOptions` is `autoFocus` and `restoreFocus`, both defaulting to
+true ([API reference](/docs/api/#pushfocusscope)).
 
 `pushFocusScope` returns a disposer. While a scope is on the stack, focus traversal only
 sees nodes inside it, so navigation cannot leak out. Disposing pops the scope and
@@ -252,12 +244,8 @@ const dispose = pushFocusGrid(gridRoot, { columns: 4, wrap: true });
 onCleanup(dispose);
 ```
 
-```ts
-interface FocusGridOptions {
-  columns: number; // items per row (clamped to a minimum of 1)
-  wrap?: boolean;  // wrap around row/column edges (default false)
-}
-```
+`FocusGridOptions` is a required `columns` (clamped to a minimum of 1) and
+`wrap` ([API reference](/docs/api/#pushfocusgrid)).
 
 The focusable descendants of `gridRoot`, in document order, are laid out into rows of
 `columns`. With `wrap: false`, movement stops at the grid edges; with `wrap: true`,
@@ -277,6 +265,35 @@ the surrounding tree. It searches, in order:
 
 This keeps a sensible node focused as content churns, without any bookkeeping in your
 components.
+
+## Motion state
+
+Apps read device attitude as **fused motion state**, not accelerometer or
+gyroscope samples. The host's native driver fuses its sensors and delivers
+its newest `MotionState` as the eighth `frame` argument, or queues it between
+frames with `feedMotionState(state)` from `@pocketjs/framework/input`.
+`contracts/spec/motion.ts` defines the values, units, quality grades and
+reference frames; the [MicroTS reference](/docs/microts-reference/#motion-state)
+lists them.
+
+`MotionHandler` and `onMotion` fire once per frame whose state carries the
+subscribed value at `minQuality` or better, in document order with the other
+input handlers:
+
+```tsx
+import { MotionHandler } from "@pocketjs/framework/components";
+import { onMotion } from "@pocketjs/framework/lifecycle";
+
+<MotionHandler value="screenRotation" onUpdate={(degrees) => setAngle(degrees)} />;
+
+onMotion("rotationRate", (x, y, z) => spin(x, y, z), { minQuality: "high" });
+```
+
+The driver also publishes the derived conveniences (`screenRotation`,
+`tilt`, `angles`) as members of the state; the runtime does not compute them.
+A fed state is validated, its numbers are rounded to f32 and zeros lose
+their sign, so a DevTools tape, which is JSON, replays exactly what the
+handlers received.
 
 ## Per-frame hooks
 
@@ -320,15 +337,8 @@ onButtonPress(BTN.CROSS | BTN.CIRCLE, (pressed) => {
 ```
 
 The callback receives `(pressed, buttons)` — the newly-pressed edge mask and the full
-held mask. Options:
-
-```ts
-interface ButtonPressOptions {
-  active?: boolean | (() => boolean); // gate the handler on/off (default true)
-  allowWhenBlocked?: boolean;         // keep firing while input is blocked (default false)
-  latched?: boolean;                  // wait for release before the next edge (default false)
-}
-```
+held mask. `ButtonPressOptions` gates it: `active`, `allowWhenBlocked`, and
+`latched` ([API reference](/docs/api/#onbuttonpress)).
 
 `active` can be a reactive accessor, so a handler can be enabled only on a given screen:
 
@@ -350,6 +360,38 @@ import { BTN } from "@pocketjs/framework/input";
 <ActionHandler button={BTN.START} onPress={() => togglePause()} />;
 ```
 
+## Keyboard text
+
+A target whose host contract declares `input.text` has a keyboard that types: the
+M5Stack Tab5 with its keyboard on Ext.Port1, a desktop widget. Each frame
+carries the keyboard's events, and `onTextEvent` receives them before the
+frame's button handlers run.
+
+```ts
+import { hasTextInput, onTextEvent } from "@pocketjs/framework/input";
+
+const release = onTextEvent((event) => {
+  if (event.kind === "commit") insert(event.text); // typed characters, UTF-8
+  else if (event.kind === "key" && event.pressed && event.key === "Enter") submit();
+});
+```
+
+An event is one of four kinds. `commit` carries typed text. `key` names an
+editing key as `KeyboardEvent.key` does (`Enter`, `Backspace`, `Delete`,
+`Escape`, `Tab`, `ArrowLeft`, `ArrowRight`, `ArrowUp`, `ArrowDown`, `Home`,
+`End`), with `pressed` false on its release and `repeat` true while held; a
+held modifier comes first, as in `Control+z` or `Alt+ArrowLeft`. `composition`
+and `compositionEnd` carry an IME's text in progress with its selection.
+**Handlers run newest first, and a handler that returns `true` consumes the
+event** for the handlers registered before it.
+
+**The system keyboard session takes the keyboard while it is open**: a
+`createOsk` session inserts commits at its caret, edits with Backspace,
+Delete, Home, End and the arrow keys, commits on Enter and cancels on
+Escape, so a text field typed on by the keyboard fills as it does on screen.
+A key the session does not edit with passes on to the handlers below it.
+`hasTextInput` is the build-time fact, folded per target like `hasFeature`.
+
 ## Blocking background input
 
 When a modal or overlay owns input, the buttons behind it should go quiet.
@@ -367,7 +409,7 @@ onCleanup(release);
 ```
 
 The block only affects `onButtonPress` / `ActionHandler`; the focus manager's own d-pad
-navigation and CIRCLE press are unaffected (they are already contained by whatever
+navigation and CIRCLE press are unaffected (they are contained by whatever
 [focus scope](#focus-scopes) the overlay pushes). [`Modal`](/docs/app-shell/) combines
 both: it pushes a focus scope *and* a handler block for you.
 
@@ -389,13 +431,15 @@ The browser host and the [playground](/playground/) map the keyboard onto the sa
 | R or E | `RTRIGGER` (right shoulder) |
 
 The shoulder triggers map to the literal `L` / `R` keys (with `Q` / `E` as a
-left-hand alternate). Everything behaves identically to hardware: arrows drive
+left-hand alternate). Behavior matches hardware: arrows drive
 focus, Enter/Z confirms, `L` / `R` page the shoulder-driven UI, and your
 `onButtonPress` handlers fire on the mapped presses.
 
 ## Related
 
+- [Touch & gestures](/docs/touch-gestures/) — tap, long press, pan, pinch, and the kinetic scroller over these contacts.
 - [App shell](/docs/app-shell/) — `Focusable`, `FocusScope`, `FocusGrid`, `Modal`, and `ActionBar` components.
+- [Pages and focus](/docs/microts-pages/) — focus in applications with `app.aot: true`, where the scope, grid and programmatic APIs are outside the subset.
 - [Components](/docs/components/) — `View`, `Text`, `Image`, and how Solid control flow maps onto the native tree.
 - [Styling](/docs/styling/) — the `focus:` / `active:` variants and the Tailwind subset.
-- [Reactivity](/docs/reactivity/) — `createSignal`, `onMount`, `onCleanup`.
+- [Reactivity](/docs/reactivity/) — the three reactive systems side by side, and the PocketJS rules on top.

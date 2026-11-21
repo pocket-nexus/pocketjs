@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pocket3D title card art</title>
+<!-- The art of the Pocket3D title card: the mark and the name in white on the
+     plum ground, as the homepage's bar sets them, 624 x 192 at scale 1. `bun tools/pocket3d-title.ts` opens this page
+     in headless Chrome at scale 1 and at scale 0.5 (the fragment sets the
+     scale), and writes what it captures into the pocket3d-title crate. It sits
+     beside public/, so the Worker does not deploy it. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@600&display=block">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html{--s:1}
+html,body{width:calc(624px * var(--s));height:calc(192px * var(--s));overflow:hidden;background:#171226}
+/* the lockup of the homepage's bar: the mark, then the name in plain white Fredoka */
+.lockup{display:flex;align-items:center;justify-content:center;gap:.53em;height:100%;font-size:calc(80px * var(--s))}
+.lockup img{width:1.87em;height:1.87em;filter:drop-shadow(0 .09em .08em rgba(5,2,12,.55))}
+.word{font:600 1em/1 Fredoka,sans-serif;color:#fcf6ff}
+</style>
+<script>document.documentElement.style.setProperty("--s", location.hash.slice(1) || "1");</script>
+</head>
+<body>
+  <div class="lockup"><img src="mark.svg" alt=""><div class="word">Pocket3D</div></div>
+</body>
+</html>

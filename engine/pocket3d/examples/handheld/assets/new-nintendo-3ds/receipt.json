@@ -1,0 +1,8 @@
+{
+  "device": "new-nintendo-3ds",
+  "blender": "5.1.2",
+  "objects": 31,
+  "triangles": 63856,
+  "glb_bytes": 1905248,
+  "hinge_node": "Lid_Hinge"
+}

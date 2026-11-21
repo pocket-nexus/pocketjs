@@ -3,15 +3,27 @@
 # so the same crate builds for mipsel-sony-psp, wasm32-unknown-unknown and the
 # host. See ../../../docs/DESIGN.md.
 #
-# NOTE: deliberately NOT part of any cargo workspace — cargo-psp needs
-# hosts/psp to be a lone-bin standalone crate, so each crate stands alone.
-
 [package]
 name = "pocketjs-core"
-version = "0.1.0"
+readme = "README.md"
+homepage = "https://pocketjs.pocket.nexus"
+documentation = "https://docs.rs/pocketjs-core"
+keywords = ["pocketjs", "ui", "layout"]
+categories = ["no-std", "gui"]
 edition = "2021"
 
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Retained PocketJS UI tree, layout, animation and DrawList emission"
+
 [dependencies]
+pocket-spec = { workspace = true, default-features = true }
+pocket-drivers = { workspace = true, default-features = true }
+pocket-package = { workspace = true, default-features = true }
+pocket-media = { workspace = true, default-features = true }
+pocket-render = { workspace = true, default-features = true }
 # no_std + alloc flexbox layout. Feature set verified to resolve; f32-only,
 # no libm (see docs/DESIGN.md "Why these choices").
 taffy = { version = "0.11", default-features = false, features = [
@@ -22,11 +34,10 @@ taffy = { version = "0.11", default-features = false, features = [
 ] }
 
 [dev-dependencies]
-# Self-dependency with `std` so `cargo test` builds the test harness against
-# the std-enabled crate while normal builds stay no_std (default features off).
-pocketjs-core = { path = ".", features = ["std"] }
+pocket-raster = { workspace = true, default-features = true }
 
 [features]
 default = []
-# Host-test convenience: links std (and taffy's std) instead of no_std+alloc.
-std = ["taffy/std"]
+# Layout work counters and the fresh-solver validation hook used by the
+# differential tests. Ordinary builds compile neither.
+counters = []

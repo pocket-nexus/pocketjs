@@ -1,9 +1,0 @@
-version: "0.1.0"
-description: ESP-IDF PPA operations for the PocketJS ESP32-P4 RGB565 renderer
-license: MIT
-repository: https://github.com/pocket-stack/pocketjs
-documentation: https://github.com/pocket-stack/pocketjs/tree/main/hosts/esp32p4
-targets:
-  - esp32p4
-dependencies:
-  idf: ">=6.0,<6.2"

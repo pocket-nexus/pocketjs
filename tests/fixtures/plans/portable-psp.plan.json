@@ -1,15 +1,64 @@
 {
+  "profile": {
+    "format": "pocket-host/2",
+    "id": "psp",
+    "platform": "psp",
+    "form": "takeover",
+    "cadences": [
+      60,
+      30,
+      20
+    ],
+    "display": {
+      "logicalViewports": [
+        [
+          480,
+          272
+        ]
+      ],
+      "presentations": [
+        "native",
+        "integer-fit"
+      ],
+      "rasterDensity": 1,
+      "animation": "composited"
+    },
+    "panel": {
+      "primary": [
+        480,
+        272
+      ]
+    },
+    "capabilities": [
+      "audio.pcm",
+      "data.fs",
+      "data.pack",
+      "input.analog.left",
+      "input.buttons",
+      "input.cursor",
+      "io.offload",
+      "text.glyphs.baked",
+      "text.glyphs.streamed",
+      "text.layout.offload"
+    ],
+    "tickHz": 60
+  },
+  "profileHash": "sha256:e13e5218bbbf966bcf03b8f1d88282a28953f1ba7fb14bd8a53839866665dbce",
   "app": {
-    "id": "dev.pocket-stack.telemetry",
+    "id": "dev.pocket-nexus.telemetry",
     "title": "Pocket Telemetry",
     "version": "0.1.0",
     "entry": "app/main.tsx",
     "output": "main",
     "framework": "solid"
   },
+  "presentation": {
+    "id": "default",
+    "entry": "app/main.tsx"
+  },
   "target": {
     "id": "psp",
-    "hostAbi": 1
+    "hostAbi": 12
   },
   "viewport": {
     "logical": [
@@ -24,11 +73,33 @@
     "rasterDensity": 1,
     "policy": "fixed"
   },
+  "modality": {
+    "form": "takeover",
+    "screens": [
+      {
+        "role": "primary",
+        "logical": [
+          480,
+          272
+        ],
+        "orientation": "landscape",
+        "touch": false,
+        "resizable": false
+      }
+    ],
+    "touch": "none",
+    "pointer": "cursor",
+    "buttons": true,
+    "analog": 1,
+    "text": "osk",
+    "glyphs": "playstation"
+  },
+  "animation": "composited",
   "features": {
     "input.analog.left": true,
     "input.buttons": true,
     "text.glyphs.baked": true
   },
   "companions": [],
-  "planHash": "sha256:fc32497b58bf5b9fab7c827ba8f6073cd749cb92c6cec6d37829fca7cf7e2085"
+  "planHash": "sha256:16abe85662672bd35b15be50cea56a5bde88ffb899ee30ec6feda9ea749f338e"
 }

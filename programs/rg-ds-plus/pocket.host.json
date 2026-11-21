@@ -1,0 +1,23 @@
+{
+  "format": "pocket-host/2",
+  "id": "rg-ds-plus",
+  "platform": "linux",
+  "form": "takeover",
+  "cadences": [60],
+  "display": {
+    "logicalViewports": [[512, 384]],
+    "presentations": ["native"],
+    "rasterDensity": 2,
+    "animation": "composited",
+    "auxiliary": {
+      "logicalViewports": [[512, 384]],
+      "presentations": ["native"],
+      "rasterDensity": 2
+    }
+  },
+  "panel": {
+    "primary": [1024, 768],
+    "auxiliary": [1024, 768]
+  },
+  "capabilities": ["display.auxiliary", "input.buttons", "input.touch.auxiliary", "text.glyphs.baked"]
+}

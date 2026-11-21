@@ -1,0 +1,13 @@
+[package]
+name = "pocket-posix-svc-wire"
+edition = "2024"
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "TCP companion service transport"
+
+[dependencies]
+pocket-spec.workspace = true
+pocket-media.workspace = true
+log = "0.4"

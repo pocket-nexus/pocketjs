@@ -1,0 +1,40 @@
+{
+  "state": {
+    "count": 1,
+    "double": 2,
+    "result": 2
+  },
+  "writes": [
+    {
+      "name": "count",
+      "value": 1,
+      "changed": true
+    },
+    {
+      "name": "result",
+      "value": 2,
+      "changed": true
+    }
+  ],
+  "operations": [
+    {
+      "kind": "set",
+      "name": "count",
+      "value": 1,
+      "changed": true
+    },
+    {
+      "kind": "memo",
+      "name": "double",
+      "value": 2,
+      "changed": true,
+      "mode": "demand"
+    },
+    {
+      "kind": "set",
+      "name": "result",
+      "value": 2,
+      "changed": true
+    }
+  ]
+}

@@ -5,9 +5,14 @@
 //! (`pocket-mod`), drives the same `pocketjs-core`, and renders through wgpu
 //! (`pocket-ui-wgpu`) — 2D and 3D on one foundation.
 //!
+//!   bun tools/pocket.ts host export --target macos-embedded --out target/uihost-profile
+//!   export POCKETJS_PROFILE_RS=$PWD/target/uihost-profile/pocket_profile.rs
 //!   cargo run -p uihost -- --app hero                # window, 2x scale
 //!   cargo run -p uihost -- --app music --scale 3
 //!   cargo run -p uihost -- --app hero --screenshot out.png --frames 10
+//!
+//! The exported profile supplies the runtime's identity, tick rate and raster
+//! density; it must admit the 480×272 logical viewport.
 //!
 //! Bundles/paks come from the PocketJS build (`bun tools/build.ts <app>`
 //! at the repo root); uihost looks in `<repo>/dist` (override: POCKETJS_DIST
@@ -17,19 +22,27 @@
 //! A = SQUARE, S = TRIANGLE, Q/W = L/R triggers, Tab = SELECT,
 //! Space = START. Analog nub: I/K = Y axis, J/L = X axis (full tilt).
 
+use pocket_runtime::{Profile, timing::TickSchedule};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::{Context, Result, anyhow};
-use pocket3d::gpu::{Gpu, OffscreenTarget};
+use pocket_drivers::{AxisSample, InputFrameBuilder, abi};
 use pocket_mod::Guest;
-use pocket_ui_wgpu::{Blit, UiRenderer, UiSurface};
+use pocket_ui_wgpu::{Blit, ProgramConfig, ProgramOutput, UiProgram};
+use pocket3d::gpu::Gpu;
+use std::rc::Rc;
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
+
+#[allow(dead_code)] // The export defines every fact; uihost reads some.
+mod profile {
+    include!(concat!(env!("OUT_DIR"), "/pocket_profile.rs"));
+}
 
 const UI_W: u32 = 480;
 const UI_H: u32 = 272;
@@ -93,8 +106,10 @@ fn dist_dir() -> Option<PathBuf> {
     if let Ok(d) = std::env::var("POCKETJS_DIST") {
         return Some(PathBuf::from(d));
     }
-    let from_manifest =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../dist").canonicalize().ok();
+    let from_manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../dist")
+        .canonicalize()
+        .ok();
     from_manifest.or_else(|| {
         let cwd = PathBuf::from("dist");
         cwd.is_dir().then_some(cwd)
@@ -103,9 +118,12 @@ fn dist_dir() -> Option<PathBuf> {
 
 fn resolve_asset(explicit: Option<PathBuf>, app: &str, ext: &str) -> Result<PathBuf> {
     if let Some(p) = explicit {
-        return p.canonicalize().with_context(|| format!("missing {}", p.display()));
+        return p
+            .canonicalize()
+            .with_context(|| format!("missing {}", p.display()));
     }
-    let dist = dist_dir().ok_or_else(|| anyhow!("cannot find PocketJS dist/ (set POCKETJS_DIST)"))?;
+    let dist =
+        dist_dir().ok_or_else(|| anyhow!("cannot find PocketJS dist/ (set POCKETJS_DIST)"))?;
     // Accept both `hero` and `hero-main` names; prefer the mounted -main entry.
     let candidates = [format!("{app}.{ext}"), format!("{app}-main.{ext}")];
     for c in &candidates {
@@ -120,33 +138,61 @@ fn resolve_asset(explicit: Option<PathBuf>, app: &str, ext: &str) -> Result<Path
     ))
 }
 
+/// The profile exported into this build; uihost has no `pocket build` recipe.
+fn exported_profile() -> Result<Profile> {
+    profile::profile().ok_or_else(|| {
+        anyhow!(
+            "uihost was built without an exported profile; run `bun tools/pocket.ts host export --target macos-embedded --out DIR` and build with POCKETJS_PROFILE_RS=DIR/pocket_profile.rs"
+        )
+    })
+}
+
 /// Boot the guest: feed the pak, mount `ui`, eval the bundle.
-fn boot(args: &Args) -> Result<(Guest, UiSurface)> {
+fn boot(args: &Args, profile: Profile, gpu: &Gpu) -> Result<(UiProgram, ProgramOutput)> {
     let js_path = resolve_asset(args.js.clone(), &args.app, "js")?;
     let pak_path = resolve_asset(args.pak.clone(), &args.app, "pak")?;
     let bundle = std::fs::read_to_string(&js_path)
         .with_context(|| format!("reading {}", js_path.display()))?;
-    let pak = std::fs::read(&pak_path).with_context(|| format!("reading {}", pak_path.display()))?;
+    let pak =
+        std::fs::read(&pak_path).with_context(|| format!("reading {}", pak_path.display()))?;
 
-    let surface = UiSurface::new((UI_W as f32, UI_H as f32));
-    surface.feed_pak(&pak);
-    let guest = Guest::new()?;
-    surface.mount(&guest)?;
-    guest.eval(&args.app, &bundle)?;
-    if !guest.has_frame() {
-        return Err(anyhow!("bundle evaluated but installed no frame() — is this a PocketJS app?"));
-    }
-    log::info!("uihost: booted {} ({} bytes js, {} bytes pak)", args.app, bundle.len(), pak.len());
-    Ok((guest, surface))
+    let mut program = UiProgram::new(ProgramConfig {
+        profile,
+        profile_hash: profile::PROFILE_HASH,
+        // The bundle's baked rate; its plan's profile.tickHz.
+        tick_hz: 60,
+        host_abi: profile::HOST_ABI,
+        logical: [UI_W, UI_H],
+        heap_limit: 64 * 1024 * 1024,
+        frame_buffer_budget: 128 * 1024 * 1024,
+    })?;
+    let output = ProgramOutput::with_options(
+        gpu,
+        (UI_W, UI_H),
+        1.,
+        pocket3d::gpu::OFFSCREEN_FORMAT,
+        wgpu::Color::BLACK,
+        true,
+    )?;
+    output.register(&mut program)?;
+    program.boot(Rc::new(Guest::new()?), &args.app, &bundle, &pak)?;
+    log::info!(
+        "uihost: booted {} ({} bytes js, {} bytes pak)",
+        args.app,
+        bundle.len(),
+        pak.len()
+    );
+    Ok((program, output))
 }
 
 fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     let args = parse_args()?;
+    let profile = exported_profile()?;
     if args.screenshot.is_some() {
-        headless(&args)
+        headless(&args, profile)
     } else {
-        windowed(args)
+        windowed(args, profile)
     }
 }
 
@@ -154,31 +200,22 @@ fn main() -> Result<()> {
 // headless: N guest frames, then one PNG
 // ---------------------------------------------------------------------------
 
-fn headless(args: &Args) -> Result<()> {
-    let (guest, surface) = boot(args)?;
+fn headless(args: &Args, profile: Profile) -> Result<()> {
     let gpu = Gpu::new_headless()?;
-    let target = OffscreenTarget::new(&gpu, UI_W, UI_H);
-    let mut renderer = UiRenderer::new(&gpu, pocket3d::gpu::OFFSCREEN_FORMAT);
-
+    let (mut program, output) = boot(args, profile, &gpu)?;
     for _ in 0..args.frames {
-        guest.frame(0)?;
-        surface.tick();
+        program.advance()?;
     }
-    let mut encoder = gpu.device.create_command_encoder(&Default::default());
-    surface.with_ui(|ui| {
-        renderer.render(
-            &gpu,
-            ui,
-            &mut encoder,
-            &target.view,
-            (UI_W, UI_H),
-            wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-        )
-    })?;
-    gpu.queue.submit([encoder.finish()]);
+    output.prepare()?;
+    program.present()?;
+    let target = output.last().ok_or_else(|| anyhow!("no runtime output"))?;
     let out = args.screenshot.clone().unwrap();
     target.save_png(&gpu, &out)?;
-    println!("uihost: wrote {} after {} frames", out.display(), args.frames);
+    println!(
+        "uihost: wrote {} after {} frames",
+        out.display(),
+        args.frames
+    );
     Ok(())
 }
 
@@ -186,16 +223,21 @@ fn headless(args: &Args) -> Result<()> {
 // windowed: winit shell + nearest-neighbor integer upscale
 // ---------------------------------------------------------------------------
 
-fn windowed(args: Args) -> Result<()> {
+fn windowed(args: Args, profile: Profile) -> Result<()> {
     let event_loop = EventLoop::new()?;
-    let mut app = App { args, state: None, error: None, started: Instant::now() };
+    let mut app = App {
+        args,
+        profile,
+        state: None,
+        error: None,
+        started: Instant::now(),
+    };
     event_loop.run_app(&mut app)?;
     match app.error {
         Some(e) => Err(e),
         None => Ok(()),
     }
 }
-
 
 /// Analog-nub keys currently held (uihost has no real stick: a held key is
 /// full tilt, opposing keys cancel to center).
@@ -218,13 +260,6 @@ impl Nub {
             _ => return None,
         })
     }
-
-    /// The spec `frame(buttons, analog)` word:
-    /// ((128 + x*127) << 8) | (128 + y*127), centered = spec::ANALOG_CENTER.
-    fn analog(&self) -> u32 {
-        let axis = |neg: bool, pos: bool| (128 + (pos as i32 - neg as i32) * 127) as u32;
-        (axis(self.left, self.right) << 8) | axis(self.up, self.down)
-    }
 }
 
 struct State {
@@ -232,17 +267,18 @@ struct State {
     surface: wgpu::Surface<'static>,
     surface_config: wgpu::SurfaceConfiguration,
     gpu: Gpu,
-    guest: Guest,
-    ui: UiSurface,
-    ui_renderer: UiRenderer,
-    offscreen: OffscreenTarget,
+    program: UiProgram,
+    output: ProgramOutput,
     blit: Blit,
     buttons: u32,
     nub: Nub,
+    clock: Instant,
+    schedule: TickSchedule,
 }
 
 struct App {
     args: Args,
+    profile: Profile,
     state: Option<State>,
     error: Option<anyhow::Error>,
     started: Instant,
@@ -250,7 +286,6 @@ struct App {
 
 impl App {
     fn init_state(&mut self, event_loop: &ActiveEventLoop) -> Result<State> {
-        let (guest, ui) = boot(&self.args)?;
         let attrs = Window::default_attributes()
             .with_title(format!("PocketJS — {}", self.args.app))
             .with_inner_size(winit::dpi::LogicalSize::new(
@@ -268,30 +303,65 @@ impl App {
         surface_config.present_mode = wgpu::PresentMode::AutoVsync;
         surface.configure(&gpu.device, &surface_config);
 
-        let offscreen = OffscreenTarget::new(&gpu, UI_W, UI_H);
-        let ui_renderer = UiRenderer::new(&gpu, pocket3d::gpu::OFFSCREEN_FORMAT);
-        let blit = Blit::new(&gpu, &offscreen.view, surface_config.format, wgpu::FilterMode::Nearest, false);
+        let (program, output) = boot(&self.args, self.profile.clone(), &gpu)?;
+        // The booted package's rate presented at the profile cadence.
+        let cadence = program
+            .timing()
+            .ok_or_else(|| anyhow!("uihost: the package did not boot"))?
+            .cadence_hz;
+        let target = output
+            .first()
+            .ok_or_else(|| anyhow!("missing output target"))?;
+        let blit = Blit::new(
+            &gpu,
+            &target.view,
+            surface_config.format,
+            wgpu::FilterMode::Nearest,
+            false,
+        );
         Ok(State {
             window,
             surface,
             surface_config,
             gpu,
-            guest,
-            ui,
-            ui_renderer,
-            offscreen,
+            program,
+            output,
             blit,
             buttons: 0,
             nub: Nub::default(),
+            clock: Instant::now(),
+            schedule: TickSchedule::new(cadence, 0, 1)
+                .map_err(|error| anyhow!("uihost timing: {error:?}"))?,
         })
     }
 
     fn redraw(&mut self) -> Result<()> {
-        let Some(s) = self.state.as_mut() else { return Ok(()) };
-        // One guest turn + one core frame per vsync'd redraw (~60 Hz, the
-        // PSP's cadence).
-        s.guest.frame_with_analog(s.buttons, s.nub.analog())?;
-        s.ui.tick();
+        let Some(s) = self.state.as_mut() else {
+            return Ok(());
+        };
+        // Vsync can exceed 60 Hz. Reserve simulation slots with Runtime's
+        // monotonic schedule; missed wall slots do not replay guest turns.
+        if s.schedule
+            .poll(s.clock.elapsed().as_micros().min(u64::MAX as u128) as u64)
+            .map_err(|error| anyhow!("uihost timing: {error:?}"))?
+            .is_some()
+        {
+            let mut facts = InputFrameBuilder::new();
+            facts.buttons = s.buttons;
+            let axis = |neg: bool, pos: bool| 128. + (pos as i32 - neg as i32) as f32 * 127.;
+            facts.axes.push(AxisSample {
+                id: abi::POCKET_AXIS_LEFT_X,
+                value: axis(s.nub.left, s.nub.right),
+            });
+            facts.axes.push(AxisSample {
+                id: abi::POCKET_AXIS_LEFT_Y,
+                value: axis(s.nub.up, s.nub.down),
+            });
+            s.program.set_input(facts);
+            s.program.advance()?;
+            s.output.prepare()?;
+            s.program.present()?;
+        }
 
         let frame = match s.surface.get_current_texture() {
             Ok(f) => f,
@@ -303,16 +373,6 @@ impl App {
         };
         let view = frame.texture.create_view(&Default::default());
         let mut encoder = s.gpu.device.create_command_encoder(&Default::default());
-        s.ui.with_ui(|ui| {
-            s.ui_renderer.render(
-                &s.gpu,
-                ui,
-                &mut encoder,
-                &s.offscreen.view,
-                (UI_W, UI_H),
-                wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-            )
-        })?;
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("uihost blit pass"),
@@ -388,6 +448,12 @@ impl ApplicationHandler for App {
                     s.surface.configure(&s.gpu.device, &s.surface_config);
                 }
             }
+            WindowEvent::Focused(false) => {
+                if let Some(state) = self.state.as_mut() {
+                    state.buttons = 0;
+                    state.nub = Nub::default();
+                }
+            }
             WindowEvent::KeyboardInput { event, .. } => {
                 if let PhysicalKey::Code(code) = event.physical_key {
                     if code == KeyCode::Escape {
@@ -410,10 +476,11 @@ impl ApplicationHandler for App {
             }
             WindowEvent::RedrawRequested => {
                 if let Some(limit) = self.args.auto_quit
-                    && self.started.elapsed().as_secs_f32() > limit {
-                        event_loop.exit();
-                        return;
-                    }
+                    && self.started.elapsed().as_secs_f32() > limit
+                {
+                    event_loop.exit();
+                    return;
+                }
                 if let Err(e) = self.redraw() {
                     self.error = Some(e);
                     event_loop.exit();

@@ -1,0 +1,1 @@
+{"state": {"result": [12, 10, 10, 10]}, "writes": [{"name": "result", "value": [12, 10, 10, 10], "changed": true}], "operations": [{"kind": "set", "name": "result", "value": [12, 10, 10, 10], "changed": true}]}

@@ -1,0 +1,11 @@
+[package]
+name = "pocket-vita-system"
+version.workspace = true
+edition = "2021"
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "PocketJS vita system driver"
+
+[dependencies]
+vitasdk-sys = { version = "0.3.3", features = ["SceLibKernel_stub"] }

@@ -1,0 +1,79 @@
+{
+  "reference": [
+    {
+      "frame": 1,
+      "state": {},
+      "trace": [
+        {
+          "kind": "handler",
+          "region": 1,
+          "fn": 3,
+          "name": "press",
+          "args": []
+        },
+        {
+          "kind": "task-start",
+          "task": {
+            "region": 1,
+            "fn": 2,
+            "generation": 1
+          },
+          "state": 0
+        },
+        {
+          "kind": "wait",
+          "request": {
+            "task": {
+              "region": 1,
+              "fn": 2,
+              "generation": 1
+            },
+            "generation": 1,
+            "member": 0
+          },
+          "awaitable": "join"
+        },
+        {
+          "kind": "task-start",
+          "task": {
+            "region": 1,
+            "fn": 1,
+            "generation": 1
+          },
+          "state": 0
+        },
+        {
+          "kind": "task-complete",
+          "task": {
+            "region": 1,
+            "fn": 1,
+            "generation": 1
+          }
+        }
+      ]
+    },
+    {
+      "frame": 2,
+      "state": {},
+      "trace": [
+        {
+          "kind": "task-resume",
+          "task": {
+            "region": 1,
+            "fn": 2,
+            "generation": 1
+          },
+          "state": 1
+        },
+        {
+          "kind": "task-complete",
+          "task": {
+            "region": 1,
+            "fn": 2,
+            "generation": 1
+          }
+        }
+      ]
+    }
+  ]
+}

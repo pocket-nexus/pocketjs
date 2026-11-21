@@ -1,0 +1,27 @@
+[package]
+name = "pocket-ui-wgpu"
+edition.workspace = true
+description = "The PocketJS `ui` surface on the native desktop base: pak feeding, HostOps for the guest, DrawList rendered through wgpu"
+
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+pocket-spec = { workspace = true, default-features = true }
+pocket-drivers = { workspace = true, default-features = true }
+pocket-runtime = { workspace = true, default-features = true }
+pocket-wgpu-render = { workspace = true, default-features = true }
+pocket3d = { workspace = true, default-features = true }
+pocket-mod = { workspace = true, default-features = true }
+serde_json = { workspace = true }
+pocket-ui-surface = { workspace = true, default-features = true }
+pocketjs-core = { workspace = true, default-features = true }
+wgpu = { workspace = true }
+winit = { workspace = true }
+bytemuck = { workspace = true }
+anyhow = { workspace = true }
+
+[dev-dependencies]
+pocket-raster = { workspace = true, default-features = true }

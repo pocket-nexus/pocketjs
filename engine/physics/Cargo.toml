@@ -1,0 +1,16 @@
+# pocket-physics — the 2D body, collider, zone and emitter engine behind
+# capability ui.physics (spec ops 52..56). It implements the core's `Physics`
+# trait; programs that admit ui.physics install it before boot. Not published.
+[package]
+name = "pocket-physics"
+edition = "2021"
+publish = false
+description = "2D bodies, contacts, zones and emitters for the PocketJS ui.physics capability"
+
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+pocketjs-core = { workspace = true, default-features = true }

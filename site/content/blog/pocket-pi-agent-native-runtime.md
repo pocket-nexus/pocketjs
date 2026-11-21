@@ -42,7 +42,7 @@ The [first Pocket Pi port](/blog/pocket-pi-on-esp32-p4/) proved that a complete 
 
 When I started turning Pocket Pi into my trading agent, I realized the next question was not how to weld more Apps onto the system. It was more fundamental: **what should an App be when both a human and an Agent can act on it?** Our answer was a firmware-independent product unit that owns its Data, Actions and View.
 
-A traditional App assumes one primary operator—the human at its interface. An Agent is then forced either to imitate that operator through pixels and clicks, or to use a second API path whose state and business rules can drift away from the interface. We wanted one App that both actors could use, that the Agent could help evolve as the human's needs changed, and that still fit a 32 MB device. The answer in [**Pocket Pi PR #11**](https://github.com/pocket-stack/pocket-pi/pull/11) is the subject of this post.
+A traditional App assumes one primary operator—the human at its interface. An Agent is then forced either to imitate that operator through pixels and clicks, or to use a second API path whose state and business rules can drift away from the interface. We wanted one App that both actors could use, that the Agent could help evolve as the human's needs changed, and that still fit a 32 MB device. The answer in [**Pocket Pi PR #11**](https://github.com/pocket-nexus/pocket-pi/pull/11) is the subject of this post.
 
 ## Explaining the App Design Architecture
 

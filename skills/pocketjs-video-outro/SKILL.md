@@ -1,28 +1,60 @@
 ---
 name: pocketjs-video-outro
-description: Append a PocketJS-branded, animated end card to a local video (screen recording, demo capture, phone clip). Renders the dark brand card — logo glyph, "PocketJS" wordmark, "Bare Metal Modern Web" tagline, pocketjs.dev — with headless Chrome, then composites it with a crossfade and a staggered text entrance while preserving the source's original audio. Use when asked to add an outro / end card / 片尾 to a video, brand a recording, or produce a shareable clip with the PocketJS sign-off.
+description: Append a short PocketJS or Pocket3D animated end card to a local video (screen recording, demo capture, phone clip). Preserves the full source before transitioning to a card in the Arcade look of pocketjs.dev and 3d.pocket.nexus, with the mark, wordmark, candy pixel headline and the site's address. Use when asked to add an outro / end card / 片尾, brand a recording, or produce a shareable PocketJS or Pocket3D clip.
 ---
 
 # PocketJS Video Outro
 
 ## Overview
 
-Turns any local video into a shareable clip that ends on the PocketJS brand card.
-The card is built from the same visual system as `site/assets/og-image.svg` — dark
-`#05070d` field, faint blueprint grid, blue/cyan corner glows, the lens/viewfinder
-logo glyph, the wordmark, and the hero tagline. It is rendered by headless Chrome
-(full gradient/shadow/font fidelity; the site font stack falls back to system SF),
-then `ffmpeg` crossfades the source into the card and animates the text in.
+Turns any local video into a shareable clip that ends on the PocketJS or the
+Pocket3D card. The card is drawn the way the two homepages draw themselves
+(`site/assets/arcade.css`, `site/pocket3d/public/index.html`): the plum
+`#171226` ground with soft pixel dots, a few faint candy sprites on the PocketJS
+card and pocket.nexus's confetti on the Pocket3D card, the product's mark with its
+name in white Fredoka 600 as the sites' bars set it, and the headline as candy Press Start 2P letters, each
+letter taking the next of the five hues, on the hero's marquee plate (a bezel in
+the hero hue, a lip, a spark and a row of bulbs). The site's address sits at the
+foot in muted Fredoka.
+
+| `--brand` | Mark | Headline | Plate | Ground | Footer |
+| --- | --- | --- | --- | --- | --- |
+| `pocketjs` (default) | `site/assets/favicon.svg` | `CREATE UI ON` / `EVERY SCREEN` / `YOU LOVE` | pink | lilac glow, Arcade sprites | pocketjs.dev |
+| `pocket3d` | `site/pocket3d/mark.svg` | `CREATE 3D ON` / `EVERY DEVICE` / `YOU LOVE` | yellow | pink and cyan glow, confetti | 3d.pocket.nexus |
+
+Use `pocket3d` for a recording of a Pocket3D game (Pocket Tokyo, Pocket New York,
+OpenStrike, Pocket Atlas) and `pocketjs` for an app or interface recording.
+
+The marks and both faces are bundled with the skill (`tests/video-outro.test.ts`
+holds the marks and the pixel face equal to the sites' own files), so rendering
+makes no network request. Headless Chrome renders the layers, then `ffmpeg`
+appends the card and animates it in. **The default ending adds 2 seconds after the full
+source, including a 0.35-second crossfade from its held final frame.** Use this
+ending unless the user requests another duration; `--outro` and `--xfade` remain
+available for that choice.
 
 Design choices baked into the pipeline:
 
-- **Crossfade first, text second.** The source dissolves into the *empty* branded
-  background; the type only starts animating once the transition has settled, so it
-  never fights the crossfade.
-- **Staggered entrance.** Logo → tagline → URL, each fades in and eases up
-  (~20-30px, ease-out cubic), ~0.35s apart, then holds.
+- **Preserve the source ending.** Play every source frame before starting the
+  transition. Hold the final frame during the appended crossfade; do not dim or
+  consume the source's last moments to make room for the card.
+- **Crossfade first, text second.** The held final frame dissolves into the
+  *empty* branded background; the type only starts animating once the transition
+  has settled, so it never fights the crossfade.
+- **Staggered, stepped entrance.** Logo, plate and URL start 0.12 seconds apart
+  after the crossfade; the headline's lines drop in one after another inside the
+  plate's slot, 0.06 seconds apart, and the last lands with the URL. Each layer
+  drops in three held steps (above, halfway, a small overshoot, rest), as the
+  sites' headline letters do with `steps(3)`, and fades in over the first third
+  of its slot. The default card settles at 0.79 seconds and holds for 1.21
+  seconds. Short custom cards compress the entrance to leave at least half the
+  time after the transition for the complete lockup.
+- **The hero's headline.** Press Start 2P, uppercase, per-letter candy fills with
+  a plum outline, a same-hue extrusion and a stepped drop, as `site/candy.ts` and
+  `arcade.css` set the hero. Each authored line stays one line; pass explicit
+  line breaks instead of letting the browser choose the lockup.
 - **Audio is the source's, never synthesized.** The card is silent; the original
-  track is preserved and gently faded out under the transition (no voiceover).
+  track is preserved and faded out by the original source's end (no voiceover).
 - **Shareable SDR output.** HLG/PQ phone footage is perceptually tone-mapped to
   BT.709 before compositing, and the browser-rendered sRGB card is converted into
   the same color space. This avoids mixing an SDR card directly into HDR code values.
@@ -42,7 +74,21 @@ repo keeps command wrappers in Bun, not shell scripts):
 ```bash
 bun skills/pocketjs-video-outro/scripts/make-outro.ts -i ~/Downloads/clip.mov
 # writes ~/Downloads/clip_outro.mp4  (H.264 high, yuv420p, +faststart, AAC 192k)
+# default card: PocketJS, CREATE UI ON / EVERY SCREEN / YOU LOVE, pocketjs.dev
+# adds 2 seconds after the full source, including a 0.35-second transition
+
+bun skills/pocketjs-video-outro/scripts/make-outro.ts -i ~/Downloads/clip.mov --brand pocket3d
+# Pocket3D card: CREATE 3D ON / EVERY DEVICE / YOU LOVE, 3d.pocket.nexus
 # prints the output path on stdout; progress/summary on stderr
+```
+
+If the user supplies different positioning, preserve that copy exactly. Pass
+explicit line breaks when the lockup requires them; the template keeps them:
+
+```bash
+bun skills/pocketjs-video-outro/scripts/make-outro.ts \
+  -i ~/Downloads/clip.mov \
+  --tagline $'Create UI on\nevery screen\nyou love'
 ```
 
 For an X upload, enable the compatibility mode. It produces 30 fps CFR video,
@@ -63,18 +109,39 @@ ffprobe -v error -select_streams v:0 \
   -of default=nw=1 ~/Downloads/clip_outro_x.mp4
 ```
 
-Then **verify visually** — extract a frame near the end and eyeball the card, and
-confirm the tail is silent while the body kept its audio (the animation is the
-whole point; always look):
+Do not report a finished video from command success alone. Verify five independent
+properties: full-file decode, delivery metadata, the source ending, the visible
+card and its entrance, and body-versus-tail audio. Choose a body sample that
+contains source sound. The render log gives the crossfade offset, which must match
+the source duration. Subtract it from the final probed duration to check that the
+default ending adds 2 seconds, allowing one frame for rounding. A ten-second
+source produces about 12 seconds in total.
 
 ```bash
-V=~/Downloads/clip_outro.mp4
-ffmpeg -y -sseof -0.6 -i "$V" -frames:v 1 /tmp/card.png            # final card
-ffmpeg -nostats -sseof -2 -i "$V" -af volumedetect -f null - 2>&1 | grep mean_volume
+OUTRO_VIDEO=~/Downloads/clip_outro.mp4
+ffmpeg -v error -i "$OUTRO_VIDEO" -f null -                       # full decode
 ffprobe -v error -select_streams v:0 \
-  -show_entries stream=color_range,color_space,color_transfer,color_primaries \
-  -of default=nw=1 "$V" # HDR inputs must finish as tv + bt709/bt709/bt709
+  -show_entries \
+  stream=codec_name,profile,width,height,pix_fmt,r_frame_rate,avg_frame_rate,time_base,color_range,color_space,color_transfer,color_primaries \
+  -of default=nw=1 "$OUTRO_VIDEO"
+ffmpeg -v error -y -sseof -0.6 -i "$OUTRO_VIDEO" \
+  -frames:v 1 /tmp/pocketjs-outro-final.png
+ffmpeg -v error -y -sseof -3 -i "$OUTRO_VIDEO" \
+  -vf 'fps=8,scale=240:-2,tile=6x4' -frames:v 1 /tmp/pocketjs-outro-motion.jpg
+ffmpeg -hide_banner -ss 2 -t 3 -i "$OUTRO_VIDEO" \
+  -af volumedetect -f null - 2>&1 | rg 'mean_volume|max_volume'
+ffmpeg -hide_banner -sseof -0.7 -i "$OUTRO_VIDEO" \
+  -af volumedetect -f null - 2>&1 | rg 'mean_volume|max_volume'
 ```
+
+Inspect both images. The final frame must show the requested copy in the bundled
+pixel face without clipping, with the right mark; the motion sheet must show the
+source at full brightness through its end, followed by the crossfade and the
+logo → plate → lines → URL stagger. Compare the source's last frames against the export before the
+transition; for HDR, apply the same tone mapping to the reference. HDR inputs must
+finish as `tv`, `yuv420p`, and `bt709/bt709/bt709`. The body sample must retain audio
+and the final 0.7 seconds must be effectively silent with the defaults. For a
+shorter custom card, sample only the tail after the original source has ended.
 
 ## Options
 
@@ -82,11 +149,11 @@ ffprobe -v error -select_streams v:0 \
 |------|---------|---------|
 | `-i` / `--input` | — (required) | input video |
 | `-o` / `--output` | `<input>_outro.mp4` next to input | output path (`_outro_x.mp4` with `--x`) |
-| `--tagline` | `Bare Metal Modern Web` | hero line (wraps on narrow/portrait frames) |
-| `--brand` | `PocketJS` | wordmark next to the glyph |
-| `--url` | `pocketjs.dev` | footer line; pass `--url ""` to hide it |
-| `--outro` | `5.5` | end-card length in seconds |
-| `--xfade` | `0.8` | crossfade length; text entrance keys off it |
+| `--brand` | `pocketjs` | `pocketjs` or `pocket3d`: mark, wordmark, plate hue, default headline and URL |
+| `--tagline` | the brand's headline | headline; each newline starts a line, and each line enters on its own |
+| `--url` | the brand's site | footer line; pass `--url ""` to hide it |
+| `--outro` | `2` | appended end-card length in seconds, including the transition |
+| `--xfade` | `0.35` | crossfade length; must be shorter than the card; `0` cuts to it |
 | `--crf` / `--preset` | `18` / `medium` | x264 quality/speed |
 | `--x` / `--x-compatible` | off | emit an X-safe 30fps CFR social upload |
 
@@ -97,13 +164,16 @@ ffprobe -v error -select_streams v:0 \
   directly to FFmpeg, avoiding floating-point timebases.
 - By default the card uses the source's native resolution and selected frame rate.
   `--x` switches to 30 fps CFR and orientation-aware 1920x1080/1080x1900 bounds.
+- The crossfade starts at the source duration, using cloned final frames for its
+  full requested length even when the source is shorter than the transition.
 - Display-matrix rotation is applied to the probed dimensions before rendering the
   card, matching FFmpeg's default autorotation for portrait phone footage.
 - **Color:** SDR inputs keep the existing path. HLG and PQ inputs (including the
   HLG base layer in iPhone Dolby Vision clips) are tone-mapped to 8-bit BT.709 SDR;
   Dolby Vision metadata is intentionally not carried into the shareable H.264 file.
 - **Type scales** with `scale = min(W,H)/1080`, so 720p, 1080p, and 4K all look
-  proportional. On portrait/narrow frames the tagline wraps to two lines (verified).
+  proportional. The default headline keeps its three authored lines; custom copy
+  preserves explicit newlines and still wraps before the frame edge.
 - **Audio:** maps the source's *first* audio stream (`0:a:0`) and downmixes to
   stereo. This is deliberate — iPhone `.mov` captures carry an extra multi-channel
   spatial-audio track plus several data streams; `a:0` is the standard stereo mix.
@@ -135,13 +205,20 @@ under the 25 MiB per-asset limit):
 ## Customization & internals
 
 - The card is `assets/outro.html`, parameterized via query string
-  (`?layer=…&scale=…&brand=…&tagline=…&url=…`). Edit it to restyle; every dimension
-  is in `rem` and the script sets root font-size to `10px * scale`.
-- Entrance/animation is entirely in `ffmpeg`, orchestrated by `tools/make-outro.ts`
-  (Bun TypeScript, `import { $ } from "bun"`): each element is screenshotted as its
-  **own transparent layer** with the *others kept in place via `visibility: hidden`*
-  (so absolute positions never shift), then composited with per-layer `fade` (alpha)
-  + `overlay` (ease-out slide). Change slide distances, stagger, or easing there.
+  (`?layer=…&scale=…&brand=…&tagline=…&url=…`). Every dimension is in `rem` (the
+  plate in `em` of its headline) and the script sets root font-size to
+  `10px * scale`. Restyle it from `site/assets/arcade.css`, not by inventing a
+  third look. The faces and their OFL licences are
+  `assets/press-start-2p-latin.woff2` / `assets/OFL-PressStart2P.txt` and
+  `assets/Fredoka.ttf` / `assets/OFL-Fredoka.txt`; the marks are
+  `assets/pocketjs-mark.svg` and `assets/pocket3d-mark.svg`. When a site's mark
+  changes, copy it here; the test fails until the copies match.
+- Entrance/animation is entirely in `ffmpeg`, orchestrated by `scripts/make-outro.ts`
+  (Bun TypeScript, `import { $ } from "bun"`): each element (`bg`, `logo`,
+  `plate`, `line-N`, `url`) is screenshotted as its **own transparent layer** with
+  the *others kept in place via `visibility: hidden`* (so absolute positions never
+  shift), then composited with per-layer `fade` (alpha) + `overlay` (the stepped
+  drop of `dropIn`). Change drop distances or stagger there.
 - Keep new wrappers/tooling for this skill in Bun TypeScript — do not add `.sh`
   scripts (repo convention; see also `pocketjs-gba-imagegen`).
 - To preview just the card without a video, screenshot the template directly:
@@ -162,5 +239,6 @@ under the 25 MiB per-asset limit):
 - Do not remove the explicit sRGB-to-BT.709 conversion from the card layers when
   changing HDR handling. Retagging Chrome's SDR PNG values as HLG/PQ is not a valid
   color conversion and makes the card shift on an HDR-aware display.
-- The tagline on a very wide single line can approach the frame edge; it has
-  `max-width: 92vw` and will wrap before overflowing.
+- A long headline line can approach the frame edge; the plate has
+  `max-width: 92vw` and wraps between words before overflowing. A wrapped line
+  still enters as one layer.

@@ -1,3 +1,4 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 // Renderer contract tests — drive framework/src/renderer.ts against a MOCK HostOps that
 // records every op call, using the real solid-js/universal reconciler under
 // Bun. No JSX here (babel isn't in the loop for tests): we call the renderer
@@ -39,10 +40,12 @@ import {
   insert,
   insertNode,
   missCounters,
+  registerSprite,
   registerTexture,
   release,
   render,
   resetRendererState,
+  resetSprites,
   resetTextures,
   retain,
   runSweep,
@@ -77,12 +80,19 @@ import { rootMirror } from "../framework/src/renderer.ts";
 import {
   ActionBar,
   ActionHandler,
+  AuxiliaryPortal,
+  AuxiliarySurface,
   FocusGrid,
   Modal,
   Portal,
   Text,
   View,
 } from "../framework/src/components.ts";
+import { getAuxiliarySurfaceRoots } from "../framework/src/display.ts";
+import { ClassicButton, ClassicSheet } from "../framework/src/classic.ts";
+import { __runGestures, resetGestures, pushTouchBlock } from "../framework/src/gesture.ts";
+import { __packTouch, __setTouches, __resetTouches } from "../framework/src/touch.ts";
+import { __advanceClock, resetClock } from "../framework/src/clock.ts";
 import {
   DeepZoom,
   type DeepZoomGesture,
@@ -90,6 +100,7 @@ import {
   type TileDoc,
 } from "../framework/src/deepzoom.ts";
 import { resetPack } from "../framework/src/pak.ts";
+import { ResourceImage, pending, ready, failed, type ResourceState, type TextureResource } from "../framework/src/resource.ts";
 import { encodeImageEntry, pack } from "../framework/compiler/pak.ts";
 import {
   BTN,
@@ -191,11 +202,94 @@ function childIds(node: NodeMirror): number[] {
 let host: MockHost;
 let root: NodeMirror;
 
+test("classic buttons provide press, slide-out, disabled and cancelled feedback", () => {
+  resetGestures(); __resetTouches(); resetClock();
+  registerStyles({ "text-xs font-bold": 1 });
+  let clicked = 0, hit = 0;
+  host.ops.hitTestBounds = () => hit;
+  const [disabled, setDisabled] = createSignal(false);
+  const dispose = render(() => ClassicButton({ label: "Save", style: { width: 80, height: 24 },
+    get disabled() { return disabled(); }, onPress() { clicked++; },
+  }) as unknown as NodeMirror, root);
+  setInputRoot(root);
+  const button = root.children[0]; hit = button.id;
+  const pump = (down: boolean) => { __advanceClock(); __setTouches(down ? [__packTouch(0, 10, 10)] : []); __runGestures(); };
+  const changes = () => host.of("setProp").filter(call => call[1] === button.id && call[2] === PROP.gradFrom);
+  host.clear(); pump(true); expect(changes()).toHaveLength(1); expect(clicked).toBe(0);
+  pump(false); expect(changes()).toHaveLength(2); expect(clicked).toBe(1);
+  pump(true); hit = 0;
+  __advanceClock(); __setTouches([__packTouch(0, 100, 10)]); __runGestures();
+  pump(false); expect(clicked).toBe(1); // release outside cancels
+  hit = button.id; pump(true); setDisabled(true); pump(false); expect(clicked).toBe(1);
+  setDisabled(false); pump(true); const unblock = pushTouchBlock(); pump(false); unblock(); expect(clicked).toBe(1);
+  pump(true); pump(false); expect(clicked).toBe(2);
+  dispose(); resetGestures(); __resetTouches();
+});
+
+test("classic sheets animate natively and retain modality through close and reopen", () => {
+  resetGestures(); resetClock(); registerStyles({ "text-xs font-bold": 1, "text-xs": 2, "text-sm font-bold": 3 });
+  const [open, setOpen] = createSignal(false);
+  const modal: boolean[] = [];
+  const dispose = render(() => ClassicSheet({ get open() { return open(); }, title: "Discard?", actions: [],
+    onCancel() {}, onModalChange(value) { modal.push(value); },
+  }) as unknown as NodeMirror, root);
+  const frame = root.children[0], body = frame.children[1];
+  host.clear(); setOpen(true);
+  expect(modal).toEqual([true]);
+  expect(host.of("animate").some(c => c[1] === body.id && c[2] === PROP.translateY && c[3] === 0)).toBe(true);
+  setOpen(false); for (let i = 0; i < 4; i++) __advanceClock();
+  expect(modal).toEqual([true]);
+  setOpen(true); for (let i = 0; i < 15; i++) __advanceClock();
+  expect(modal).toEqual([true]); // stale closing deadline cannot hide a reopened sheet
+  setOpen(false); for (let i = 0; i < 12; i++) __advanceClock();
+  expect(modal).toEqual([true, false]);
+  setOpen(true); dispose();
+  expect(modal.at(-1)).toBe(false);
+  resetGestures(); resetClock();
+});
+
+test("resource images retain their layout through fallback, retry and borrowed texture replacement", () => {
+  const [state, setState] = createSignal<ResourceState<TextureResource>>(pending());
+  let skeletons = 0, frees = 0;
+  host.ops.freeTexture = () => { frees++; };
+  const dispose = render(() => ResourceImage({
+    state, style: { width: 256, height: 16, overflow: 1 },
+    fallback: () => { skeletons++; return Text({ children: "Skeleton" }); },
+    errorFallback: () => Text({ children: "Retry" }),
+  }) as unknown as NodeMirror, root);
+  const frame = root.children[0];
+  expect(skeletons).toBe(1);
+  expect(host.of("setImage")).toHaveLength(0);
+  host.clear();
+  setState(pending());
+  expect(skeletons).toBe(1);
+  // Handle zero is valid. The component never uploads or frees borrowed images.
+  setState(ready({ handle: 0, width: 256, height: 16 })); runSweep();
+  const image = frame.children[0];
+  expect(host.of("setImage")).toEqual([["setImage", image.id, 0]]);
+  host.clear();
+  setState(ready({ handle: 7, width: 256, height: 16 }));
+  expect(frame.children[0]).toBe(image);
+  expect(host.of("setImage")).toEqual([["setImage", image.id, 7]]);
+  host.clear();
+  setState(ready({ handle: 7, width: 256, height: 16 }));
+  expect(host.of("setImage")).toHaveLength(0);
+  setState(failed("offline")); runSweep();
+  expect(host.of("setText").some(call => call[2] === "Retry")).toBe(true);
+  setState(pending()); runSweep();
+  expect(skeletons).toBe(2);
+  expect(root.children[0]).toBe(frame);
+  expect(host.of("setProp").filter(call => call[1] === frame.id)).toHaveLength(0);
+  expect(host.of("uploadTexture")).toHaveLength(0);
+  dispose(); runSweep(); expect(frees).toBe(0);
+});
+
 beforeEach(() => {
   host = makeMockHost();
   installHost(host);
   resetRendererState();
   resetStyles();
+  resetSprites();
   resetTextures();
   resetPack();
   resetInput();
@@ -280,6 +374,72 @@ describe("basic mount", () => {
 });
 
 describe("<For> reorder — DOM move semantics [R]", () => {
+  test("rejects a foreign anchor before mutating either tree", () => {
+    const parent = createElement("view");
+    const other = createElement("view");
+    const node = createElement("view");
+    const anchor = createElement("view");
+    insertNode(root, parent);
+    insertNode(root, other);
+    insertNode(parent, node);
+    insertNode(other, anchor);
+    host.clear();
+
+    expect(() => insertNode(parent, node, anchor)).toThrow(
+      "PocketJS: insert anchor is not a child of parent",
+    );
+    expect(node.parent).toBe(parent);
+    expect(childIds(parent)).toEqual([node.id]);
+    expect(host.of("insertBefore", "removeChild")).toEqual([]);
+  });
+
+  test("pure reverse never anchors a node on itself (DOM pre-insertion)", () => {
+    interface Row {
+      id: number;
+    }
+    const first: Row[] = Array.from({ length: 6 }, (_, i) => ({ id: i + 1 }));
+    const [rows, setRows] = createSignal(first);
+    const byId = new Map<number, NodeMirror>();
+    const dispose = render(
+      () =>
+        comp(For, {
+          get each() {
+            return rows();
+          },
+          children: (row: Row) => {
+            const el = createElement("view");
+            byId.set(row.id, el);
+            return el;
+          },
+        }),
+      root,
+    );
+    runSweep();
+    host.clear();
+
+    setRows([...first].reverse());
+    runSweep();
+    expect(childIds(root)).toEqual(
+      [6, 5, 4, 3, 2, 1].map((id) => byId.get(id)!.id),
+    );
+    for (const call of host.of("insertBefore")) {
+      expect(call[2]).not.toBe(call[3]);
+    }
+    expect(host.of("createNode")).toEqual([]);
+    expect(host.of("destroyNode")).toEqual([]);
+
+    // Exercise the update-then-reverse shape used by the external benchmark.
+    const second = first.map((row, i) => (i === 2 ? { id: 99 } : row));
+    setRows(second);
+    runSweep();
+    setRows([...second].reverse());
+    runSweep();
+    expect(childIds(root)).toEqual(
+      [...second].reverse().map((row) => byId.get(row.id)!.id),
+    );
+    dispose();
+  });
+
   test("reorder moves nodes without duplicates and without destroys", () => {
     const [items, setItems] = createSignal(["a", "b", "c"]);
     const byLabel = new Map<string, NodeMirror>();
@@ -317,6 +477,43 @@ describe("<For> reorder — DOM move semantics [R]", () => {
       expect([a.id, b.id, c.id]).toContain(call[2] as number);
     }
     // sweep at frame end: nothing was left detached, so nothing is destroyed
+    runSweep();
+    expect(host.of("destroyNode")).toEqual([]);
+
+    dispose();
+  });
+
+  test("an adjacent swap is a move too (insertBefore(node, node) is a no-op)", () => {
+    // Solid's reconcileArrays swaps [a, b] by inserting b before a.nextSibling
+    // — which is b itself. The DOM leaves the node in place; so must we,
+    // instead of unlinking b and then failing to find it as the anchor.
+    const [items, setItems] = createSignal(["a", "b", "c"]);
+    const byLabel = new Map<string, NodeMirror>();
+
+    const dispose = render(
+      () =>
+        comp(For, {
+          get each() {
+            return items();
+          },
+          children: (item: string) => {
+            const el = createElement("view");
+            byLabel.set(item, el);
+            return el;
+          },
+        }),
+      root,
+    );
+
+    const [a, b, c] = [byLabel.get("a")!, byLabel.get("b")!, byLabel.get("c")!];
+    host.clear();
+    setItems(["b", "a", "c"]);
+    expect(childIds(root)).toEqual([b.id, a.id, c.id]);
+    expect(new Set(childIds(root)).size).toBe(3);
+    expect(host.of("createNode")).toEqual([]);
+    expect(host.of("destroyNode")).toEqual([]);
+    setItems(["b", "c", "a"]);
+    expect(childIds(root)).toEqual([b.id, c.id, a.id]);
     runSweep();
     expect(host.of("destroyNode")).toEqual([]);
 
@@ -627,6 +824,35 @@ describe("setProperty dispatch table [R]", () => {
     expect(host.of("setImage")).toEqual([["setImage", el.id, -1]]);
   });
 
+  test("sprite frameStep overrides the manifest and can be updated at runtime", () => {
+    registerSprite("spinner-atlas.svg", { handle: 41, frames: 8, cols: 4, step: 3 });
+    const overridden = createElement("image");
+    setProp(overridden, "frameStep", 6, undefined);
+    setProp(overridden, "sprite", "spinner-atlas.svg", undefined);
+    expect(host.of("setSprite")).toEqual([
+      ["setSprite", overridden.id, 41, 8, 4, 6],
+    ]);
+
+    host.clear();
+    setProp(overridden, "frameStep", 2.9, 6);
+    expect(host.of("setSprite")).toEqual([
+      ["setSprite", overridden.id, 41, 8, 4, 2],
+    ]);
+
+    host.clear();
+    setProp(overridden, "frameStep", undefined, 2.9);
+    expect(host.of("setSprite")).toEqual([
+      ["setSprite", overridden.id, 41, 8, 4, 3],
+    ]);
+
+    host.clear();
+    const fromManifest = createElement("image");
+    setProp(fromManifest, "sprite", "spinner-atlas.svg", undefined);
+    expect(host.of("setSprite")).toEqual([
+      ["setSprite", fromManifest.id, 41, 8, 4, 3],
+    ]);
+  });
+
   test("classList / bool: / prop: / unknown props are loud errors", () => {
     const el = createElement("view");
     expect(() => setProp(el, "classList", { a: true }, undefined)).toThrow(
@@ -869,23 +1095,24 @@ describe("host detection (host.ts)", () => {
     );
   });
 
-  test("resolved build contract rejects the wrong native target or ABI", () => {
+  test("resolved build contract admits another host id and rejects another ABI", () => {
     const ops = makeMockHost().ops;
     ops.__host = "vita";
-    ops.__hostAbi = 1;
+    ops.__hostAbi = POCKET_BINDING_GENERATION;
 
     expect(() =>
       assertNativeHostContract(ops, {
         target: "vita",
-        hostAbi: 1,
+        hostAbi: POCKET_BINDING_GENERATION,
       }),
     ).not.toThrow();
+    // Admission compared the device's facts; the id is provenance.
     expect(() =>
       assertNativeHostContract(ops, {
         target: "psp",
-        hostAbi: 1,
+        hostAbi: POCKET_BINDING_GENERATION,
       }),
-    ).toThrow(/target mismatch/);
+    ).not.toThrow();
     expect(() =>
       assertNativeHostContract(ops, {
         target: "vita",
@@ -894,8 +1121,21 @@ describe("host detection (host.ts)", () => {
     ).toThrow(/ABI mismatch/);
   });
 
+  test("raw native bundles reject legacy namespaces without a target plan", () => {
+    const ops = makeMockHost().ops;
+    for (let generation = 1; generation < POCKET_BINDING_GENERATION; generation++) {
+      ops.__hostAbi = generation;
+      expect(() => assertNativeHostContract(ops, null)).toThrow(/rebuild the native host/);
+    }
+    delete ops.__hostAbi;
+    expect(() => assertNativeHostContract(ops, null)).toThrow(/rebuild the native host/);
+    ops.__hostAbi = POCKET_BINDING_GENERATION;
+    expect(() => assertNativeHostContract(ops, null)).not.toThrow();
+  });
+
   test("tick-rate pairing: bundle-baked hz must match the host's declared rate", () => {
     const ops = makeMockHost().ops;
+    ops.__hostAbi = POCKET_BINDING_GENERATION;
 
     // A 60-baked bundle accepts hosts that predate __tickHz (they only ever
     // ran 60) and hosts that declare 60 — with or without a plan contract.
@@ -905,10 +1145,10 @@ describe("host detection (host.ts)", () => {
 
     // A host driving another rate is refused even when the plan matches.
     ops.__host = "vita";
-    ops.__hostAbi = 1;
+    ops.__hostAbi = POCKET_BINDING_GENERATION;
     ops.__tickHz = 120;
     expect(() =>
-      assertNativeHostContract(ops, { target: "vita", hostAbi: 1 }),
+      assertNativeHostContract(ops, { target: "vita", hostAbi: POCKET_BINDING_GENERATION }),
     ).toThrow(/tick-rate mismatch/);
 
     // A non-60 bundle (the define is read at call time — see host.ts) needs
@@ -936,6 +1176,7 @@ describe("host detection (host.ts)", () => {
     // injected/strict host (crash-on-miss on hardware + double asset feed).
     const psp = makeMockHost();
     psp.ops.__host = "psp";
+    psp.ops.__hostAbi = POCKET_BINDING_GENERATION;
     (psp.ops as HostOps & { __textures?: Record<string, number> }).__textures =
       {
         "logo.png": 0,
@@ -965,7 +1206,7 @@ describe("host detection (host.ts)", () => {
   test("target-marked native host without resource tables uses portable pak feed", () => {
     const symbian = makeMockHost();
     symbian.ops.__host = "symbian-e7-dev";
-    symbian.ops.__hostAbi = 4;
+    symbian.ops.__hostAbi = POCKET_BINDING_GENERATION;
     const g = globalThis as { ui?: HostOps; __pak?: ArrayBuffer };
     const pak = pack([
       {
@@ -1297,6 +1538,53 @@ describe("public render() (index.ts)", () => {
     dispose();
   });
 
+  test("AuxiliarySurface mounts under a host-owned independent root", () => {
+    host.ops.__auxiliarySurface = { root: 99, w: 320, h: 240 };
+    host.alive.add(99);
+    const dispose = publicRender(
+      () =>
+        View({
+          children: [
+            Text({ children: "primary" }),
+            AuxiliarySurface({ children: () => Text({ children: "auxiliary" }) }),
+          ],
+        }),
+      { ops: host.ops },
+    );
+
+    const surface = getAuxiliarySurfaceRoots();
+    expect(surface.native.id).toBe(99);
+    expect(surface.native.parent).toBeNull();
+    expect(surface.viewport).toEqual({ width: 320, height: 240 });
+    expect(surface.app.children).toHaveLength(1);
+    expect(surface.app.children[0].children).toHaveLength(1);
+    expect(rootMirror.children).toHaveLength(2);
+
+    host.clear();
+    dispose();
+    expect(host.of("destroyNode").some((call) => call[1] === 99)).toBe(false);
+  });
+
+  test("AuxiliaryPortal mounts above the independent auxiliary app layer", () => {
+    host.ops.__auxiliarySurface = { root: 99, w: 320, h: 240 };
+    host.alive.add(99);
+    const dispose = publicRender(
+      () =>
+        View({
+          children: [
+            AuxiliarySurface({ children: () => Text({ children: "app" }) }),
+            AuxiliaryPortal({ children: () => Text({ children: "overlay" }) }),
+          ],
+        }),
+      { ops: host.ops },
+    );
+
+    const surface = getAuxiliarySurfaceRoots();
+    expect(surface.app.children[0].children[0].children[0].text).toBe("app");
+    expect(surface.overlay.children[0].children[0].children[0].text).toBe("overlay");
+    dispose();
+  });
+
   test("ActionBar uses the overlay layer instead of app layout", () => {
     const dispose = publicRender(
       () =>
@@ -1611,4 +1899,34 @@ describe("public render() (index.ts)", () => {
 
     dispose();
   });
+});
+
+test("Text resource swaps one complete value and unsubscribes from superseded batches", () => {
+  function resource() {
+    let state: ResourceState<{ text: string; slot: number }> = pending();
+    const listeners = new Set<() => void>();
+    return { state: () => state, listeners, dispose() {},
+      subscribe(fn: () => void) { listeners.add(fn); return () => { listeners.delete(fn); }; },
+      publish(next: typeof state) { state = next; for (const fn of listeners) fn(); },
+    };
+  }
+  const first = resource(), second = resource(), [selected, setSelected] = createSignal(first);
+  const dispose = render(() => Text({ get resource() { return selected(); },
+    children: "must not leak unprepared children", style: { fontSlot: 0 },
+    fallback: () => Text({ children: "Loading" }), errorFallback: () => Text({ children: "Error" }),
+  }) as unknown as NodeMirror, root);
+  expect(host.of("setText").some(c => c[2] === "Loading")).toBe(true);
+  expect(host.of("setText").some(c => String(c[2]).includes("unprepared"))).toBe(false);
+  first.publish(ready({ text: "你好𠮷野", slot: 2 })); runSweep();
+  expect(host.of("setText").some(c => c[2] === "你好𠮷野")).toBe(true);
+  expect(host.of("setProp").some(c => c[2] === PROP.fontSlot && c[3] === 2)).toBe(true);
+  setSelected(second); runSweep(); host.clear();
+  expect(first.listeners.size).toBe(0);
+  first.publish(ready({ text: "stale", slot: 2 }));
+  expect(host.of("setText")).toHaveLength(0);
+  second.publish(ready({ text: "new", slot: 4 }));
+  expect(host.of("setText").some(c => c[2] === "new")).toBe(true);
+  second.publish(failed("offline")); runSweep();
+  expect(host.of("setText").some(c => c[2] === "Error")).toBe(true);
+  dispose(); expect(second.listeners.size).toBe(0);
 });

@@ -6,12 +6,12 @@ use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3};
 
 use crate::camera::Camera;
+use crate::geometry::{WorldBatchKind, WorldVertex};
 use crate::gpu::{DEPTH_FORMAT, DepthTarget, Gpu};
 use crate::hud::{ATLAS_H, ATLAS_W, Hud, HudVertex, build_font_atlas};
 use crate::model::{MaterialAlphaMode, ModelAsset, ModelInstance, ModelVertex};
 use crate::scene::Scene;
 use crate::texture::{GpuTexture, Samplers, create_rgba_texture};
-use crate::world::{WorldBatchKind, WorldVertex};
 
 fn finite_or(value: f32, fallback: f32) -> f32 {
     if value.is_finite() { value } else { fallback }
@@ -93,7 +93,7 @@ impl Renderer {
         });
 
         // --- world pipelines ---------------------------------------------
-        let world_material_layout = crate::world::WorldModel::material_layout(gpu);
+        let world_material_layout = crate::geometry::WorldModel::material_layout(gpu);
         let world_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("world.wgsl"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/world.wgsl").into()),
@@ -443,6 +443,7 @@ fn model_normal_matrix(model: Mat4) -> Mat4 {
 }
 
 pub(crate) struct ModelDraw {
+    instance_blend: bool,
     asset: std::sync::Arc<ModelAsset>,
     inst_offset: u32,
     joints_offset: u32,
@@ -680,6 +681,7 @@ impl ModelPass {
             joint_bytes.extend(std::iter::repeat_n(0u8, pad));
 
             draws.push(ModelDraw {
+                instance_blend: inst.tint[3] < 1.0,
                 asset: inst.asset.clone(),
                 inst_offset: off as u32,
                 joints_offset,
@@ -748,7 +750,8 @@ impl ModelPass {
             pass.set_index_buffer(d.asset.ibuf.slice(..), wgpu::IndexFormat::Uint32);
             let mut overlay_bound = false;
             for (pi, prim) in d.asset.primitives.iter().enumerate() {
-                if (prim.alpha_mode == MaterialAlphaMode::Blend) != blend_phase {
+                if (d.instance_blend || prim.alpha_mode == MaterialAlphaMode::Blend) != blend_phase
+                {
                     continue;
                 }
                 let pipeline = match (blend_phase, prim.double_sided) {

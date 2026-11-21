@@ -25,7 +25,7 @@ index 39e334c..92a4ecf 100644
 +#if defined(__PSP__) || defined(__vita__) || defined(__SYMBIAN32__)
  #undef CONFIG_ATOMICS
  #endif
- 
+
 @@ -2173,6 +2181,8 @@ static size_t js_def_malloc_usable_size(const void *ptr)
      return 0;
  #elif defined(__vita__)

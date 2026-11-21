@@ -1,6 +1,0 @@
-name=@NAME@
-author=PocketJS
-description=Pocket Vapor native Playdate application
-bundleID=@BUNDLE_ID@
-version=0.1.0
-buildNumber=1

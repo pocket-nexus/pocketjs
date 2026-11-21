@@ -1,0 +1,31 @@
+name: Pocket3D handheld
+# The independent PICA fixture, built with the pinned devkitARM image. The
+# portable animation and mesh crates run in test.yml.
+on:
+  pull_request:
+    paths: ['engine/pocket3d/crates/pocket3d-anim/**', 'engine/pocket3d/crates/pocket3d-mesh/**', 'engine/pocket3d/crates/pocket3d/**', 'engine/pocket3d/backends/citro3d/**', '.github/workflows/pocket3d-handheld.yml']
+  push:
+    branches: [main]
+    paths: ['engine/pocket3d/crates/pocket3d-anim/**', 'engine/pocket3d/crates/pocket3d-mesh/**', 'engine/pocket3d/crates/pocket3d/**', 'engine/pocket3d/backends/citro3d/**', '.github/workflows/pocket3d-handheld.yml']
+permissions:
+  contents: read
+concurrency:
+  group: pocket3d-handheld-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  fixture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build independent PICA fixture
+        run: >-
+          docker run --rm -v "$PWD:/repo"
+          -w /repo/engine/pocket3d/backends/citro3d/example
+          devkitpro/devkitarm@sha256:116afba8df8453961de2936ffab20dd441edf4d682856c1ec8b0e53d7ed0bbf5
+          make -j4 CAPTURE=1
+      - uses: actions/upload-artifact@v7
+        with:
+          name: pocket3d-rigid-fixture
+          path: dist/pocket3d-citro3d/rigid-skin.3dsx
+          if-no-files-found: error

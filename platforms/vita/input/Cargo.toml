@@ -1,0 +1,11 @@
+[package]
+name = "pocket-vita-input"
+version.workspace = true
+edition = "2021"
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "PocketJS vita input driver"
+
+[target.'cfg(target_os = "vita")'.dependencies]
+vitasdk-sys = { version = "0.3.3", features = ["SceCtrl_stub", "SceTouch_stub"] }

@@ -1,0 +1,65 @@
+name: Native C harness
+
+# The generated C adapter on both hosts, plus the UIKit ARMv7 compiler check
+# that Linux skips. Portable native-program contracts run in test.yml.
+
+on:
+  pull_request:
+    paths: &paths
+      - ".bun-version"
+      - ".github/workflows/native-c-harness.yml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "programs/native/**"
+      - "programs/ipodtouch4/**"
+      - "engine/guest-quickjs/**"
+      - "engine/runtime/**"
+      - "programs/sdk/archive/**"
+      - "contracts/**"
+      - "hosts/ipodtouch4-dev/**"
+      - "tools/ui-bindings.ts"
+      - "tools/test-quickjs-guest.ts"
+      - "tools/ipodtouch4*.ts"
+      - "tools/ios6-setup.ts"
+      - "tools/native-source.ts"
+      - "tools/build/toolchains/**"
+      - "tests/ipodtouch4-native.test.ts"
+  push:
+    branches: [main]
+    paths: *paths
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-c-harness-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  harness:
+    name: Generated guest and native compiler (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - name: Install the workspace stable compiler
+        run: |
+          stable=$(bun -e 'console.log((await import("./tools/build/toolchains/rust.ts")).STABLE_RUST_TOOLCHAIN)')
+          rustup toolchain install "$stable" --profile minimal
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .
+      - run: bun install --frozen-lockfile
+      - name: Generated C guest against QuickJS-NG
+        run: bun tools/test-quickjs-guest.ts
+      - name: Touch4 UIKit and pinned QuickJS ARMv7 compilation
+        if: runner.os == 'macOS'
+        run: bun test tests/ipodtouch4-native.test.ts

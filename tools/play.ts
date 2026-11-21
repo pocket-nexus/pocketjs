@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  copyFileSync,
   cpSync,
   existsSync,
   mkdirSync,
@@ -13,16 +14,16 @@ import {
 import { homedir } from "node:os";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { vitaTitleId } from "../framework/src/manifest/vita-package.ts";
-import { demoIdentity, demoManifestFor } from "./demo-identity.ts";
+import { vitaTitleId } from "../framework/compiler/vita-title-id.ts";
+import { appIdentity, appOutput } from "../framework/compiler/app-plan.ts";
+import { demoApp } from "./build/programs/handheld-common.ts";
 import { VITA_REQUIRED_SYSTEM_ASSETS } from "./vita-package.ts";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
 const HOME = homedir();
-const RELEASE_DIR = `${ROOT}hosts/vita/target/armv7-sony-vita-newlibeabihf/release`;
-const VPK = `${RELEASE_DIR}/pocketjs-vita.vpk`;
-const VPK_STAMP = `${VPK}.play.json`;
 const PLAY_DIR = `${ROOT}dist/play-vita`;
+const VPK = `${PLAY_DIR}/pocketjs-vita.vpk`;
+const VPK_STAMP = `${VPK}.play.json`;
 const PLAY_CONFIG = `${PLAY_DIR}/config.yml`;
 
 const defaultVita3kApp = [`${HOME}/Applications/Vita3K.app`, "/Applications/Vita3K.app"].find(
@@ -41,7 +42,7 @@ const sourceConfig = process.env.VITA3K_CONFIG || defaultConfig;
 function demos(): string[] {
   const root = `${ROOT}apps`;
   return readdirSync(root, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && existsSync(`${root}/${entry.name}/main.tsx`))
+    .filter((entry) => entry.isDirectory() && existsSync(`${root}/${entry.name}/pocket.host.config.ts`))
     .map((entry) => entry.name)
     .sort();
 }
@@ -50,7 +51,7 @@ function usage(message?: string): never {
   if (message) console.error(`play: ${message}\n`);
   console.error(
     "usage: bun play vita <demo> [--fullscreen] [--no-build] [--no-launch] [--framework=solid|vue-vapor|octane]\n" +
-      "       bun play ios <demo>  [ios flags — see `bun tools/ios.ts --help`]\n" +
+      "       bun play ios <demo> [--no-build] [--no-launch] [ios flags]\n" +
       `demos: ${demos().join(", ")}`,
   );
   process.exit(message ? 2 : 0);
@@ -86,7 +87,7 @@ function vpkSha256(): string {
 async function run(command: string[], label: string): Promise<void> {
   const proc = Bun.spawn(command, { cwd: ROOT, stdout: "inherit", stderr: "inherit" });
   const code = await proc.exited;
-  if (code !== 0) throw new Error(`${label} failed with exit code ${code}`);
+  if (code !== 0 || proc.signalCode) throw new Error(`${label} failed: ${proc.signalCode ?? code}`);
 }
 
 async function stopVita3K(): Promise<void> {
@@ -130,13 +131,21 @@ if (!platform || !(platform in playTargets)) usage(`unsupported platform ${platf
 if (!demoArg) usage("missing demo name");
 
 if (platform === "ios") {
-  // tools/ios.ts owns the Apple flow, its flags included (see `pocket ios`).
-  const proc = Bun.spawn([Bun.which("bun") ?? "bun", `${ROOT}tools/ios.ts`, "play", demoArg, ...args], {
-    cwd: ROOT,
-    stdout: "inherit",
-    stderr: "inherit",
-  });
-  process.exit(await proc.exited);
+  const demo = demoArg.replace(/-main$/, "");
+  if (!demos().includes(demo)) usage(`unknown demo ${demoArg}`);
+  if (args.some(arg => arg.startsWith("--framework="))) usage("--framework is the demo's app.framework in its pocket.host.config.ts");
+  const output = `${ROOT}.pocket-build/play-ios/${demo}`;
+  const bundle = `${output}/application.pkb`;
+  if (!args.includes("--no-build")) {
+    mkdirSync(output, { recursive: true });
+    await run([process.execPath, "tools/pocket.ts", "compile", "--target", "ios-dev",
+      "--config", `${ROOT}apps/${demo}/pocket.host.config.ts`, "--project-root", ROOT, "--outdir", `${output}/compiler`, "--output", bundle],
+      "iOS application compile");
+  }
+  if (!existsSync(bundle)) throw new Error(`compiled iOS bundle is missing: ${bundle}; remove --no-build and retry`);
+  await run([process.execPath, "tools/ios.ts", "play", "--bundle", bundle,
+    ...args.filter(arg => !arg.startsWith("--framework="))], "iOS simulator play");
+  process.exit(0);
 }
 
 const fullscreen = args.includes("--fullscreen");
@@ -149,8 +158,8 @@ if (unknown) usage(`unknown option ${unknown}`);
 
 const demo = demoArg.replace(/-main$/, "");
 if (!demos().includes(demo)) usage(`unknown demo ${demoArg}`);
-const identity = demoIdentity(demo);
-const titleId = vitaTitleId(identity.id);
+const application = await demoApp(demo);
+const titleId = vitaTitleId(appIdentity(application, appOutput(application)).id);
 const stagedApp = `${PLAY_DIR}/${titleId}`;
 if (!vita3k || !existsSync(vita3k)) {
   throw new Error("Vita3K not found; set VITA3K/VITA3K_APP or install ~/Applications/Vita3K.app");
@@ -159,30 +168,32 @@ if (!existsSync(sourceConfig)) {
   throw new Error(`Vita3K config not found at ${sourceConfig}; run Vita3K once or set VITA3K_CONFIG`);
 }
 
-const requestedFramework =
-  framework?.slice("--framework=".length) ||
-  (demo.endsWith("vue-vapor") ? "vue-vapor" : demo.endsWith("octane") ? "octane" : "solid");
+const requestedFramework = application.framework;
+if (framework && framework.slice("--framework=".length) !== requestedFramework) {
+  usage(`--framework differs from the demo's app.framework (${requestedFramework})`);
+}
 
 if (!noBuild) {
-  const manifest = demoManifestFor(ROOT, demo, requestedFramework) as Record<string, any>;
-  const manifestPath = `${ROOT}.pocket/play/${demo}.json`;
-  mkdirSync(dirname(manifestPath), { recursive: true });
-  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
-  const buildArgs = [
-    Bun.which("bun") ?? "bun",
-    "tools/pocket.ts",
-    "build",
-    "--target",
-    "vita",
-    "--manifest",
-    manifestPath,
-    "--project-root",
-    ROOT,
-    "--",
-    "--release",
-  ];
+  const compilerOutput = `${PLAY_DIR}/compiler/${demo}`;
+  const bundlePath = `${compilerOutput}/app.pkb`;
+  const nativeOutput = `${PLAY_DIR}/native/${demo}`;
+  console.log(`PocketJS play: compiling ${demo} for PS Vita ...`);
+  await run([
+    process.execPath, "tools/pocket.ts", "compile", "--target", "vita",
+    "--config", `${ROOT}apps/${demo}/pocket.host.config.ts`, "--project-root", ROOT,
+    "--outdir", compilerOutput, "--plan-dir", `${compilerOutput}/plans`,
+    "--output", bundlePath,
+  ], "Vita application compile");
   console.log(`PocketJS play: building ${demo} for PS Vita ...`);
-  await run(buildArgs, "Vita build");
+  await run([
+    process.execPath, "tools/pocket.ts", "build", "--target", "vita",
+    "--bundle", bundlePath, "--outdir", nativeOutput,
+  ], "Vita native build");
+  const receipt = JSON.parse(readFileSync(`${nativeOutput}/build-receipt.json`, "utf8"));
+  if (receipt.schema !== "pocket-runtime-build/1" || receipt.success !== true || typeof receipt.artifact !== "string") {
+    throw new Error("Vita native build did not produce a successful artifact receipt");
+  }
+  copyFileSync(receipt.artifact, VPK);
 }
 if (!existsSync(VPK)) throw new Error(`VPK not found at ${VPK}; remove --no-build and retry`);
 if (!noBuild) {

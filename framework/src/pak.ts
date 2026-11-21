@@ -1,8 +1,8 @@
 // QuickJS-safe .pak reader (dreamcart container v1 — constants pinned in
 // contracts/spec/spec.ts). Used by web/test hosts to feed styles.bin / font atlases /
 // images to the core through ops.loadStyles/loadFontAtlas/uploadTexture; the
-// PSP host never runs this (hosts/psp/src/pak.rs walks the pack from
-// include_bytes! before JS eval).
+// PSP feeds UI assets natively before eval; guests can read runtime data
+// from the same read-only pack through this module.
 //
 // QuickJS constraints honored (precedent: framework/src/pak.ts):
 //   - NO TextDecoder — keys are ASCII, decoded via String.fromCharCode.
@@ -15,6 +15,7 @@ import {
   PAK_MAGIC,
   PAK_VERSION,
 } from "../../contracts/spec/spec.ts";
+import { utf8ToString } from "./bytes.ts";
 
 interface Entry {
   off: number; // blob offset from pack start
@@ -101,8 +102,8 @@ export function entries(prefix = ""): string[] {
   return out;
 }
 
-/** Raw bytes of a blob as a fresh Uint8Array (copy); throws on a missing key. */
-export function get(key: string): Uint8Array {
+/** Raw bytes (or a bounded byte range) as a fresh copy; throws if absent. */
+export function get(key: string, start = 0, end?: number): Uint8Array {
   ensureLoaded();
   const e = map ? map.get(key) : undefined;
   if (!e) {
@@ -113,7 +114,10 @@ export function get(key: string): Uint8Array {
     );
   }
   // .slice() copies into a fresh, offset-0, length-exact ArrayBuffer.
-  return bytes!.slice(e.off, e.off + e.len);
+  const stop = end ?? e.len;
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(stop) || start < 0 || stop < start || stop > e.len)
+    throw new RangeError("pak: invalid byte range");
+  return bytes!.slice(e.off + start, e.off + stop);
 }
 
 /** Advisory element dtype (spec PAK_DTYPE) of a blob; throws if absent. */
@@ -122,4 +126,9 @@ export function dtypeOf(key: string): number {
   const e = map ? map.get(key) : undefined;
   if (!e) throw new Error("pak: missing key " + key);
   return e.dtype;
+}
+
+/** Decode a runtime data entry as UTF-8, including on QuickJS hosts. */
+export function getText(key: string): string {
+  return utf8ToString(get(key));
 }

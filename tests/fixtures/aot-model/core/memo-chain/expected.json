@@ -1,0 +1,52 @@
+{
+  "state": {
+    "count": 4,
+    "m1": 5,
+    "m2": 10,
+    "result": 10
+  },
+  "writes": [
+    {
+      "name": "count",
+      "value": 4,
+      "changed": true
+    },
+    {
+      "name": "result",
+      "value": 10,
+      "changed": true
+    }
+  ],
+  "operations": [
+    {
+      "kind": "set",
+      "name": "count",
+      "value": 4,
+      "changed": true
+    },
+    {
+      "kind": "memo",
+      "name": "m1",
+      "value": 5,
+      "changed": true,
+      "mode": "demand"
+    },
+    {
+      "kind": "memo",
+      "name": "m2",
+      "value": 10,
+      "changed": true,
+      "mode": "demand"
+    },
+    {
+      "kind": "set",
+      "name": "result",
+      "value": 10,
+      "changed": true
+    }
+  ],
+  "work": {
+    "demandMemos": 2,
+    "scheduledMemos": 2
+  }
+}

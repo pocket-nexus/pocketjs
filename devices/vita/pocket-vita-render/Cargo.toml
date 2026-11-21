@@ -1,0 +1,19 @@
+[package]
+name = "pocket-vita-render"
+edition = "2021"
+description = "GXM DrawList renderer with owned submissions and bounded texture caches"
+
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+pocket-drivers = { workspace = true, default-features = true }
+pocket-spec = { workspace = true, default-features = true }
+pocket-render = { workspace = true, default-features = true }
+
+[target.'cfg(target_os = "vita")'.dependencies]
+pocket-vita-gxm = { workspace = true, default-features = true }
+vita2d-sys = "0.1.1"
+vitasdk-sys = { version = "0.3.3", features = ["SceGxm_stub", "SceDisplay_stub", "SceSysmem_stub"] }

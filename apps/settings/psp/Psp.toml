@@ -1,5 +1,5 @@
 # XMB metadata for the PocketJS Settings EBOOT. tools/psp.ts copies this to
-# hosts/psp/Psp.toml when building this demo (any framework); cargo-psp packs
+# programs/psp/Psp.toml when building this demo (any framework); cargo-psp packs
 # it into PARAM.SFO / ICON0 / PIC1.
 # Regenerate the art with: bun tools/gen-demo-covers.ts settings
 title = "PocketJS Settings"

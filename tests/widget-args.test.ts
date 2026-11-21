@@ -1,3 +1,4 @@
+import { loadHostConfig } from "../tools/profile-resolver.ts";
 import { describe, expect, test } from "bun:test";
 import {
   STAGE_HOST_ABI,
@@ -99,7 +100,7 @@ describe("widget wrapper arguments", () => {
   test("selects the iPod stage defaults and consumes only its wrapper flag", () => {
     expect(parseWidgetArgs(["--stage", "ipod", "--auto-quit", "5"])).toEqual({
       stage: "ipod",
-      app: "ipod-nano-main",
+      app: "ipodnano-hero-main",
       proof: false,
       pass: ["--auto-quit", "5"],
     });
@@ -122,10 +123,10 @@ describe("widget wrapper arguments", () => {
 
   test("isolates concurrent build plans by stage and app", () => {
     const psp = stagePlanPath("psp", "hero-main");
-    const ipod = stagePlanPath("ipod", "ipod-nano-main");
+    const ipod = stagePlanPath("ipod", "ipodnano-hero-main");
     expect(psp).not.toBe(ipod);
     expect(psp.endsWith("/psp-hero-main.plan.json")).toBe(true);
-    expect(ipod.endsWith("/ipod-ipod-nano-main.plan.json")).toBe(true);
+    expect(ipod.endsWith("/ipod-ipodnano-hero-main.plan.json")).toBe(true);
     expect(stagePlanPath("ipod", "nested/demo-main").endsWith("/ipod-nested_demo-main.plan.json"))
       .toBe(true);
   });
@@ -144,10 +145,12 @@ describe("widget wrapper arguments", () => {
   });
 });
 
-describe("Pocket Stage manifest admission", () => {
+/** The `app` section of a committed application's host config. */
+const appOf = async (app: string) => (await loadHostConfig(new URL(`../apps/${app}/pocket.host.config.ts`, import.meta.url).pathname)).value.app;
+
+describe("Pocket Stage application resolution", () => {
   test("resolves a fixed PSP-shaped app as an embedded target", async () => {
-    const manifest = await Bun.file(new URL("../pocket.json", import.meta.url)).json();
-    const plan = resolveStageBuildPlan(manifest);
+    const plan = resolveStageBuildPlan(await appOf("hero"));
     expect(plan.target).toEqual({ id: STAGE_TARGET_ID, hostAbi: STAGE_HOST_ABI });
     expect(plan.viewport).toEqual({
       logical: [480, 272],
@@ -159,22 +162,17 @@ describe("Pocket Stage manifest admission", () => {
   });
 
   test("rejects a dynamic-only app before the native host starts", async () => {
-    const manifest = await Bun.file(
-      new URL("../apps/note/pocket.json", import.meta.url),
-    ).json();
-    expect(() => resolveStageBuildPlan(manifest)).toThrow("fixed screen");
+    const note = await appOf("note");
+    expect(() => resolveStageBuildPlan(note)).toThrow("fixed screen");
   });
 
   test("reads the iPod profile display and admits its 176x132 app", async () => {
     const stage = widgetStageConfig("ipod");
-    expect(stage.defaultApp).toBe("ipod-nano-main");
+    expect(stage.defaultApp).toBe("ipodnano-hero-main");
     expect(stage.profile?.endsWith("/assets/ipod-nano-2/profile.json")).toBe(true);
     expect(stage.display).toEqual({ logicalSize: [176, 132], rasterDensity: 1 });
 
-    const manifest = await Bun.file(
-      new URL("../apps/ipod-nano/pocket.json", import.meta.url),
-    ).json();
-    const plan = resolveStageBuildPlan(manifest, stage.display);
+    const plan = resolveStageBuildPlan(await appOf("ipodnano-hero"), stage.display);
     expect(plan.target).toEqual({ id: STAGE_TARGET_ID, hostAbi: STAGE_HOST_ABI });
     expect(plan.viewport).toEqual({
       logical: [176, 132],

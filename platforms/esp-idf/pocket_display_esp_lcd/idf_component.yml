@@ -1,0 +1,5 @@
+version: "0.1.0"
+description: "PocketJS RGB565 SPI/I80 GRAM display output"
+dependencies:
+  idf: ">=6.0,<6.3"
+  pocket-nexus/pocket_runtime: "0.1.0"

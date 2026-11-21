@@ -1,28 +1,14 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
-import { Text, View } from "@pocketjs/framework/vue-vapor/components";
+import { ActionHandler, AxisHandler, Text, View } from "@pocketjs/framework/vue-vapor/components";
+import { BTN } from "@pocketjs/framework/vue-vapor/input";
+import { provide } from "vue";
+import { count, features, theme, enabledCount, toggleFeature, adjustCount, resetCount } from "./app";
 import FeatureCard from "./FeatureCard.vue";
+import FeatureList from "./FeatureList.vue";
 import FeatureToggle from "./FeatureToggle.vue";
 import ModelButton from "./ModelButton.vue";
 
-interface Feature {
-  id: string;
-  label: string;
-  enabled: boolean;
-}
-
-const count = ref(0);
-const features = ref<Feature[]>([
-  { id: "model", label: "MODEL", enabled: true },
-  { id: "for", label: "V-FOR", enabled: true },
-  { id: "slots", label: "SLOTS", enabled: true },
-]);
-const enabledCount = computed(() => features.value.filter((feature) => feature.enabled).length);
-
-function toggleFeature(id: string): void {
-  const feature = features.value.find((candidate) => candidate.id === id);
-  if (feature) feature.enabled = !feature.enabled;
-}
+provide("theme", theme);
 </script>
 
 <template>
@@ -30,10 +16,12 @@ function toggleFeature(id: string): void {
     debug-name="VueSfcLab"
     class="w-full h-full flex-col gap-2 p-4 bg-gradient-to-b from-slate-50 to-slate-100"
   >
+    <ActionHandler :button="BTN.CROSS" :active="count !== 0" latched @press="resetCount()" />
+    <AxisHandler axis="primary" @delta="adjustCount($event)" />
     <View class="flex-row items-center justify-between">
       <View class="flex-col">
         <Text class="text-lg text-slate-950 font-bold">Vue SFC Feature Lab</Text>
-        <Text class="text-xs text-slate-500">official template syntax · PocketJS Vapor</Text>
+        <Text class="text-xs text-slate-500">official template syntax · MicroTS</Text>
       </View>
       <Text class="text-xs text-blue-600 font-bold">{{ enabledCount }}/3 ON</Text>
     </View>
@@ -70,15 +58,15 @@ function toggleFeature(id: string): void {
       </template>
     </FeatureCard>
 
-    <View class="flex-row gap-2">
-      <template v-for="feature in features" :key="feature.id">
+    <FeatureList :items="features">
+      <template #row="{ item: feature }">
         <FeatureToggle
           :label="feature.label"
           :enabled="feature.enabled"
           @toggle="toggleFeature(feature.id)"
         />
       </template>
-    </View>
+    </FeatureList>
 
     <View class="flex-row items-center justify-between">
       <View class="flex-row gap-2">
@@ -90,7 +78,7 @@ function toggleFeature(id: string): void {
           {{ index + 1 }}.{{ feature.label }}
         </Text>
       </View>
-      <Text class="text-xs text-slate-400">→ focus · ○ activate</Text>
+      <Text class="text-xs text-slate-400">→ focus · ○ activate · × reset</Text>
     </View>
   </View>
 </template>

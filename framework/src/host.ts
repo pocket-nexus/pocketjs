@@ -17,9 +17,13 @@ import {
   VALUE_KIND,
   type PropName,
 } from "../../contracts/spec/spec.ts";
+import type { AxisDelta } from "./relative-axis.ts";
+import type { MotionState } from "./motion.ts";
+import type { TextEventRecord } from "./text-input.ts";
+import { POCKET_BINDING_GENERATION } from "../../contracts/spec/binding-generation.ts";
 
-// Replaced by tools/build.ts for manifest-driven builds. `typeof` keeps
-// legacy/test bundles valid until they opt into a ResolvedBuildPlan.
+// Replaced by tools/build.ts. A raw bundle has no target restriction but uses
+// the same generated UI binding as a manifest-driven bundle.
 declare const __POCKET_TARGET__: string;
 declare const __POCKET_HOST_ABI__: number;
 // Replaced by tools/build.ts in EVERY build (default 60, `--hz` declares
@@ -37,7 +41,7 @@ export interface BuildHostContract {
  *  node id 0 means "none" (anchor 0 = append, setFocus 0 = clear). Texture
  *  handles have operation-specific 0-based or generation-tagged contracts. */
 export interface HostOps {
-  /** type: spec NODE_TYPE (0 view, 1 text, 2 image) → new node id. */
+  /** type: spec NODE_TYPE (0 view, 1 text, 2 image) → node id. */
   createNode(type: number): number;
   /** Destroys the whole subtree; frees anim tracks; clears focus if inside. */
   destroyNode(id: number): void;
@@ -86,6 +90,8 @@ export interface HostOps {
     delayMs: number,
   ): number;
   cancelAnim(animId: number): void;
+  /** Drain [[trackId, reason]] from core; reasons: ended=0, replaced=1, dropped=2. */
+  takeAnimationCompletions?(): string;
   /** 0 clears focus. Applies the `focus:` style variant natively. */
   setFocus(idOr0: number): void;
   /** Set/clear the `active:` pressed variant natively (0/1 int; stale ids
@@ -103,6 +109,25 @@ export interface HostOps {
    *  their box — the touch hit fact resolver's query form. The gesture layer
    *  only calls it when the host delivers no per-contact fact (frame() arg 4). */
   hitTestBounds?(x: number, y: number): number;
+  /** Auxiliary-surface twins (spec ops 45–46). Present with
+   * display.auxiliary; coordinates belong to its logical viewport. */
+  hitTestAuxiliary?(x: number, y: number): number;
+  hitTestBoundsAuxiliary?(x: number, y: number): number;
+
+  // -- 2D bodies (spec ops 52..56, ui.physics; contracts/spec/physics.ts).
+  //    Present together or not at all; @pocketjs/framework/physics checks. ---
+  /** Create a world, body, collider, zone or emitter from little-endian f64
+   *  [key, value] pairs → handle, 0 when refused. */
+  physicsCreate?(kind: number, params: ArrayBuffer): number;
+  /** Apply little-endian f64 [handle, cmd, argc, arg*] command records. */
+  physicsApply?(records: ArrayBuffer): void;
+  /** Destroy a physics object; bodies and emitters release their views. */
+  physicsDestroy?(handle: number): void;
+  /** Drain the events the ticks since the last drain produced, as
+   *  little-endian f64 records; undefined when there are none. */
+  physicsEvents?(): ArrayBuffer | undefined;
+  /** Picks and body state reads (PHYSICS_QUERY). */
+  physicsQuery?(query: number, handle: number, a?: number, b?: number, c?: number, d?: number): number;
   /** Bind the cursor sprite: an uploaded texture drawn topmost every frame,
    *  offset by its hotspot; never laid out, never hit-tested. tex < 0 hides
    *  it; w/h <= 0 draw at the texture's own pixel size. */
@@ -119,15 +144,28 @@ export interface HostOps {
   loadStyles?(buf: Uint8Array): void;
   /** web/test hosts only — one call per baked font atlas blob. */
   loadFontAtlas?(buf: Uint8Array): void;
+  /** Bounded external glyph cache. These ops perform no filesystem work. */
+  fontStreamConfigure?(descriptor: Uint8Array): boolean;
+  fontStreamRequests?(): string;
+  fontStreamCommit?(glyphs: Uint8Array): number;
+  fontStreamStats?(): string;
+  /** PFB1 batch lease: 1 ready, 0 pending, -1 missing, -2 budget, -3 stale. */
+  fontStreamBatch?(descriptor: Uint8Array): number;
+  /** Arm a capture of the text runs painted inside node `root` (0: the
+   *  whole surface) on the next draw of `surface` (0 primary, 1 auxiliary).
+   *  A system layer reads a screen this way. */
+  captureTexts?(surface: number, root: number): boolean;
+  /** The last capture: one run per line, "x,y,w,h", a tab, the text. */
+  capturedTexts?(surface: number): string;
   /** JS-side convenience; layout measures natively. → width in px. */
   measureText(str: string, fontSlot: number): number;
   /** Soft-wrap break columns for ONE line under maxW px (spec op 43):
    *  ascending UTF-16 code-unit indices, empty = the line fits. The engine
    *  computes greedy word wrap over the same provider that measures and
    *  paints the slot; native-text backends may install the host text
-   *  system's wrapper (gpui LineWrapper) whose positions win. Optional:
-   *  hosts that predate it — apps fall back to the same greedy rules over
-   *  measureText (apps/desk98/notepad.ts wrapLine, parity-tested). */
+   *  system's wrapper whose positions win. Optional:
+   *  hosts that predate it — apps fall back to matching greedy rules over
+   *  measureText. */
   wrapText?(str: string, fontSlot: number, maxW: number): number[];
 
   // -- streamed textures (spec ops 23..25) — deep-zoom tile canvases. Native
@@ -172,6 +210,13 @@ export interface HostOps {
   /** Stop audio, close the stream, free the plane. */
   videoClose?(): void;
 
+  // -- text sessions. Optional: a host whose keyboard is somewhere else (a
+  //    handheld's lower panel, a system keyboard) shows it while a text
+  //    field's keyboard session is open and sends input.text events; the
+  //    on-screen keyboard's controller calls it (osk-controller.ts). ----
+  /** A text field's keyboard session opened (true) or closed (false). */
+  textSession?(open: boolean): void;
+
   // -- DevTools ops (spec ops 18..22, docs/DEVTOOLS.md). Optional: debug-only,
   //    default-off; hosts that predate them (e.g. pocket-mod) simply lack
   //    them and the shim feature-detects. ---------------------------------
@@ -186,31 +231,39 @@ export interface HostOps {
   debugPause?(on: boolean | number): void;
   /** Arm exactly one tick while paused. */
   debugStep?(): void;
-  /** PSP mailbox transport (hosts/psp/src/dbg.rs); absent elsewhere. */
+  /** Native DevTools transport (PSP mailbox or paired 3DS TCP connection). */
   __dbgActive?(): boolean;
+  /** Whether a DevTools client is connected now. Hosts without it keep
+   *  sending snapshots whenever the transport exists. */
+  __dbgConnected?(): boolean;
   __dbgPoll?(): string | undefined;
   __dbgSend?(line: string): void;
-  /** PSP on-demand screenshot: dump the displayed framebuffer to
-   *  pocketjs-dbg/shot.raw (bridge converts to PNG). → success. */
+  /** One console line of the guest for the host's own log path, whether a
+   *  panel listens or not. */
+  __dbgLog?(level: string, text: string): void;
+  /** On-demand native screenshot. The host transports bulk pixels outside
+   *  the JSON control channel and its bridge converts them to PNG. */
+  __dbgShot?(): boolean;
   /** OP.debugStats — one JSON snapshot of device diagnostic counters
    *  (audio/vid/svc) plus build identity (app output name + FNV-1a64 of the
    *  embedded js+pak). Hosts without counters omit the op; the devtools
    *  "stats" message replies with data: null then. */
   debugStats?(): string;
-  __dbgShot?(): boolean;
 
-  // -- app switching (spec ops 39..41, docs/LAUNCHER.md). Optional: only
-  //    multi-app hosts (the launcher EBOOT, hosts/sim's launcher runner)
-  //    implement them; @pocketjs/framework/launcher feature-detects and the
-  //    launcher app degrades to its empty state elsewhere. -----------------
-  /** OP.appTable — JSON { apps: [{output, id, title}], current, resume }. */
+  // -- applications (spec ops 39, 40, 41 and 51). Reserved for a product
+  //    host that runs several applications and switches between them; no
+  //    host in this repository provides them. pocket-nexus/pocket-shell
+  //    implements them and defines their semantics. A guest tests for each
+  //    one before it calls it. ---------------------------------------------
+  /** OP.appTable — JSON: the host's applications and the running one. */
   appTable?(): string;
-  /** OP.appLaunch — request a whole-guest switch to `output` after the
-   *  current frame presents. → 1 scheduled, 0 unknown output. */
+  /** OP.appLaunch — request a switch to `output`. → 1 scheduled, 0 not. */
   appLaunch?(output: string): number;
-  /** OP.appShot — texture handle of the SELECT summon's frozen frame
-   *  (256×128 PSM_8888), -1 when none was captured. */
+  /** OP.appShot — texture handle of the frame the host captured from the
+   *  previous application, -1 when there is none. */
   appShot?(): number;
+  /** OP.appClose — request that the host close `output`. → 1 requested, 0 not. */
+  appClose?(output: string): number;
   /**
    * Optional host-owned acceptance sink. Applications report a completed,
    * user-visible action; hosts that do not collect hardware receipts omit it.
@@ -219,15 +272,17 @@ export interface HostOps {
   __reportAppAction?(name: string, value: number): void;
   /** Framework target/profile identity (for example "psp" or "vita"). */
   __host?: string;
-  /** Version of the JS/native HostOps ABI implemented by this namespace. */
+  /** Generated UI binding generation, independent of the target/profile id. */
   __hostAbi?: number;
   /** Ticks per second of virtual time the host drives this realm at. Absent
    *  means the spec default 60 — hosts that predate per-realm rates only
    *  ever ran 60. Bundles bake their rate (`--hz`) and refuse another. */
   __tickHz?: number;
+  /** Host-created auxiliary UI root and target-owned logical viewport. */
+  __auxiliarySurface?: { readonly root: number; readonly w: number; readonly h: number };
 }
 
-/** Desktop hosts publish their logical UI size as `ui.__viewport` (the core
+/** Resizable hosts publish their logical UI size as `ui.__viewport` (the core
  *  is resized to it at mount); console hosts omit it — the spec screen is
  *  the viewport. One accessor so every consumer reads the same contract. */
 export function hostViewport(ops: HostOps): { w: number; h: number } | null {
@@ -235,6 +290,32 @@ export function hostViewport(ops: HostOps): { w: number; h: number } | null {
     (ops as HostOps & { __viewport?: { w: number; h: number } }).__viewport ??
     null
   );
+}
+
+/** Subscribers to the logical viewport size (`onViewport`). */
+const viewportListeners = new Set<(w: number, h: number) => void>();
+
+/**
+ * Tell app code that the logical viewport is now `w` × `h`. Each framework
+ * entry calls this at the end of its `resizeViewport`, after the root layers
+ * and `ui.__viewport` carry the new size, so a listener that lays out from
+ * `hostViewport` reads the size it was called with.
+ */
+export function publishViewport(w: number, h: number): void {
+  for (const listener of [...viewportListeners]) listener(w, h);
+}
+
+/**
+ * Call `listener` with the new logical size on every live-viewport resize.
+ * Returns the function that removes it. A host without
+ * `display.viewport.live` never calls it: the size an app mounted at is the
+ * size it keeps.
+ */
+export function onViewport(listener: (w: number, h: number) => void): () => void {
+  viewportListeners.add(listener);
+  return () => {
+    viewportListeners.delete(listener);
+  };
 }
 
 export interface Host {
@@ -252,13 +333,16 @@ let current: Host | null = null;
 export function embeddedBuildHostContract(): BuildHostContract | null {
   const target = typeof __POCKET_TARGET__ === "string" ? __POCKET_TARGET__ : "";
   const hostAbi =
-    typeof __POCKET_HOST_ABI__ === "number" ? __POCKET_HOST_ABI__ : 0;
-  return target && hostAbi > 0 ? { target, hostAbi } : null;
+    typeof __POCKET_HOST_ABI__ === "number" ? __POCKET_HOST_ABI__ : POCKET_BINDING_GENERATION;
+  if (hostAbi !== POCKET_BINDING_GENERATION) throw new Error(`PocketJS: bundle binding generation ${hostAbi} is unsupported; rebuild for ${POCKET_BINDING_GENERATION}`);
+  return target ? { target, hostAbi } : null;
 }
 
-/** Fail before mounting when a bundle was packaged with the wrong native
- *  host, or baked for a tick rate the host does not drive. The rate check
- *  runs for every native mount — plan-less bundles bake a rate too. */
+/** Fail before mounting when a bundle was packaged for another binding
+ *  generation, or baked for a tick rate the host does not drive. The rate
+ *  check runs for every native mount — plan-less bundles bake a rate too.
+ *  The host's profile id is not compared: device admission decides which
+ *  hosts run a package (contracts/spec/admission.ts). */
 export function assertNativeHostContract(
   ops: HostOps,
   expected: BuildHostContract | null = embeddedBuildHostContract(),
@@ -278,6 +362,12 @@ export function assertNativeHostContract(
           "a bundle only runs correctly at the rate it was built with (`--hz`), like glyphs at their density",
     );
   }
+  if (expected && expected.hostAbi !== POCKET_BINDING_GENERATION) {
+    throw new Error(`PocketJS: native host ABI mismatch (bundle binding generation ${expected.hostAbi} is unsupported; rebuild for ${POCKET_BINDING_GENERATION})`);
+  }
+  if (ops.__hostAbi !== POCKET_BINDING_GENERATION) {
+    throw new Error(`PocketJS: native host ABI mismatch (bundle=${POCKET_BINDING_GENERATION}, host=${ops.__hostAbi ?? "missing"}); rebuild the native host`);
+  }
   if (!expected) return;
   if (typeof ops.__host !== "string") {
     throw new Error(
@@ -285,16 +375,8 @@ export function assertNativeHostContract(
         "contracts — add __host/__hostAbi to its ui namespace (see framework/src/host.ts HostOps)",
     );
   }
-  if (ops.__host !== expected.target) {
-    throw new Error(
-      `PocketJS: native target mismatch (bundle=${expected.target}, host=${ops.__host})`,
-    );
-  }
-  if (ops.__hostAbi !== expected.hostAbi) {
-    throw new Error(
-      `PocketJS: native host ABI mismatch (bundle=${expected.hostAbi}, host=${ops.__hostAbi ?? "missing"})`,
-    );
-  }
+  // The device admitted this package against its profile facts; the host's
+  // profile id is provenance and need not equal the compiled one.
 }
 
 /**
@@ -302,14 +384,10 @@ export function assertNativeHostContract(
  * QuickJS).
  * Throws when neither exists — PocketJS cannot run without a native tree.
  *
- * A namespace is NATIVE when it self-identifies with `__host` (platform
- * contracts) — or, for hosts built before contracts existed (pocket-shell,
- * the iOS fork, shipped EBOOTs), when it carries `__textures`, which only
- * native ffi layers ever set. Those legacy hosts stay hosts/psp/non-strict with
- * target "unknown"; a bundle carrying an embedded contract refuses them with
- * an actionable migration error (assertNativeHostContract). Web/wasm
- * adapters publish `globalThis.ui` too but set neither marker and stay
- * strict-injected, exactly as before.
+ * A namespace is native when it self-identifies with `__host` or carries
+ * native resource handles in `__textures`. Both paths require the current
+ * binding generation. A low-level injected HostOps object has no native
+ * marker and stays strict.
  */
 export function detectHost(injected?: HostOps): Host {
   const native = (globalThis as { ui?: HostOps & { __textures?: unknown } }).ui;
@@ -366,6 +444,13 @@ export function getOps(): HostOps {
   return getHost().ops;
 }
 
+/** The active host's ops, or null before render() installed one: for a
+ *  controller that works without a host (the keyboard session in a unit
+ *  test) and asks the host for an optional service. */
+export function peekOps(): HostOps | null {
+  return current?.ops ?? null;
+}
+
 const APP_ACTION_NAME = /^[a-z][a-z0-9_.-]{0,62}$/;
 
 /**
@@ -391,16 +476,29 @@ export function reportAppAction(name: string, value: number): void {
 // Frame hookup
 // ---------------------------------------------------------------------------
 // Every host drives frames the same way: once per vblank/rAF tick it calls
-// `globalThis.frame(buttons, analog?, touches?)` with the PSP button bitmask (spec BTN)
+// `globalThis.frame(buttons, analog?, touches?, hits?, touchSurfaces?, rightAnalog?, axisDeltas?, motion?)` with the
+// PSP button bitmask (spec BTN)
 // and, when the host has an analog stick, the packed nub value
 // (x << 8 | y, each axis 0..255, 128 = center — spec ANALOG_CENTER). Hosts
 // without a stick pass one argument; the runtime defaults to center, so every
 // pre-analog host, tape and golden is unchanged. index.ts composes input
 // edge-detection + the renderer's end-of-frame sweep into that entry point
-// via installFrameHandler.
+// via installFrameHandler. `motion` is the newest fused estimate the host's
+// motion driver published since the previous frame (contracts/spec/motion.ts);
+// null or absent means none, and a frame argument replaces a queued estimate.
 
 export function installFrameHandler(
-  fn: (buttons: number, analog?: number, touches?: readonly number[]) => void,
+  fn: (
+    buttons: number,
+    analog?: number,
+    touches?: readonly number[],
+    hits?: readonly number[],
+    touchSurfaces?: readonly number[],
+    rightAnalog?: number,
+    axisDeltas?: readonly AxisDelta[],
+    motion?: MotionState | null,
+    text?: readonly TextEventRecord[],
+  ) => void,
 ): void {
   (
     globalThis as {
@@ -408,6 +506,12 @@ export function installFrameHandler(
         buttons: number,
         analog?: number,
         touches?: readonly number[],
+        hits?: readonly number[],
+        touchSurfaces?: readonly number[],
+        rightAnalog?: number,
+        axisDeltas?: readonly AxisDelta[],
+        motion?: MotionState | null,
+        text?: readonly TextEventRecord[],
       ) => void;
     }
   ).frame = fn;
@@ -441,15 +545,15 @@ export function installResizeViewportHook(
 // Prop value encoding
 // ---------------------------------------------------------------------------
 
-/** Parse '#rgb' | '#rrggbb' | '#rrggbbaa' (web RGB order) into u32 ABGR. */
+/** Parse '#rgb' | '#rgba' | '#rrggbb' | '#rrggbbaa' into u32 ABGR. */
 export function parseHexColor(s: string): number {
   let hex = s.slice(1);
-  if (hex.length === 3) {
-    hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
+  if (hex.length === 3 || hex.length === 4) {
+    hex = [...hex].map(character => character + character).join("");
   }
   if (hex.length !== 6 && hex.length !== 8) {
     throw new Error(
-      `PocketJS: bad color '${s}' (expected #rgb/#rrggbb/#rrggbbaa)`,
+      `PocketJS: bad color '${s}' (expected #rgb/#rgba/#rrggbb/#rrggbbaa)`,
     );
   }
   // Full-string validation: parseInt would silently accept a valid PREFIX

@@ -1,0 +1,20 @@
+{
+  "state": {
+    "result": 8
+  },
+  "writes": [
+    {
+      "name": "result",
+      "value": 8,
+      "changed": true
+    }
+  ],
+  "operations": [
+    {
+      "kind": "set",
+      "name": "result",
+      "value": 8,
+      "changed": true
+    }
+  ]
+}

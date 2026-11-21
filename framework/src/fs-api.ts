@@ -23,8 +23,8 @@
 // Like db (and unlike audio), absence does NOT degrade to a no-op: file
 // code that silently drops writes is a corruption bug, not a missing
 // enhancement. Every entry point throws where `globalThis.fs` is
-// unmounted — declare `data.fs` in pocket.json `requires` so admission
-// catches it first.
+// unmounted — list `data.fs` in the host config's `app.features` and build
+// for hosts that provide it; `hasFeature("data.fs")` is false elsewhere.
 
 import {
   FS_BLOB_KEY,
@@ -67,7 +67,7 @@ export function fsHost(): FsOps | null {
 function host(): FsOps {
   const ops = fsHost();
   if (!ops) {
-    throw new Error("fs: globalThis.fs is not mounted — declare `data.fs` in pocket.json requires");
+    throw new Error("fs: globalThis.fs is not mounted — list `data.fs` in app.features and build for a host that provides it");
   }
   return ops;
 }

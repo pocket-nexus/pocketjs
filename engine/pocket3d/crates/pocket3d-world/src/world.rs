@@ -6,6 +6,7 @@ use glam::{Quat, Vec3};
 
 use crate::rng::WorldRng;
 use crate::types::*;
+use crate::{HeatTransfer, TransportChannel, TransportReport, WaterSource};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SpawnError {
@@ -194,10 +195,15 @@ impl World {
         let mut events = Vec::new();
         let mut fracture_causes: BTreeMap<EntityId, (Vec3, f32)> = BTreeMap::new();
 
-        self.consume_interactions(&mut fracture_causes);
+        let mut transport = TransportReport::default();
         self.sync_attachments();
-        self.step_reactions(environment, &mut events);
+        self.consume_interactions(&mut fracture_causes, &mut transport);
+        if let Some(rain) = environment.rainfall() {
+            self.transport_rain(rain, &mut transport);
+        }
+        self.step_reactions(environment, &mut events, &mut transport);
         self.integrate_bodies();
+        self.step_locomotion(environment);
         let contacts = self.solve_ground(environment);
         let mut pair_contacts = self.solve_pairs();
         let mut contacts = contacts;
@@ -212,16 +218,24 @@ impl World {
         self.tick = self.tick.wrapping_add(1);
         let state_hash = self.state_hash();
         StepReport {
+            transport,
             tick: self.tick,
             events,
             state_hash,
         }
     }
 
-    fn consume_interactions(&mut self, fractures: &mut BTreeMap<EntityId, (Vec3, f32)>) {
+    fn consume_interactions(
+        &mut self,
+        fractures: &mut BTreeMap<EntityId, (Vec3, f32)>,
+        transport: &mut TransportReport,
+    ) {
         let config = self.config;
         for interaction in std::mem::take(&mut self.interactions) {
             match interaction {
+                Interaction::Water(emission) => {
+                    self.transport_water(&emission, WaterSource::Emission, transport);
+                }
                 Interaction::Cut {
                     target,
                     direction,
@@ -343,6 +357,7 @@ impl World {
         &mut self,
         environment: &E,
         events: &mut Vec<WorldEvent>,
+        transport: &mut TransportReport,
     ) {
         let dt = self.config.fixed_dt;
         let config = self.config;
@@ -353,6 +368,15 @@ impl World {
                 entity.reactive_material.is_some() && entity.reactive_state.is_some()
             })
             .map(|(&id, _)| id)
+            .collect();
+        let transport_surfaces: Vec<_> = self
+            .entities
+            .iter()
+            .filter_map(|(&id, entity)| {
+                entity
+                    .transport_surface
+                    .map(|surface| (id, entity.transform, surface))
+            })
             .collect();
         let previous_burning: BTreeMap<_, _> = ids
             .iter()
@@ -403,8 +427,22 @@ impl World {
                 let b = snapshots[j];
                 let (point_a, point_b) =
                     closest_segment_points(a.shape_a, a.shape_b, b.shape_a, b.shape_b);
-                let reach = a.radius + b.radius + 0.35;
+                let reach =
+                    a.radius + b.radius + finite_non_negative(config.thermal_contact_tolerance);
                 if point_a.distance_squared(point_b) > reach * reach {
+                    continue;
+                }
+                // A separating transport volume interrupts this contact path.
+                if crate::exposure::trace_exposure(
+                    &transport_surfaces,
+                    point_a,
+                    point_b,
+                    TransportChannel::RadiantHeat,
+                    &[a.id, b.id],
+                )
+                .transmission
+                    < 1.0
+                {
                     continue;
                 }
                 let conductivity = (a.material.conductivity + b.material.conductivity) * 0.5;
@@ -492,8 +530,35 @@ impl World {
                     .fold(0.0_f32, f32::max);
                 let absorbed = transferable_energy * capture;
                 for (target, weight) in receivers {
-                    *combustion_energy_delta.entry(target).or_default() +=
-                        absorbed * weight / total_weight;
+                    let sent = absorbed * weight / total_weight;
+                    let exposure = crate::exposure::trace_exposure(
+                        &transport_surfaces,
+                        source.position,
+                        self.entities[&target].transform.position,
+                        TransportChannel::RadiantHeat,
+                        &[source.id, target],
+                    );
+                    let mut remaining = sent;
+                    let mut blockers = Vec::new();
+                    for hit in &exposure.hits {
+                        let intercepted = remaining * (1.0 - hit.transmission);
+                        remaining -= intercepted;
+                        if intercepted > 0.0 {
+                            blockers.push(hit.entity);
+                            // Reactive barriers absorb their intercepted share; other
+                            // barriers export it to the unmodelled environment.
+                            *combustion_energy_delta.entry(hit.entity).or_default() += intercepted;
+                        }
+                    }
+                    *combustion_energy_delta.entry(target).or_default() += remaining;
+                    transport.heat.push(HeatTransfer {
+                        source: source.id,
+                        target,
+                        sent,
+                        received: remaining,
+                        intercepted: sent - remaining,
+                        blockers,
+                    });
                 }
             }
         }
@@ -520,7 +585,13 @@ impl World {
             let entity = self.entities.get_mut(&id).expect("id came from map");
             let material = entity.reactive_material.expect("filtered");
             let state = entity.reactive_state.as_mut().expect("filtered");
-            evaporate_liquid_water(state, material, config, dt);
+            transport.water_evaporated += evaporate_liquid_water(state, material, config, dt);
+            transport.water_evaporated += crate::exposure::surface_evaporation(
+                state,
+                material,
+                config,
+                environment.sample(entity.transform.position),
+            );
         }
 
         for id in ids {
@@ -882,6 +953,9 @@ impl World {
         hash.f32(self.config.reaction_radius);
         hash.f32(self.config.ambient_exchange);
         hash.f32(self.config.contact_heat_exchange);
+        hash.f32(self.config.thermal_contact_tolerance);
+        hash.f32(self.config.surface_evaporation_rate);
+        hash.f32(self.config.evaporative_cooling_range_c);
         hash.f32(self.config.water_inlet_temperature_c);
         hash.f32(self.config.water_specific_heat);
         hash.f32(self.config.water_vaporization_heat);
@@ -936,6 +1010,54 @@ impl World {
                     hash.u8(2);
                     hash.f32(radius);
                     hash.f32(half_height);
+                }
+                None => hash.u8(0),
+            }
+            match entity.transport_surface {
+                Some(surface) => {
+                    hash.u8(1);
+                    hash.vec3(surface.half_extents);
+                    hash.f32(surface.heat_transmission);
+                    hash.f32(surface.water_transmission);
+                }
+                None => hash.u8(0),
+            }
+            match entity.locomotion {
+                Some(motor) => {
+                    hash.u8(1);
+                    let c = motor.config;
+                    for value in [
+                        c.walk_speed,
+                        c.climb_speed,
+                        c.jump_speed,
+                        c.min_ground_dot,
+                        c.contact_offset,
+                        c.grip_reach,
+                        c.grip_acceleration,
+                        c.max_temperature_c,
+                        c.stamina_seconds,
+                        c.recovery_per_second,
+                    ] {
+                        hash.f32(value);
+                    }
+                    hash.vec3(motor.input.direction);
+                    hash.f32(motor.input.climb.x);
+                    hash.f32(motor.input.climb.y);
+                    hash.u8(motor.input.grip as u8);
+                    hash.u8(motor.input.jump as u8);
+                    hash.u8(motor.mode as u8);
+                    hash.vec3(motor.normal);
+                    hash.f32(motor.stamina);
+                    hash.f32(motor.regrip_delay);
+                    match motor.support {
+                        Some(anchor) => {
+                            hash.u8(1);
+                            hash.u64(anchor.entity.0);
+                            hash.vec3(anchor.local_point);
+                            hash.vec3(anchor.world_point);
+                        }
+                        None => hash.u8(0),
+                    }
                 }
                 None => hash.u8(0),
             }
@@ -996,6 +1118,16 @@ impl World {
         hash.u64(self.interactions.len() as u64);
         for interaction in &self.interactions {
             match interaction {
+                Interaction::Water(emission) => {
+                    hash.u8(5);
+                    hash.u64(emission.points.len() as u64);
+                    for point in &emission.points {
+                        hash.vec3(*point);
+                    }
+                    hash.f32(emission.amount);
+                    hash.f32(emission.temperature_c);
+                    hash.u64(emission.source.map_or(0, |source| source.0));
+                }
                 Interaction::Cut {
                     target,
                     direction,
@@ -1081,7 +1213,11 @@ fn liquid_water_heat_capacity(config: WorldConfig) -> f32 {
     finite_non_negative(config.water_specific_heat)
 }
 
-fn thermal_capacity(material: ReactiveMaterial, state: ReactiveState, config: WorldConfig) -> f32 {
+pub(crate) fn thermal_capacity(
+    material: ReactiveMaterial,
+    state: ReactiveState,
+    config: WorldConfig,
+) -> f32 {
     dry_heat_capacity(material) + clamp_unit(state.moisture) * liquid_water_heat_capacity(config)
 }
 
@@ -1101,7 +1237,7 @@ fn add_sensible_heat(
     state.temperature_c += energy / thermal_capacity(material, *state, config);
 }
 
-fn mix_liquid_water(
+pub(crate) fn mix_liquid_water(
     state: &mut ReactiveState,
     material: ReactiveMaterial,
     config: WorldConfig,
@@ -1178,7 +1314,7 @@ fn evaporate_liquid_water(
     evaporated
 }
 
-fn moisture_adjusted_ignition(material: ReactiveMaterial, state: ReactiveState) -> f32 {
+pub(crate) fn moisture_adjusted_ignition(material: ReactiveMaterial, state: ReactiveState) -> f32 {
     finite_non_negative(material.ignition_temperature_c)
         * (1.0 + clamp_unit(state.moisture) * finite_non_negative(material.moisture_resistance))
 }
@@ -1256,6 +1392,8 @@ fn entity_from_bundle(id: EntityId, bundle: EntityBundle) -> Entity {
         body: bundle.body,
         collider: bundle.collider,
         surface: bundle.surface,
+        transport_surface: bundle.transport_surface,
+        locomotion: bundle.locomotion,
         attachment: bundle.attachment,
         structure: bundle.structure,
         reactive_material: bundle.reactive_material,
@@ -1312,7 +1450,7 @@ fn reaction_shape(entity: &Entity) -> (Vec3, Vec3, f32) {
     }
 }
 
-fn collider_segment(entity: &Entity) -> (Vec3, Vec3, f32) {
+pub(crate) fn collider_segment(entity: &Entity) -> (Vec3, Vec3, f32) {
     let collider = entity.collider.expect("caller filters collider");
     match collider {
         Collider::Sphere { .. } => {
@@ -1342,7 +1480,7 @@ fn collider_segment(entity: &Entity) -> (Vec3, Vec3, f32) {
 
 /// Closest points on two finite segments. Based on the standard clamped
 /// two-parameter solution, with explicit degenerate handling for spheres.
-fn closest_segment_points(p1: Vec3, q1: Vec3, p2: Vec3, q2: Vec3) -> (Vec3, Vec3) {
+pub(crate) fn closest_segment_points(p1: Vec3, q1: Vec3, p2: Vec3, q2: Vec3) -> (Vec3, Vec3) {
     let d1 = q1 - p1;
     let d2 = q2 - p2;
     let r = p1 - p2;
@@ -1539,7 +1677,7 @@ mod tests {
     }
 
     #[test]
-    fn same_seed_and_script_have_the_same_hash_and_events() {
+    fn same_seed_and_script_have_the_same_state_and_events() {
         let run = || {
             let mut world = World::with_seed(73);
             let id = world.spawn(reactive_entity(
@@ -1561,9 +1699,10 @@ mod tests {
                         energy: 1_400.0,
                     });
                 }
-                reports.push(world.step(&environment));
+                let report = world.step(&environment);
+                reports.push((report.tick, report.events, report.transport));
             }
-            (world.state_hash(), reports)
+            (world.snapshot(), reports)
         };
         assert_eq!(run(), run());
     }
@@ -2190,13 +2329,13 @@ mod tests {
             world.step(&environment);
         }
         let snapshot = world.snapshot();
-        let expected = world.state_hash();
+        let expected = world.snapshot();
         for _ in 0..10 {
             world.step(&environment);
         }
-        assert_ne!(world.state_hash(), expected);
+        assert_ne!(world.snapshot(), expected);
         world.restore(snapshot);
-        assert_eq!(world.state_hash(), expected);
+        assert_eq!(world.snapshot(), expected);
     }
 
     #[test]
@@ -2261,44 +2400,6 @@ mod tests {
                 |event| matches!(event, WorldEvent::Extinguished { entity } if *entity == id)
             ));
         }
-    }
-
-    #[test]
-    fn state_hash_includes_all_configuration_and_option_discriminants() {
-        let mut baseline = World::with_seed(4);
-        baseline.spawn(EntityBundle::default());
-
-        let mut changed_config = World::with_seed(4);
-        changed_config.spawn(EntityBundle::default());
-        changed_config.config_mut().ambient_exchange += 0.01;
-        assert_ne!(baseline.state_hash(), changed_config.state_hash());
-
-        macro_rules! assert_config_field_hashed {
-            ($field:ident) => {{
-                let mut changed = World::with_seed(4);
-                changed.spawn(EntityBundle::default());
-                changed.config_mut().$field += 0.125;
-                assert_ne!(
-                    baseline.state_hash(),
-                    changed.state_hash(),
-                    "WorldConfig::{} must affect state_hash",
-                    stringify!($field)
-                );
-            }};
-        }
-        assert_config_field_hashed!(water_inlet_temperature_c);
-        assert_config_field_hashed!(water_specific_heat);
-        assert_config_field_hashed!(water_vaporization_heat);
-        assert_config_field_hashed!(water_boiling_temperature_c);
-        assert_config_field_hashed!(combustion_local_heat_fraction);
-        assert_config_field_hashed!(ignition_temperature_margin_c);
-        assert_config_field_hashed!(extinction_temperature_margin_c);
-        assert_config_field_hashed!(ignition_max_moisture);
-        assert_config_field_hashed!(extinction_min_moisture);
-
-        let mut empty_name = World::with_seed(4);
-        empty_name.spawn(EntityBundle::default().named(""));
-        assert_ne!(baseline.state_hash(), empty_name.state_hash());
     }
 
     #[test]

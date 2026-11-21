@@ -1,7 +1,8 @@
 // Regenerate PocketJS's committed default PS Vita LiveArea artwork from the
-// canonical brand avatar. Builds consume the committed PNG/XML files and do
-// not require ImageMagick; only intentional artwork updates run this script.
+// canonical mark. Builds consume the committed PNG/XML files and do not
+// require ImageMagick; only intentional artwork updates run this script.
 
+import { createCanvas, loadImage } from "@napi-rs/canvas";
 import {
   cpSync,
   existsSync,
@@ -16,8 +17,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
-const source = join(root, "assets/brand/pocketjs-avatar-white-minimal.png");
-const output = join(root, "hosts/vita/assets/sce_sys");
+const source = join(root, "site/assets/favicon.svg");
+const output = join(root, "programs/vita/assets/sce_sys");
 const magick = Bun.which("magick");
 const args = Bun.argv.slice(2);
 const check = args.includes("--check");
@@ -58,7 +59,7 @@ function render(path: string, width: number, height: number, markSize: string): 
   run([
     "-size",
     `${width}x${height}`,
-    "xc:#0a0a0c",
+    "xc:#171226",
     "(",
     mark,
     "-filter",
@@ -83,20 +84,27 @@ function render(path: string, width: number, height: number, markSize: string): 
 }
 
 try {
-  // Replace only the border-connected white canvas. The Pocket mark and its
-  // inner white face remain unchanged, then trim to the mark's visual bounds.
-  run([
-    source,
-    "-fuzz",
-    "5%",
-    "-fill",
-    "#0a0a0c",
-    "-draw",
-    "color 0,0 floodfill",
-    "-trim",
-    "+repage",
-    mark,
-  ]);
+  // favicon.svg draws the mark inside its own backing tile. The LiveArea
+  // supplies that ground itself, so the tile is dropped and the mark is
+  // rasterized on transparency — no floodfill, and no seam where an
+  // anti-aliased tile edge would have met the ground.
+  //
+  // ImageMagick composites and quantises below, but it does NOT rasterize the
+  // SVG: its rsvg delegate silently drops `fill="none"` strokes (and
+  // objectBoundingBox gradients), which loses the shell outright. resvg, via
+  // @napi-rs/canvas, is the same renderer the iOS icon bakers use.
+  const bare = readFileSync(source, "utf8").replace(
+    /\s*<rect width="32" height="32"[^>]*\/>/,
+    "",
+  );
+  const MARK_PX = 1024;
+  const sized = bare.replace("<svg", `<svg width="${MARK_PX}" height="${MARK_PX}"`);
+  const rendered = await loadImage(Buffer.from(sized));
+  const surface = createCanvas(MARK_PX, MARK_PX);
+  surface.getContext("2d").drawImage(rendered, 0, 0, MARK_PX, MARK_PX);
+  writeFileSync(mark, surface.toBuffer("image/png"));
+  run([mark, "-trim", "+repage", mark]);
+
   render("icon0.png", 128, 128, "112x74");
   render("livearea/contents/startup.png", 280, 158, "196x118");
   render("livearea/contents/bg.png", 840, 500, "520x320");

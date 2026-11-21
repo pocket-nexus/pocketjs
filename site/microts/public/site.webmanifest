@@ -1,0 +1,15 @@
+{
+  "name": "MicroTS",
+  "short_name": "MicroTS",
+  "description": "MicroTS compiles TypeScript ahead of time to native code.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#171226",
+  "theme_color": "#171226",
+  "icons": [
+    { "src": "/icon-192.png", "type": "image/png", "sizes": "192x192" },
+    { "src": "/icon-512.png", "type": "image/png", "sizes": "512x512" },
+    { "src": "/icon-512-maskable.png", "type": "image/png", "sizes": "512x512", "purpose": "maskable" }
+  ]
+}

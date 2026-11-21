@@ -1,0 +1,56 @@
+{
+  "state": {
+    "a": 0,
+    "m": 0,
+    "result": 0
+  },
+  "writes": [
+    {
+      "name": "trigger",
+      "value": 1,
+      "changed": true
+    },
+    {
+      "name": "a",
+      "value": 1,
+      "changed": true
+    },
+    {
+      "name": "a",
+      "value": 0,
+      "changed": true
+    }
+  ],
+  "operations": [
+    {
+      "kind": "set",
+      "name": "trigger",
+      "value": 1,
+      "changed": true
+    },
+    {
+      "kind": "effect",
+      "effect": 0,
+      "initial": false
+    },
+    {
+      "kind": "set",
+      "name": "a",
+      "value": 1,
+      "changed": true
+    },
+    {
+      "kind": "set",
+      "name": "a",
+      "value": 0,
+      "changed": true
+    },
+    {
+      "kind": "memo",
+      "name": "m",
+      "value": 0,
+      "changed": false,
+      "mode": "scheduled"
+    }
+  ]
+}

@@ -1,41 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="PocketJS avatar">
-  <defs>
-    <radialGradient id="plate" cx="48%" cy="40%" r="62%">
-      <stop offset="0" stop-color="#ffffff"/>
-      <stop offset="0.66" stop-color="#ffffff"/>
-      <stop offset="1" stop-color="#f1f5f9"/>
-    </radialGradient>
-    <linearGradient id="edge" x1="184" y1="272" x2="840" y2="752" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#f8fafc"/>
-      <stop offset="0.22" stop-color="#cbd5e1"/>
-      <stop offset="0.48" stop-color="#64748b"/>
-      <stop offset="0.67" stop-color="#94a3b8"/>
-      <stop offset="1" stop-color="#e2e8f0"/>
-    </linearGradient>
-    <linearGradient id="lens" x1="292" y1="438" x2="408" y2="586" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#f8fafc"/>
-      <stop offset="0.55" stop-color="#aab5c2"/>
-      <stop offset="1" stop-color="#586779"/>
-    </linearGradient>
-    <linearGradient id="bar" x1="510" y1="410" x2="762" y2="604" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#e9eef5"/>
-      <stop offset="1" stop-color="#708094"/>
-    </linearGradient>
-    <filter id="plateShadow" x="-12%" y="-12%" width="124%" height="128%" color-interpolation-filters="sRGB">
-      <feDropShadow dx="0" dy="22" stdDeviation="26" flood-color="#0f172a" flood-opacity="0.12"/>
-    </filter>
-    <filter id="markShadow" x="-18%" y="-18%" width="136%" height="136%" color-interpolation-filters="sRGB">
-      <feDropShadow dx="0" dy="15" stdDeviation="18" flood-color="#0f172a" flood-opacity="0.18"/>
-    </filter>
-  </defs>
-
   <rect width="1024" height="1024" fill="#ffffff"/>
-  <circle cx="512" cy="512" r="398" fill="url(#plate)" stroke="#eef2f7" stroke-width="2" filter="url(#plateShadow)"/>
-  <g filter="url(#markShadow)">
-    <rect x="166" y="302" width="692" height="420" rx="126" fill="none" stroke="url(#edge)" stroke-width="62" stroke-linejoin="round"/>
-    <circle cx="350" cy="512" r="78" fill="url(#lens)"/>
-    <rect x="512" y="428" width="246" height="56" rx="28" fill="url(#bar)"/>
-    <rect x="512" y="542" width="164" height="56" rx="28" fill="url(#bar)"/>
-    <path d="M242 330c98-44 210-45 330-4" fill="none" stroke="#ffffff" stroke-width="12" stroke-linecap="round" opacity="0.35"/>
+  <g transform="translate(212 212) scale(18.75)">
+  <rect x="2" y="6" width="28" height="20" rx="6" fill="#171226" stroke="#ffd23f" stroke-width="2.6" stroke-linejoin="round"/>
+  <circle cx="10" cy="16" r="3.1" fill="#ff5f9e"/>
+  <rect x="16" y="12.6" width="10" height="2.2" rx="1.1" fill="#3fd0e8"/>
+  <rect x="16" y="17.2" width="6.5" height="2.2" rx="1.1" fill="#ff5f9e"/>
   </g>
 </svg>

@@ -5,161 +5,68 @@ ops pinned in `contracts/spec/spec.ts` ("DRAWLIST op format"). Everything
 above it — JSX + Tailwind, the Solid/Vue Vapor/Octane renderers, the frame
 transaction (docs/DETERMINISM.md), the animation engine — is identical on
 every backend. Backends differ in **how the DrawList becomes pixels**, and
-in exactly one capability: **who measures and shapes text**.
+in **which text providers they support**.
 
 ## The portable backend
 
 The portable backend is the baked-text pipeline every fixed-function host
-shares: `pocket-ui-wgpu` on the desktop, the core software rasterizer
-(`engine/core/src/raster.rs`) behind the wasm, Apple, PocketBook and sim
-hosts, the PSP GE walker, the ESP32-P4 PPA and Symbian GLES2 ports.
+shares: `pocket-ui-wgpu` for widgets and Pocket3D overlays, the core software
+rasterizer (`engine/raster/src/lib.rs`) behind the wasm, Apple, PocketBook and sim
+hosts, the PSP GE walker, the ESP32-P4 PPA, the SiFli EPIC executor and
+Symbian GLES2 ports.
 
 - **Text is baked at compile time.** `framework/compiler/bake-font.ts`
   rasterizes the app's collected codepoints into FONT ATLAS v3 blobs; the
   core measures runs from the atlas advance tables
   (`engine/core/src/text.rs::measure_run`) and emits `GLYPH_RUN` ops —
   glyph ids and cell positions, nothing else.
-- **Pixels are byte-deterministic.** Same bundle + pak + input tape produce
-  the identical framebuffer on every portable host at the same density —
-  that is what `tests/golden.ts`, the PSP/Vita emulator goldens and
-  `tools/tape.ts` session hashes pin.
+- **Software pixels are byte-deterministic.** The Rust rasterizer produces
+  identical bytes for the same DrawList, resources and density on native and
+  WASM. GPU backends preserve DrawList geometry and painter order; blending,
+  filtering and triangle-edge rounding can differ. GPU tests compare selected
+  fixtures against software with explicit per-channel tolerances. Hardware
+  acceptance remains separate from emulator and software goldens.
 - The capability id is `text.glyphs.baked`; hosts that extend atlases at
   runtime (system-font rasterization + `loadFontAtlas` reload, note-widget's
   cjk.rs) add `text.glyphs.runtime`.
 
-## The gpui backend
+## Text provider embedding
 
-`engine/backends/gpui` (`pocket-ui-gpui`) paints the same DrawList through
-[gpui](https://gpui.rs) — Zed's Metal renderer — and is embedded by
-`hosts/macos`, the stock host of the `macos-app` target. Boxes, gradients
-and images become antialiased vector quads instead of upscaled raster;
-text can come from the host text system.
+**A custom renderer can install its text measure and wrap providers** through
+`Ui::set_text_measure` and `Ui::set_text_wrap` before the guest mounts.
+The renderer must consume `TEXT_RUN` and paint with the provider that measured
+the run. The DrawList stores the run's UTF-8 bytes and style hash.
+Transformed or tracked runs use baked atlas metrics and `GLYPH_RUN`.
+The `text.layout.native` capability describes this embedding contract;
+no built-in host advertises it.
 
-- **Text layout is a host capability, opted into per app.** An app that
-  `enhances: ["text.layout.native"]` gets a core text measurer installed
-  before the guest mounts (`Ui::set_text_measure`): taffy leaf sizes, the
-  `measureText` op and painted glyphs all come from one provider — CoreText
-  through gpui's text system. Codepoint coverage is the OS font fallback
-  chain (CJK, emoji, everything), with **no runtime atlas baking and no
-  tofu**.
-- **The op is `TEXT_RUN` (9).** With a measurer installed, translation-only
-  tracking-0 runs pack the run string's UTF-8 bytes INTO the word stream
-  (8 header words + payload) — the DrawList stays the complete `Vec<u32>`
-  pixel truth, so snapshots, demand-render hashes and damage word-diffs are
-  exact by construction. The provider is chosen once per node at layout
-  build and recorded (`Node::text_native`); layout and paint gate on ONE
-  shared predicate (`Resolved::declares_transform`), and when a paint-only
-  transform changes the answer, `Ui::draw` relayouts and repaints before
-  returning — every frame that leaves `draw()` is provider-correct, in
-  both directions, with no oscillation on canceling transforms. Tracked,
-  scaled and rotated runs keep the baked `GLYPH_RUN` pair — measurement
-  and glyphs always come from the same provider per node.
-- **Monospace is a slot family.** `font-mono` resolves to dedicated slots
-  (16..18; framework/compiler/tailwind.ts MONO_FONT_PX) baked from JetBrains
-  Mono on the portable side and mapped to the same family through the host
-  text system on gpui — the note's code blocks are monospace on every
-  backend.
-- **Prefix additivity is preserved.** Ligatures, contextual alternates and
-  kerning are disabled in the native shaping configuration
-  (`engine/backends/gpui/src/fonts.rs`), because app editor math measures
-  caret positions as prefix widths through `measureText`
-  (`apps/note/layout.ts`, `apps/im/wrap.ts`) and prefix sums only equal
-  shaped positions when advances are additive.
-- **Soft-wrap breaks are a host op.** `wrapText` (spec op 43) returns the
-  break columns for one line under a pixel width. The core computes greedy
-  word wrap over the slot's measure provider; a native-text app gets gpui's
-  own `LineWrapper` instead (`native_wrap`, installed next to the measurer
-  through the same `TextConfig` — Zed's editor WrapMap consumes the same
-  machinery). The wrapped COORDINATE SPACE — visual rows, caret/selection
-  mapping, hit testing — stays app-side (apps/desk98/notepad.ts is the
-  reference): the op is only the "where does this line break" half, exactly
-  the platform/editor split Zed uses.
-- **Two ops keep a pixel-exact escape hatch.** Gouraud `TRI` and `TEX_TRI`
-  batches (rotated gradients and images, 3D subtrees) have no gpui vector
-  equivalent, so consecutive batches raster through
-  `pocketjs_core::raster` into cached local images at the target density —
-  the portable rasterizer used as a sub-backend.
+**`text.layout.offload` uses package fonts in a separate worker.** The Rust
+text engine wraps, shapes and rasterizes text for native and WASM consumers.
+PSP requires a paired companion for this capability. See
+[TEXT-OFFLOAD.md](TEXT-OFFLOAD.md) for bounded records, incremental edits and
+first-page delivery.
 
-### What the gpui backend guarantees, and what it does not
+## Browser realm
 
-The frame transaction is unchanged: the host ticks the guest at the fixed
-declared rate (one `guest.frame()` + one `surface.tick()` per virtual tick,
-never from a paint callback), rendering is a pure function of the DrawList,
-and paints are demand-armed off the DrawList content hash — the
-pocket-widget governor discipline. `state[n]` is exactly as deterministic
-as on every other host.
+**`web-app` runs a package in a same-origin iframe JavaScript Realm with its
+own wasm `Ui`** (`programs/web/app-instance.js`, the AppInstance). The page
+that creates the iframe owns scheduling and composition through the
+instance object; the package receives no other realm or framebuffer. This
+repository's web program runs one application.
 
-Pixels are **not** byte-comparable across hosts in native-text mode: glyph
-rasterization, metrics and fallback fonts belong to the OS. That is the
-"different guarantee gets a different id" rule — `text.layout.native`
-instead of `text.glyphs.baked` — and why gpui-hosted apps verify like the
-note does (pure-math unit tests over an injected measurer, sim traces,
-`--proof` acceptance runs) instead of joining `tests/golden-specs.ts`.
+**Each AppInstance draws codepoints its baked atlases lack**
+(`text.glyphs.runtime`, `platforms/web/runtime-glyphs.js`): the realm appends a
+cell drawn by the browser to every loaded slot before the core lays the text
+out ([Build pipeline](../site/content/docs/build-pipeline.md)).
 
-## The `macos-app` target
-
-`contracts/spec/platforms.ts` registers the profile: hostAbi 3 (the desktop
-HostOps wire generation macos-widget already speaks), `form: "window"`,
-dynamic viewport with `acceptsFixed` — a general app frame, not a widget
-shell. Fixed-viewport console apps run size-locked and letterboxed with
-their baked glyph pipeline intact; the manifest decides everything else:
-
-```
-bun run macos note        # dynamic viewport, native text, svc editor protocol
-bun run macos hero        # fixed 480x272, size-locked, baked glyphs
-bun run macos note --proof
-```
-
-`tools/macos.ts` resolves the manifest against `macos-app`, writes the
-plan, builds the bundle + pak, and derives the capability-shaped host flags
-(`--fixed`, `--native-text`, `--companions`) from the resolved plan.
-`--editor` is NOT a capability: it enables the note's companion svc adapter
-(an app protocol — the profile deliberately registers no
-pointer/text/IME/clipboard ids, see contracts/spec/platforms.ts). On exit
-the host prints its governor receipt (`pocket-macos: N ticks, M frames
-rendered`); a settled app shows M ≪ N.
-
-## The desk companion
-
-The host speaks a second svc dialect when the plan's companion list names
-`desk` (apps/desk98/svc.ts): the note dialect's input lines extended with
-**right-button mouse lines (`b:2`), alt/ctl key modifiers, F1–F12,
-cmd-flagged ⌘ chords, a boot epoch in the hello**, a `{t:"cursor"}` guest
-intent that sets the window's pointer shape, and a `{t:"paste-req"}` guest
-intent the host answers with a paste line (menu-driven Paste). ⌘Q quits
-and ⌘V pastes host-side; every other ⌘ chord reaches the guest, so the
-compositor owns its shortcuts (⌘W close, ⌘M minimize, ⌘` cycle windows,
-⌘Esc Start menu, ⌘A/C/X editing). Plain typing arrives only through the
-IME input handler (`insertText:` → one `ch` line per keypress).
-
-`apps/desk98` — a Windows 98 desktop compositor written in Vue Vapor JSX
-— is the reference consumer: the guest owns every window (drag, resize,
-z-order, menus, text selection, word-wrap layout, Minesweeper) by
-hit-testing the raw pointer stream itself, window moves ride paint-only
-translate props, and raises ride zIndex, so a drag never relayouts and an
-idle desktop keeps the demand-render governor at a few frames per second.
-Its W95FA pixel font is baked per-app into slots 19–21 through
-`apps/desk98/pak.json` (`gen-assets.ts`) — the repo slot table (0–18)
-never moves.
-
-```
-bun run macos desk98      # the full desktop; drag-select, Cmd+`, Cmd+W, Cmd+Esc
-```
-
-Scripted acceptance drives the same dialect from flags: `--mouse
-X,Y[,d|u|r]@TICK` (drags, right clicks), `--key
-[cmd+][alt+][ctl+]NAME@TICK`, `--type TEXT@TICK`.
-
-## Choosing a backend
-
-| | portable | gpui |
-|---|---|---|
-| hosts | PSP, Vita, PocketBook, ESP32-P4, Symbian, web, sim, macOS widget | macOS (`hosts/macos`) |
-| text measurement | core, atlas advance tables | host text system (CoreText), per-app opt-in |
-| codepoint coverage | baked charset (+ runtime extension) | OS fallback chain, color emoji |
-| pixel determinism | byte-exact across hosts | per-host; transactions still deterministic |
-| pixel goldens | `tests/golden-specs.ts`, tape hashes | opted out (note-style verification) |
-| rotated/3D content | native | portable rasterizer as a local sub-backend |
-
-The desktop benchmark against Tauri and Electron (harness, comparison
-apps, results) lives in its own stacked PR — pocket-stack/pocketjs#294.
+**The wasm host rasterizes an interface with its coverage for a scene the
+embedder draws.** `ui_render_premultiplied_scaled(scale)` runs the primary
+DrawList once into a buffer cleared to zero: premultiplied R,G,B and the alpha
+the ops accumulated, 0 where nothing is drawn. Its R,G,B bytes equal
+`ui_render_scaled`'s, and it writes a buffer of its own, so the opaque
+framebuffer and the incremental tracker stay as they were.
+`ui_draw_hash_auxiliary` hashes the auxiliary surface's DrawList as
+`ui_draw_hash` hashes the primary one. An AppInstance created with
+`text: false` starts no text worker and gives its guest no `offload`. A
+Pocket3D game's browser tab uses the three to lay its interface over a WebGPU
+scene ([`engine/pocket3d/crates/pocket-web-wgpu`](../engine/pocket3d/crates/pocket-web-wgpu/README.md)).

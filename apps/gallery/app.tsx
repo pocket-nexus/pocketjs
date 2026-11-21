@@ -24,7 +24,6 @@ import {
   FocusScope,
   Gallery,
   Grid,
-  Image,
   Lazy,
   Screen,
   Sprite,
@@ -32,22 +31,9 @@ import {
   View,
   type NodeMirror,
 } from "@pocketjs/framework/components";
-import { createSpriteAnimation } from "@pocketjs/framework/lifecycle";
 import { createSignal, onMount } from "solid-js";
 import { focusNode } from "@pocketjs/framework/input";
 import { GALLERY_PAGES, TILES_PER_PAGE, TILE_SRCS } from "./tiles.ts";
-
-// Same SVG spinner the library demo uses; frame-cycled while a page loads.
-const SPINNER_FRAMES = [
-  "spinner-00.svg",
-  "spinner-01.svg",
-  "spinner-02.svg",
-  "spinner-03.svg",
-  "spinner-04.svg",
-  "spinner-05.svg",
-  "spinner-06.svg",
-  "spinner-07.svg",
-];
 
 const REVEAL_FRAMES = 16; // ~0.27s spinner the first time a page is built
 
@@ -81,14 +67,11 @@ const TILE_FRAME =
 // Pieces
 // ---------------------------------------------------------------------------
 
-/** On-demand loading indicator shown by <Lazy> before a page's tiles reveal.
- *  Owns its own sprite animation, so the per-frame tick lives only while a
- *  spinner is actually on screen. */
+/** On-demand loading indicator shown by <Lazy> before a page's tiles reveal. */
 function Loading(props: { title: string }) {
-  const frame = createSpriteAnimation(SPINNER_FRAMES, { frameStep: 3 });
   return (
     <View debugName="Loading" class="flex-col items-center justify-center gap-2 grow">
-      <Image class="w-9 h-9" src={frame()} />
+      <Sprite class="w-9 h-9" sprite="spinner-atlas.svg" />
       <Text class="text-xs text-slate-300 tracking-wide">LOADING {props.title}</Text>
     </View>
   );

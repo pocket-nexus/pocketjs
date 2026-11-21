@@ -4,7 +4,7 @@ Today we are releasing **OpenStrike** — a single-player, Counter-Strike-shaped
 
 <p class="text-sm text-slate-500 -mt-4">Native 480×272 output of the shipping build, shown at 2× — this frame and every other screenshot in this post is the PSP executable's own framebuffer, captured in the emulator our byte-exact tests run on.</p>
 
-OpenStrike is open source at [pocket-stack/open-strike](https://github.com/pocket-stack/open-strike). It is the first game built on the Pocket runtime family — the architecture underneath [PocketJS](/blog/introducing-pocketjs/) — and it exists to prove a claim: that "the web stack's ergonomics, without the web stack's machinery" scales past UI, to a real-time 3D game, on hardware that predates the iPhone.
+OpenStrike is open source at [pocket-nexus/open-strike](https://github.com/pocket-nexus/open-strike). It is the first game built on the Pocket runtime family — the architecture underneath [PocketJS](/blog/introducing-pocketjs/) — and it exists to prove a claim: that "the web stack's ergonomics, without the web stack's machinery" scales past UI, to a real-time 3D game, on hardware that predates the iPhone.
 
 This post is written for people who ship JavaScript for browsers and have never touched a games console. No embedded or graphics background is assumed. It is the full story: what the machine actually is, how TypeScript ends up inside it, what a 1999 map format has to do with your bundler, how you draw anything without shaders, and where the milliseconds went.
 
@@ -22,7 +22,7 @@ That is the deploy target. Here is what we deployed.
 
 OpenStrike is split along a line web developers will recognize instantly — it is the native-app split, transplanted: **the engine is Rust, the product is JavaScript.**
 
-The Rust side (`openstrike-core` plus the [Pocket3D](https://github.com/pocket-stack/pocketjs/blob/main/RUNTIMES.md) renderer) owns everything that must never miss a frame: player movement and collision, bot AI, bullets, and drawing the world. The JavaScript side owns everything that makes it *this game rather than some game*: `rules.ts` is the round flow, scoring, and the weapon and bot tuning tables; `hud.tsx` is the entire HUD — health, ammo, crosshair, score — an ordinary Solid component tree styled with Tailwind classes, running on PocketJS. The base game grants itself no privileges a mod wouldn't have: change `rules.ts` and you have made a mod.
+The Rust side (`openstrike-core` plus the [Pocket3D](https://github.com/pocket-nexus/pocketjs/blob/main/RUNTIMES.md) renderer) owns everything that must never miss a frame: player movement and collision, bot AI, bullets, and drawing the world. The JavaScript side owns everything that makes it *this game rather than some game*: `rules.ts` is the round flow, scoring, and the weapon and bot tuning tables; `hud.tsx` is the entire HUD — health, ammo, crosshair, score — an ordinary Solid component tree styled with Tailwind classes, running on PocketJS. The base game grants itself no privileges a mod wouldn't have: change `rules.ts` and you have made a mod.
 
 The JS engine embedded in the executable is **QuickJS** — Fabrice Bellard's full ES2023 engine that compiles to a few hundred kilobytes. QuickJS is to this PSP what V8 is to Node: the host hands it a `strike` API surface and a `ui` API surface, and the same `openstrike.js` bundle boots against them on every target.
 
@@ -232,9 +232,9 @@ Nothing about the pattern is PSP-specific. The console is, as we said when intro
 
 ## Play it
 
-- **[pocket-stack/open-strike](https://github.com/pocket-stack/open-strike)** — MIT. Desktop build runs with `cargo run -p openstrike`; the [README](https://github.com/pocket-stack/open-strike#readme) covers the PSP EBOOT, the hardware bench, and the emulator goldens.
+- **[pocket-nexus/open-strike](https://github.com/pocket-nexus/open-strike)** — MIT. Desktop build runs with `cargo run -p openstrike`; the [README](https://github.com/pocket-nexus/open-strike#readme) covers the PSP EBOOT, the hardware bench, and the emulator goldens.
 - Map data is Valve's and is **not** in the repo — point the build at your own copy of the game's `.bsp`/`.wad` files. Any GoldSrc-era map works; the eight CS classics are the tested set.
 - No PSP? PPSSPP runs the EBOOT beautifully. Real hardware needs custom firmware and [PSPLINK](https://github.com/pspdev/psplinkusb) — the same cable our DevTools ride.
-- **[docs/RUNTIMES.md](https://github.com/pocket-stack/pocketjs/blob/main/RUNTIMES.md)** — the runtime-family architecture OpenStrike instantiates, if you want the ontology behind the diagram.
+- **[docs/RUNTIMES.md](https://github.com/pocket-nexus/pocketjs/blob/main/RUNTIMES.md)** — the runtime-family architecture OpenStrike instantiates, if you want the ontology behind the diagram.
 
 Follow [@pocket_js](https://x.com/pocket_js) for what's next. The pocket keeps getting deeper.

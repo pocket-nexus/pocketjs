@@ -1,17 +1,11 @@
-//! Pocket3D — a small, modern, extensible 3D runtime.
-//!
-//! Design goals:
-//! - **Lean core**: wgpu forward renderer, first-person camera, fixed-step
-//!   loop, input, skeletal animation, and a trace-based character controller.
-//! - **Formats as modules**: world formats plug in as data providers. GoldSrc
-//!   BSP is the first first-class citizen (feature `bsp`).
-//! - **Headless-first verification**: everything renders into any
-//!   `wgpu::TextureView`, so offscreen capture and scripted tests are trivial.
+//! Pocket3D desktop rendering mechanisms used by widgets and applications.
+//! Domain compilers and renderers belong to their applications. This crate is
+//! one member of the Pocket3D family, not a cross-device engine contract.
 
 pub mod anim;
 pub mod app;
 pub mod camera;
-pub mod collide;
+pub mod geometry;
 pub mod gpu;
 pub mod hud;
 pub mod input;
@@ -20,23 +14,19 @@ pub mod renderer;
 pub mod scene;
 pub mod texture;
 pub mod time;
-pub mod world;
+/// Compatibility name for static render geometry. Simulation lives in pocket3d-world.
+pub use geometry as world;
 
 pub use anyhow;
 pub use glam;
 pub use wgpu;
 pub use winit;
 
-#[cfg(feature = "bsp")]
-pub use pocket3d_bsp as bsp;
-
 pub mod prelude {
     pub use crate::anim::AnimState;
     pub use crate::app::{AppConfig, Game};
     pub use crate::camera::Camera;
-    pub use crate::collide::{
-        CharacterState, HullKind, MoveInput, MoveParams, Trace, TraceWorld, step_character,
-    };
+    pub use crate::geometry::WorldModel;
     pub use crate::gpu::{DEPTH_FORMAT, Gpu, OFFSCREEN_FORMAT, OffscreenTarget};
     pub use crate::hud::Hud;
     pub use crate::input::Input;
@@ -45,6 +35,5 @@ pub mod prelude {
     pub use crate::scene::Scene;
     pub use crate::scene::{Beam, Sprite};
     pub use crate::time::FixedTimestep;
-    pub use crate::world::WorldModel;
     pub use glam::{Mat4, Quat, Vec2, Vec3, Vec4};
 }

@@ -1,0 +1,21 @@
+{
+  "state": {
+    "result": 2
+  },
+  "writes": [
+    {
+      "name": "result",
+      "value": 2,
+      "changed": true
+    }
+  ],
+  "operations": [
+    {
+      "kind": "set",
+      "name": "result",
+      "value": 2,
+      "changed": true
+    }
+  ],
+  "designRow": 6
+}

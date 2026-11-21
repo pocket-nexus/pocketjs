@@ -4,16 +4,26 @@
    through assets/site.css, where tailwind.css maps them onto @theme so
    utilities and components resolve to the same values. */
 :root{
-  --bg:#05070d; --bg-2:#080b13; --panel:#0d1220; --panel-2:#101828;
-  --line:rgba(43,58,85,.55); --line-2:rgba(74,94,130,.6);
-  --ink:#f3f7fd; --ink-2:#b9c3d4; --muted:#7b8aa1;
-  --steel-1:#d8e1ec; --steel-2:#a7b3c5; --steel-3:#66748a;
-  --metal:linear-gradient(100deg,#f4f8ff,#a7b3c5 55%,#d8e1ec);
-  --metal-ph:linear-gradient(100deg,#f2fbf5,#a9d8bd 42%,#cfe4dc 70%,#eef7f2);
-  --ph:#4ef08a; --ph-2:#9de5c7; --sky:#60a5fa;
-  /* chart marks: validated for the dark surface (lightness band, chroma, CVD, contrast) */
-  --c1:#1ba468; --c2:#4a86e8; --c3:#b07d1c; --c1-deep:#0f6c44;
-  --track:rgba(74,94,130,.22);
+  --bg:#171226; --bg-2:#1c1630; --panel:#231b3b; --panel-2:#2b2148;
+  --line:rgba(255,255,255,.10); --line-2:rgba(255,255,255,.19);
+  --ink:#fcf6ff; --ink-2:#cbbde2; --muted:#8e80ac;
+  /* the lavender ramp the plum ground resolves to as it lightens */
+  --tint-1:#efe6ff; --tint-2:#bcaadd; --tint-3:#7a6c99;
+  /* the three arcade hues, in the order a headline runs through them */
+  --spectrum:linear-gradient(100deg,#ffd23f,#ff5f9e 52%,#3fd0e8);
+  --spectrum-lit:linear-gradient(100deg,#ffe07a,#ff5f9e 46%,#6fe0f2);
+  --accent:#ffd23f; --accent-2:#ff7fb4; --accent-3:#3fd0e8;
+  /* chart marks: validated for the plum surface (lightness band, chroma, CVD, contrast) */
+  --c1:#3fd0e8; --c2:#a98bff; --c3:#ffd23f; --c1-deep:#2597ac;
+  --track:rgba(255,255,255,.12);
+  /* the same hues as rgb triplets, so rgba() tints stay one edit away */
+  --accent-rgb:255,210,63; --accent-2-rgb:255,127,180; --accent-3-rgb:63,208,232;
+  --tint-1-rgb:239,230,255; --ink-2-rgb:203,189,226;
+  --c1-rgb:63,208,232; --c3-rgb:255,210,63;
+  --shade-rgb:14,9,26;
+  /* surfaces the ground alone cannot name */
+  --plate:#1e1733; --term:#150f26;
+  --btn-a:#ffdc63; --btn-b:#ffc01f; --btn-ink:#2a1b10;
   --px:"VT323",ui-monospace,monospace;
   --sans:"IBM Plex Sans",-apple-system,system-ui,sans-serif;
   --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;

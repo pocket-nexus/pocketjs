@@ -1,0 +1,17 @@
+.constf constants(0.0, 1.0, 0.0, 0.0)
+.fvec projection[4]
+.in inpos v0
+.in inclr v1
+.out outpos position
+.out outclr color
+.entry main
+.proc main
+    mov r0.xyz, inpos
+    mov r0.w, constants.y
+    dp4 outpos.x, projection[0], r0
+    dp4 outpos.y, projection[1], r0
+    dp4 outpos.z, projection[2], r0
+    dp4 outpos.w, projection[3], r0
+    mov outclr, inclr
+    end
+.end

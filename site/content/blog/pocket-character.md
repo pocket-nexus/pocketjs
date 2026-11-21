@@ -79,7 +79,7 @@ The split is the same one [OpenStrike](/blog/shipping-openstrike/) proved out: t
 
 ## Blinks should cost only while blinking
 
-The engine work that made this possible landed upstream in [#125](https://github.com/pocket-stack/pocketjs/pull/125), and the piece we care most about is the morph-target design, because it encodes the whole philosophy: **an idle character should cost almost exactly nothing.**
+The engine work that made this possible landed upstream in [#125](https://github.com/pocket-nexus/pocketjs/pull/125), and the piece we care most about is the morph-target design, because it encodes the whole philosophy: **an idle character should cost almost exactly nothing.**
 
 VRM faces animate through blend shapes — per-vertex position deltas layered on the skinned mesh. The obvious GPU implementation binds every morph target and accumulates them in the vertex shader, every vertex, every frame, forever. But look at what a blink actually is: 0.2 seconds of eyelid movement every one to six seconds. On the other ~96 % of frames, every weight is identical to the last frame.
 
@@ -201,12 +201,12 @@ One aside we didn't put in the ledger because the compositor is shared infrastru
 
 ## What this doesn't claim
 
-Fairness matters more than the ratio. airi is a *platform* — providers, voice pipelines, VAD, plugins, a settings surface, multiple stage backends — and this project reimplements exactly one slice of it: the idle character stage. The comparison holds because at idle, the stage is what's running; it does not make pocket-character an airi replacement. airi's literal default (Live2D Hiyori) stays out of reach of any open runtime for licensing reasons, not technical ones. On rendering: airi tone-maps through ACES with an HDR environment; we draw an MToon approximation with cutout alpha — side by side it reads as a subtle grade difference, and the honest place to close that gap is a proper MToon pass, not this post. Lip sync only activates with a TTS stack on both sides, so neither ledger includes it. And every number here is one machine, one OS, measured over minutes, not weeks — the [full methodology and raw tables](https://github.com/pocket-stack/pocket-character/blob/main/REPORT.md) are in the repo for anyone who wants to re-run them.
+Fairness matters more than the ratio. airi is a *platform* — providers, voice pipelines, VAD, plugins, a settings surface, multiple stage backends — and this project reimplements exactly one slice of it: the idle character stage. The comparison holds because at idle, the stage is what's running; it does not make pocket-character an airi replacement. airi's literal default (Live2D Hiyori) stays out of reach of any open runtime for licensing reasons, not technical ones. On rendering: airi tone-maps through ACES with an HDR environment; we draw an MToon approximation with cutout alpha — side by side it reads as a subtle grade difference, and the honest place to close that gap is a proper MToon pass, not this post. Lip sync only activates with a TTS stack on both sides, so neither ledger includes it. And every number here is one machine, one OS, measured over minutes, not weeks — the [full methodology and raw tables](https://github.com/pocket-nexus/pocket-character/blob/main/REPORT.md) are in the repo for anyone who wants to re-run them.
 
 ## Try it
 
 ```bash
-git clone --recurse-submodules https://github.com/pocket-stack/pocket-character
+git clone --recurse-submodules https://github.com/pocket-nexus/pocket-character
 cd pocket-character
 bun run setup        # vendored install + model assets (not committed)
 bun run widget       # build + launch the widget; Ctrl-C to quit
@@ -221,4 +221,4 @@ The personality lives in `app/main.ts` — a policy bundle over the `character` 
 
 ---
 
-*pocket-character is open source at [pocket-stack/pocket-character](https://github.com/pocket-stack/pocket-character), on the same engine as [everything else in the family](https://github.com/pocket-stack/pocketjs). Follow [@pocket_js](https://x.com/pocket_js) — the pocket now has someone living in it.*
+*pocket-character is open source at [pocket-nexus/pocket-character](https://github.com/pocket-nexus/pocket-character), on the same engine as [everything else in the family](https://github.com/pocket-nexus/pocketjs). Follow [@pocket_js](https://x.com/pocket_js) — the pocket now has someone living in it.*

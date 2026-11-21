@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="114" height="114" viewBox="0 0 114 114">
+  <defs>
+    <linearGradient id="base" x2="0" y2="1"><stop stop-color="#3a304d"/><stop offset="1" stop-color="#191424"/></linearGradient>
+    <radialGradient id="light" cx=".38" cy="0" r=".9"><stop stop-color="#fff" stop-opacity="0.12"/><stop offset=".8" stop-color="#fff" stop-opacity="0"/></radialGradient>
+    <linearGradient id="edge" x2="0" y2="1"><stop stop-color="#9b91a4"/><stop offset=".45" stop-color="#191424"/><stop offset="1" stop-color="#9b91a4"/></linearGradient>
+  </defs>
+  <g id="user-app-face" display="none">
+    <rect width="114" height="114" fill="url(#base)"/>
+    <rect width="114" height="114" fill="url(#light)"/>
+  </g>
+  <g id="system-app-frame">
+  <rect x=".75" y=".75" width="112.5" height="112.5" rx="22" fill="url(#edge)"/>
+  <rect x="2.25" y="2.25" width="109.5" height="109.5" rx="20.5" fill="url(#base)"/>
+  <rect x="2.25" y="2.25" width="109.5" height="109.5" rx="20.5" fill="url(#light)"/>
+  <rect x="3.25" y="3.25" width="107.5" height="107.5" rx="19.5" fill="none" stroke="#9b91a4" stroke-opacity=".18"/>
+  </g>
+  <g transform="translate(14.68 16) scale(2.645)">  <rect x="2" y="6" width="28" height="20" rx="6" fill="none" stroke="#efce77" stroke-width="2.6" stroke-linejoin="round"/>
+  <circle cx="10" cy="16" r="3.1" fill="#dc91ad"/>
+  <rect x="16" y="12.6" width="10" height="2.2" rx="1.1" fill="#83c6d0"/>
+  <rect x="16" y="17.2" width="6.5" height="2.2" rx="1.1" fill="#dc91ad"/>
+</g>
+  </svg>

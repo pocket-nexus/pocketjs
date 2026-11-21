@@ -30,6 +30,12 @@ pub enum TrackKind {
     Explicit,
 }
 
+/// Why a stable animation id left the live track table.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CompletionReason { Ended, Replaced, Dropped }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TrackCompletion { pub id: i32, pub reason: CompletionReason }
+
 /// One animation track. `from`/`to` are the raw u32 prop payloads (f32 bits
 /// or packed ABGR when `is_color`).
 pub struct Track {
@@ -60,7 +66,7 @@ fn absf(x: f32) -> f32 {
     f32::from_bits(x.to_bits() & 0x7fff_ffff)
 }
 
-/// Polynomial easing curves (t in [0,1]; OutBack overshoots ~10%).
+/// Polynomial easing curves (t in `[0,1]`; OutBack overshoots ~10%).
 fn ease(easing: u8, t: f32) -> f32 {
     const E_IN: u8 = spec::Easing::EaseIn as u8;
     const E_OUT: u8 = spec::Easing::EaseOut as u8;
@@ -90,9 +96,9 @@ fn ease(easing: u8, t: f32) -> f32 {
     }
 }
 
-/// CSS cubic-bezier(x1, y1, x2, y2) sampled at time-progress `x` in [0,1].
+/// CSS cubic-bezier(x1, y1, x2, y2) sampled at time-progress `x` in `[0,1]`.
 /// Solves x(t) = x by deterministic Newton iterations with a bisection
-/// fallback (control xs are inside [0,1] so x(t) is monotonic), then returns
+/// fallback (control xs are inside `[0,1]` so x(t) is monotonic), then returns
 /// y(t). Pure f32 — same result on every host.
 pub fn cubic_bezier(x1: f32, y1: f32, x2: f32, y2: f32, x: f32) -> f32 {
     if x <= 0.0 {
@@ -146,7 +152,7 @@ pub fn cubic_bezier(x1: f32, y1: f32, x2: f32, y2: f32, x: f32) -> f32 {
 }
 
 /// Sample one baked timeline track at `lt` frames into the iteration.
-/// Holds segments[0].from before the first segment, the previous segment's
+/// Holds `segments[0].from` before the first segment, the previous segment's
 /// `to` in gaps, and last.to at/after the final segment end.
 pub fn sample_track(track: &crate::style::TimelineTrack, lt: u32, is_color: bool) -> u32 {
     let segs = &track.segments;
@@ -173,7 +179,7 @@ pub fn sample_track(track: &crate::style::TimelineTrack, lt: u32, is_color: bool
 }
 
 /// Interpolate between two raw payloads by eased progress `f` (may exceed
-/// [0,1] for OutBack/springs). Colors lerp per ABGR channel, clamped.
+/// `[0,1]` for OutBack/springs). Colors lerp per ABGR channel, clamped.
 pub fn interp(from: u32, to: u32, f: f32, is_color: bool) -> u32 {
     if is_color {
         let mut out = 0u32;
@@ -229,6 +235,8 @@ impl Track {
 pub struct Anims {
     pub tracks: Vec<Track>,
     free: Vec<u32>,
+    completions: Vec<TrackCompletion>,
+    pending_completions: Vec<TrackCompletion>,
 }
 
 impl Default for Anims {
@@ -241,7 +249,7 @@ impl Anims {
     pub fn new() -> Anims {
         // Slot 0 stays permanently dead so make_id(0, 0) == 0 (an invalid
         // anim id) is never handed out — mirrors the node arena.
-        let mut a = Anims { tracks: Vec::new(), free: Vec::new() };
+        let mut a = Anims { tracks: Vec::new(), free: Vec::new(), completions: Vec::new(), pending_completions: Vec::new() };
         a.tracks.push(Track {
             alive: false,
             generation: 0,
@@ -339,9 +347,14 @@ impl Anims {
     }
 
     /// Kill a track by slot (bumps generation so its id goes stale).
-    pub fn kill(&mut self, slot: u32) {
+    pub fn kill(&mut self, slot: u32) { self.finish(slot, CompletionReason::Replaced); }
+
+    pub fn finish(&mut self, slot: u32, reason: CompletionReason) {
         let t = &mut self.tracks[slot as usize];
         if t.alive {
+            self.pending_completions.push(TrackCompletion {
+                id: crate::tree::make_id(t.generation, slot), reason,
+            });
             t.alive = false;
             t.generation = (t.generation + 1) & crate::tree::GEN_MASK;
             self.free.push(slot);
@@ -370,9 +383,21 @@ impl Anims {
         for slot in 0..self.tracks.len() as u32 {
             let t = &self.tracks[slot as usize];
             if t.alive && t.node == node {
-                self.kill(slot);
+                self.finish(slot, CompletionReason::Dropped);
             }
         }
+    }
+
+    /// Publish this tick's completions. Hosts that do not observe reports retain one tick only.
+    pub fn publish_completions(&mut self) {
+        self.completions.clear();
+        core::mem::swap(&mut self.completions, &mut self.pending_completions);
+    }
+    pub fn completions(&self) -> &[TrackCompletion] { &self.completions }
+    /// Include kills issued between ticks and consume each report once.
+    pub fn drain_completions(&mut self, mut receive: impl FnMut(TrackCompletion)) {
+        for completion in self.completions.drain(..) { receive(completion); }
+        for completion in self.pending_completions.drain(..) { receive(completion); }
     }
 
     /// Is there a live track on (node, prop)?

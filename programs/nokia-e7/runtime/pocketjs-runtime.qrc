@@ -1,0 +1,6 @@
+<RCC>
+    <qresource prefix="/pocketjs">
+        <file alias="app.js">app.js</file>
+        <file alias="app.pak">app.pak</file>
+    </qresource>
+</RCC>

@@ -2,7 +2,7 @@
 //
 // Everything the TS runtime (framework/src/), the compiler (framework/compiler/), the Rust core
 // (engine/core/), the wasm host and the PSP native host agree on is pinned HERE, in
-// plain data. `contracts/spec/gen-rust.ts` deterministically generates `engine/core/src/spec.rs`
+// plain data. `contracts/spec/gen-rust.ts` deterministically generates `engine/spec/src/lib.rs`
 // from this file; `tests/contract.ts` regenerates it in-memory and byte-compares
 // against the committed file, so TS and Rust can never drift.
 //
@@ -15,8 +15,10 @@
 //     unless stated otherwise.
 //
 // If you change ANY value here: run `bun contracts/spec/gen-rust.ts`, commit the
-// regenerated engine/core/src/spec.rs, and bump the relevant format VERSION if the
+// regenerated engine/spec/src/lib.rs, and bump the relevant format VERSION if the
 // change alters a binary layout.
+
+export { POCKET_BINDING_GENERATION } from "./binding-generation.ts";
 
 // ---------------------------------------------------------------------------
 // Screen
@@ -72,8 +74,9 @@ export const SIZE_FULL = -1;
 // ---------------------------------------------------------------------------
 // UI ops (the `ui.*` native contract — see docs/DESIGN.md table)
 // ---------------------------------------------------------------------------
-// Numeric codes are the engine/wasm/FFI ABI identity of each op. 0 is reserved
-// (invalid/nop). Codes are append-only: never renumber, never reuse.
+// Numeric codes are the programs/web/wasm/FFI ABI identity of each op. 0 is reserved
+// (invalid/nop). Codes are append-only, and an op in use is never renumbered.
+// The code of a removed op is free; the table keeps no placeholder for it.
 //
 // Signatures (authoritative; hosts marshal them however they like):
 //   createNode(type:i32) -> id            destroyNode(id)          [subtree]
@@ -94,6 +97,7 @@ export const SIZE_FULL = -1;
 //   loadStyles(buf) / loadFontAtlas(buf)   [web/test hosts only; PSP feeds core
 //                                           natively from the pak]
 //   measureText(str, fontSlot) -> width:f32
+//   physicsCreate/Apply/Destroy/Events/Query      [ui.physics; see physics.ts]
 
 export const OP = {
   createNode: 1,
@@ -194,7 +198,7 @@ export const OP = {
   //                      whole session; -1 when no stream is open).
   videoClose: 37, //      () — stop audio, close the stream, free the plane.
   debugStats: 38, //      () -> string. One JSON snapshot of the device's
-  //                      diagnostic counters (hosts/psp/src/stats.rs: audio
+  //                      diagnostic counters (programs/psp/src/stats.rs: audio
   //                      underruns/reserve failures, video frames presented/
   //                      torn/lapped, svc truncation resets) plus build
   //                      identity: the app output name and the FNV-1a64 hash
@@ -204,27 +208,17 @@ export const OP = {
   //                      against local dist/ on every hello and calls out a
   //                      stale-embed loudly. Hosts without counters simply
   //                      omit the op.
-  // -- app switching (docs/LAUNCHER.md): multi-app hosts embed several bundles
-  //    and swap the whole guest between them. Hosts without app switching
-  //    omit all three ops (same rule as debugStats). ------------------------
-  appTable: 39, //        () -> string. JSON { apps: [{output, id, title}],
-  //                      current, resume }: the embedded bundle table, the
-  //                      running bundle's output name, and the app that was
-  //                      interrupted by the last SELECT summon (null after a
-  //                      cold boot or an explicit launch).
-  appLaunch: 40, //       (output: string) -> 0|1. Request a guest switch: the
-  //                      host finishes the CURRENT frame (draw + present),
-  //                      then tears the guest down and boots `output` from
-  //                      scratch. 0 = unknown output, no switch scheduled.
-  //                      Launching `current` relaunches it fresh — there is
-  //                      no suspend anywhere in this protocol.
-  appShot: 41, //         () -> handle | -1. Texture of the frozen frame the
-  //                      SELECT summon captured: the FULL current logical
-  //                      frame downscaled into 256x128 PSM_8888 (stored
-  //                      squeezed — draw it at current viewport aspect to
-  //                      undo it; consoles are 480x272).
-  //                      Valid inside the summoned launcher guest until the
-  //                      next switch; -1 otherwise.
+  // -- applications (ops 39, 40, 41 and 51): reserved for a product host that
+  //    runs several applications and switches between them. No program in
+  //    this repository implements them; pocket-nexus/pocket-shell does, and
+  //    defines their semantics. Hosts without them omit the ops (same rule
+  //    as debugStats). -------------------------------------------------------
+  appTable: 39, //        () -> string. JSON: the host's applications and the
+  //                      running one.
+  appLaunch: 40, //       (output: string) -> 0|1. Request a switch to the
+  //                      application `output`; 0 = not scheduled.
+  appShot: 41, //         () -> handle | -1. A texture of the frame the host
+  //                      captured from the previous application.
   // -- touch hit facts (input.touch capability; docs/TOUCH.md) ---------------
   hitTestBounds: 42, //   (x: f32, y: f32) -> topmost node id at that logical
   //                      point by LAYOUT BOX alone, or 0. The same paint-order
@@ -253,14 +247,46 @@ export const OP = {
   //                      past maxW on the row they follow, a word wider than
   //                      a whole row splits at character level. Native-text
   //                      backends may install a host wrapper next to the
-  //                      measurer (Ui::set_text_wrap — gpui's LineWrapper)
+  //                      measurer (Ui::set_text_wrap)
   //                      and its break positions win. Wrapped-coordinate
   //                      bookkeeping (visual rows, caret/selection mapping)
   //                      stays app-side — this op is the "where may it
-  //                      break" half only. Hosts without it: the framework
-  //                      falls back to the same greedy rules over
-  //                      measureText (apps/desk98/notepad.ts wrapLine is the
-  //                      pinned reference; a parity test holds them equal).
+  //                      break" half only. Hosts without it: applications
+  //                      implement matching greedy rules over measureText.
+  // -- additional UI outputs (display.auxiliary capability) ----------------
+  hitTestAuxiliary: 45, // (x: f32, y: f32) -> topmost painted node id in the
+  //                      auxiliary output's logical coordinate space, or 0.
+  //                      Same semantics as hitTest; never searches primary.
+  hitTestBoundsAuxiliary: 46, // bounds-only twin for auxiliary touch facts.
+  //                      Same semantics as hitTestBounds; never searches
+  //                      primary. Hosts omit both ops without the capability.
+  // Optional text.glyphs.streamed: bounded CPU handoff, never filesystem I/O.
+  fontStreamConfigure: 47, // (PFS1 bytes) -> bool; attach/detach a slot cache.
+  fontStreamRequests: 48, // () -> JSON of at most 32 [generation,slot,scalar] misses.
+  fontStreamCommit: 49, // (PFG1 bytes) -> accepted count, at most four cells.
+  fontStreamStats: 50, // () -> JSON: residency, visible misses, eviction counters.
+  appClose: 51, // (output: string) -> 0|1. Request that the product host
+  //                close the application `output` (see appTable above).
+  // -- 2D bodies (ui.physics capability; contracts/spec/physics.ts holds the
+  //    kinds, parameter keys, commands, events and queries). Hosts omit all
+  //    five ops without the capability. ------------------------------------
+  physicsCreate: 52, // (kind: i32, params: f64[] [key, value]*) -> handle | 0.
+  //                    Create a world, body, collider, zone or emitter.
+  physicsApply: 53, //  (records: f64[] [handle, cmd, argc, arg*]*) — apply
+  //                    commands in order; stale handles no-op.
+  physicsDestroy: 54, // (handle) — a world takes its objects with it; a body
+  //                    or emitter clears the props it wrote on its views.
+  physicsEvents: 55, // () -> f64 records | undefined. Drain the events the ticks
+  //                    since the last drain produced, PHYSICS_EVENT_WORDS per
+  //                    record, at most PHYSICS_EVENT_MAX.
+  physicsQuery: 56, //  (query, handle, a, b, c, d) -> f64. Picks and body
+  //                    state reads (PHYSICS_QUERY).
+  // Public HostOps that predate their portable dispatcher numbers.
+  setPropBatch: 57,
+  takeAnimationCompletions: 58,
+  fontStreamBatch: 59,
+  captureTexts: 60,
+  capturedTexts: 61,
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -311,6 +337,11 @@ export const PROP = {
   //                    marks its full-screen overlay/portal layers with it so
   //                    bounds hit facts (op 42) resolve through empty overlay
   //                    space to the app content beneath.
+  contain: 33, //       enum Contain. Strict: the subtree is solved as its own
+  //                    layout root given this node's box (CSS size + layout
+  //                    containment; needs definite width and height). Baked:
+  //                    Strict, plus the MicroTS compiler proves every rect in
+  //                    the subtree at build time and writes it as a constant.
 
   // -- visual (64..95) -------------------------------------------------------
   bgColor: 64, //       color u32 ABGR
@@ -338,6 +369,8 @@ export const PROP = {
   bevelInnerLight: 79, // color u32 ABGR
   bevelInnerDark: 80, //  color u32 ABGR
   bevelWidth: 81, //      f32 px per ring (default 1)
+  gradVia: 82, //         color u32 ABGR (optional middle gradient stop)
+  gradViaPos: 83, //      f32 0..1; NAN = no middle stop
 
   // -- text (96..127) --------------------------------------------------------
   textColor: 96, //     color u32 ABGR
@@ -374,6 +407,11 @@ export const PROP = {
   //                    center = node center, outer radius = min(w,h)/2, color
   //                    = bgColor. Axis-aligned worlds only (rotation belongs
   //                    in arcStart).
+  skewX: 143, //        f32 degrees of horizontal shear about the transform
+  //                    origin, composed between rotate and scale (CSS
+  //                    `rotate() skewX() scale()`): with it, rotate + skewX +
+  //                    scaleX/scaleY reach every 2D linear map with a
+  //                    positive determinant.
 } as const;
 
 export type PropName = keyof typeof PROP;
@@ -432,6 +470,7 @@ export const ANIMATABLE: readonly PropName[] = [
   "arcStart", //    35
   "arcSweep", //    36
   "arcWidth", //    37
+  "skewX", //       38
 ];
 
 /** Anim bit index for a prop, or -1 if not animatable. */
@@ -453,7 +492,7 @@ export const LAYOUT_DIRTYING: readonly PropName[] = [
   "paddingT", "paddingR", "paddingB", "paddingL",
   "marginT", "marginR", "marginB", "marginL",
   "gap", "flexDir", "justify", "align", "grow", "shrink", "basis", "flexWrap",
-  "posType", "insetT", "insetR", "insetB", "insetL", "display", "overflow",
+  "posType", "insetT", "insetR", "insetB", "insetL", "display", "overflow", "contain",
   "fontSlot", "textAlign", "lineHeight", "tracking",
 ];
 
@@ -488,7 +527,7 @@ export const PROP_VALUE_KIND: Record<PropName, number> = {
   insetT: VALUE_KIND.f32, insetR: VALUE_KIND.f32,
   insetB: VALUE_KIND.f32, insetL: VALUE_KIND.f32,
   display: VALUE_KIND.int, overflow: VALUE_KIND.int, zIndex: VALUE_KIND.int,
-  hitPass: VALUE_KIND.int,
+  hitPass: VALUE_KIND.int, contain: VALUE_KIND.int,
   bgColor: VALUE_KIND.color, gradFrom: VALUE_KIND.color, gradTo: VALUE_KIND.color,
   gradDir: VALUE_KIND.int, radius: VALUE_KIND.f32, opacity: VALUE_KIND.f32,
   borderColor: VALUE_KIND.color, borderWidth: VALUE_KIND.f32,
@@ -496,6 +535,7 @@ export const PROP_VALUE_KIND: Record<PropName, number> = {
   bevelOuterLight: VALUE_KIND.color, bevelOuterDark: VALUE_KIND.color,
   bevelInnerLight: VALUE_KIND.color, bevelInnerDark: VALUE_KIND.color,
   bevelWidth: VALUE_KIND.f32,
+  gradVia: VALUE_KIND.color, gradViaPos: VALUE_KIND.f32,
   textColor: VALUE_KIND.color, fontSlot: VALUE_KIND.int,
   textAlign: VALUE_KIND.int, lineHeight: VALUE_KIND.f32, tracking: VALUE_KIND.f32,
   translateX: VALUE_KIND.f32, translateY: VALUE_KIND.f32,
@@ -505,6 +545,7 @@ export const PROP_VALUE_KIND: Record<PropName, number> = {
   rotateX: VALUE_KIND.f32, rotateY: VALUE_KIND.f32,
   translateZ: VALUE_KIND.f32, perspective: VALUE_KIND.f32,
   arcStart: VALUE_KIND.f32, arcSweep: VALUE_KIND.f32, arcWidth: VALUE_KIND.f32,
+  skewX: VALUE_KIND.f32,
 };
 
 // ---------------------------------------------------------------------------
@@ -519,6 +560,8 @@ export const ENUMS = {
   PosType: { Relative: 0, Absolute: 1 },
   Display: { Flex: 0, None: 1 },
   Overflow: { Visible: 0, Hidden: 1 },
+  /** Layout containment: `contain-strict` / `layout-baked`. */
+  Contain: { None: 0, Strict: 1, Baked: 2 },
   TextAlign: { Left: 0, Center: 1, Right: 2 },
   /** Gradient direction: `bg-gradient-to-t|b|l|r`. */
   GradDir: { ToTop: 0, ToBottom: 1, ToLeft: 2, ToRight: 3 },
@@ -1415,6 +1458,9 @@ export const FONT_FLAG_BOLD = 1 << 0;
 //                           and the core brackets any partially-clipped run
 //                           in SCISSOR/SCISSOR_POP.
 
+/** Closed DrawList operation generation; drivers and archives use matching headers. */
+export const DRAW_LIST_VERSION = 1;
+
 export const DRAW_OP = {
   rect: 1,
   gradRect: 2,
@@ -1458,6 +1504,15 @@ export const PAK_DTYPE = {
 // ---------------------------------------------------------------------------
 // Verified against dreamcart web/engine.js (BTN), framework/src/input.ts (Btn)
 // and rust-psp/psp/src/sys/ctrl.rs (CtrlButtons).
+//
+// ZL/ZR are the one addition to the PSP set: a machine can have more shoulder
+// buttons than a PSP did (a New 3DS has four), and an app that wants a HELD
+// modifier has nowhere else to put it — every other bit already means
+// something an app is using. They take two of the gap bits the PSP never
+// assigned, so the mask stays inside the 16-bit window real PSP hardware uses
+// (0x10000 is HOME and 0x20000 is HOLD there). A host without them simply
+// never sets the bits, and an app must treat them as an enhancement: no
+// input.buttons contract promises they exist.
 
 export const BTN = {
   SELECT: 0x0001,
@@ -1468,6 +1523,8 @@ export const BTN = {
   LEFT: 0x0080,
   LTRIGGER: 0x0100,
   RTRIGGER: 0x0200,
+  ZL: 0x0400,
+  ZR: 0x0800,
   TRIANGLE: 0x1000,
   CIRCLE: 0x2000,
   CROSS: 0x4000,
@@ -1484,6 +1541,17 @@ export const BTN = {
 // is unchanged. Deadzone/normalization is runtime policy (framework/src/frame.ts), not
 // host policy — hosts pass the raw value through.
 
+// Touch words use bit 30 for a terminal system cancellation. Decode its ID
+// with the word's legacy/wide layout; it is not an active contact. The third
+// frame argument carries at most eight active words plus eight cancellations.
+// Hosts preserve DOWN order; the fifth argument carries surfaces for both.
+// Absence without a cancellation means ordinary UP. See docs/TOUCH.md.
+
+// Optional sixth frame argument carries the right stick with identical packing.
+// Omission reads as center; touch/hit/surface arguments retain their positions.
+// The seventh carries relative-axis deltas; the eighth carries the newest fused
+// MotionState (contracts/spec/motion.ts) since the previous frame, null or
+// omitted when the motion driver published none.
 export const ANALOG_CENTER = 0x8080;
 
 // ---------------------------------------------------------------------------

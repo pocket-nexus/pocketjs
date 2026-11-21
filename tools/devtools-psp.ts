@@ -4,9 +4,10 @@
 // exists for running the bridge against a hub you started elsewhere.
 //
 //   --dir <path>   usbhostfs root the PSP mounts as host0:
-//                  (default: dist/psplink — the `bun psplink` share;
-//                   for `bun run hw` pass hosts/psp/target/mipsel-sony-psp/release)
+//                  (default: dist/psplink — the `bun run psp:switch` share;
+//                   for `bun run hw` pass programs/psp/target/mipsel-sony-psp/release)
 //   --port <n>     dev-server port (default 8130 / PORT env)
+//   --bundle <p>   exact bundle used for the EBOOT (or build snapshot)
 
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -21,10 +22,14 @@ function argValue(flag: string): string | undefined {
 
 const dir = resolve(argValue("--dir") ?? join(ROOT, "dist", "psplink"));
 const port = Number(argValue("--port") ?? process.env.PORT ?? 8130);
+const bundleArg = argValue("--bundle");
+if (process.argv.includes("--bundle") && (!bundleArg || bundleArg.startsWith("--")))
+  throw new Error("--bundle requires the compiled bundle path used for the EBOOT");
+const bundlePath = bundleArg ? resolve(bundleArg) : undefined;
 
 if (!existsSync(dir)) {
   console.error(
-    `devtools-psp: ${dir} does not exist — start usbhostfs first (bun psplink / bun run hw), or pass --dir`,
+    `devtools-psp: ${dir} does not exist — start usbhostfs first (bun run psp:switch / bun run hw), or pass --dir`,
   );
   process.exit(1);
 }
@@ -32,6 +37,7 @@ if (!existsSync(dir)) {
 const bridge = startBridge({
   dir,
   port,
+  bundlePath,
   onEvent(e) {
     if (e.type === "hub-connected") console.log(`devtools-psp: connected to hub ws://127.0.0.1:${port}/ws`);
     if (e.type === "device-talking")
@@ -43,7 +49,7 @@ const bridge = startBridge({
     if (e.type === "bundle-mismatch")
       console.error(
         `devtools-psp: *** STALE EMBED *** ${e.detail}\n` +
-          "devtools-psp: the device is NOT running the code in dist/ — rebuild the EBOOT and reload before trusting anything you observe.",
+          "devtools-psp: the device differs from the selected local build — rebuild the EBOOT and reload before trusting observations.",
       );
   },
 });

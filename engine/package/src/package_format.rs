@@ -1,0 +1,34 @@
+// Generated from contracts/spec/bundle.ts. Do not edit.
+#![allow(dead_code)]
+pub const BUNDLE_MAGIC: u32 = 1145195344;
+pub const BUNDLE_VERSION: u32 = 1;
+pub const BUNDLE_HEADER_SIZE: usize = 64;
+pub const BUNDLE_SECTION_SIZE: usize = 16;
+pub const BUNDLE_ALIGN: usize = 16;
+pub const BUNDLE_FOOTER_SIZE: usize = 8;
+pub const HOST_INPUTS_MAGIC: u32 = 1414744144;
+pub const HOST_INPUTS_VERSION: u32 = 1;
+pub const HOST_INPUTS_SIZE: usize = 104;
+pub const SECTION_IDENTITY: u32 = 1;
+pub const SECTION_PLAN: u32 = 2;
+pub const SECTION_JS: u32 = 3;
+pub const SECTION_PAK: u32 = 4;
+pub const SECTION_ICON: u32 = 5;
+pub const SECTION_BYTECODE: u32 = 6;
+pub const SECTION_HOST_INPUTS: u32 = 7;
+pub const SECTION_WORKER_JS: u32 = 8;
+pub const SECTION_WORKER_BYTECODE: u32 = 9;
+pub const OFFSET_HEADER_MAGIC: usize = 0;
+pub const OFFSET_HEADER_VERSION: usize = 4;
+pub const OFFSET_HEADER_HOST_ABI: usize = 8;
+pub const OFFSET_HEADER_SECTION_COUNT: usize = 12;
+pub const OFFSET_HEADER_PAYLOAD_HASH: usize = 16;
+pub const OFFSET_HEADER_PROFILE_HASH: usize = 24;
+pub const OFFSET_HEADER_RESERVED: usize = 56;
+pub const OFFSET_SECTION_KIND: usize = 0;
+pub const OFFSET_SECTION_OFFSET: usize = 8;
+pub const OFFSET_SECTION_SIZE: usize = 12;
+pub const OFFSET_HOST_INPUTS_PROFILE_HASH: usize = 40;
+pub const OFFSET_HOST_INPUTS_PLAN_HASH: usize = 72;
+pub const OFFSET_BYTECODE_ENGINE_ABI: usize = 16;
+pub const OFFSET_BYTECODE_PAYLOAD: usize = 48;

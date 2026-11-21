@@ -4,7 +4,6 @@ import {
   FocusScope,
   Gallery,
   Grid,
-  Image,
   Lazy,
   Screen,
   Sprite,
@@ -12,20 +11,8 @@ import {
   View,
   type NodeMirror,
 } from "@pocketjs/framework/vue-vapor/components";
-import { createSpriteAnimation } from "@pocketjs/framework/vue-vapor/lifecycle";
 import { focusNode } from "@pocketjs/framework/vue-vapor/input";
 import { GALLERY_PAGES, TILES_PER_PAGE, TILE_SRCS } from "./tiles.ts";
-
-const SPINNER_FRAMES = [
-  "spinner-00.svg",
-  "spinner-01.svg",
-  "spinner-02.svg",
-  "spinner-03.svg",
-  "spinner-04.svg",
-  "spinner-05.svg",
-  "spinner-06.svg",
-  "spinner-07.svg",
-];
 
 const REVEAL_FRAMES = 16;
 const PAGE_TITLE = ["SYNTHWAVE", "GOLDEN HOUR", "EVERGREEN", "NEBULA"];
@@ -49,10 +36,9 @@ const TILE_FRAME =
   "w-[68] h-[68] rounded-lg items-center justify-center bg-slate-900 border-slate-700 focus:scale-110 focus:border-white transition-transform duration-150 ease-out";
 
 const Loading = (props: { title: string }) => {
-  const frame = createSpriteAnimation(SPINNER_FRAMES, { frameStep: 3 });
   return (
     <View class="flex-col items-center justify-center gap-2 grow">
-      <Image class="w-9 h-9" src={frame.value} />
+      <Sprite class="w-9 h-9" sprite="spinner-atlas.svg" />
       <Text class="text-xs text-slate-300 tracking-wide">LOADING {props.title}</Text>
     </View>
   );

@@ -1,0 +1,37 @@
+{
+  "state": {
+    "s64": 1,
+    "result": 1
+  },
+  "writes": [
+    {
+      "name": "s64",
+      "value": 1,
+      "changed": true
+    },
+    {
+      "name": "result",
+      "value": 1,
+      "changed": true
+    }
+  ],
+  "operations": [
+    {
+      "kind": "set",
+      "name": "s64",
+      "value": 1,
+      "changed": true
+    },
+    {
+      "kind": "effect",
+      "effect": 0,
+      "initial": false
+    },
+    {
+      "kind": "set",
+      "name": "result",
+      "value": 1,
+      "changed": true
+    }
+  ]
+}

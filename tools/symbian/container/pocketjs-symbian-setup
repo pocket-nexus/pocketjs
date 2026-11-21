@@ -146,7 +146,7 @@ ensure_signing_identity() {
             -x509 \
             -sha1 \
             -days 3650 \
-            -subj "/CN=PocketJS E7 Development/O=Pocket Stack/C=CN" \
+            -subj "/CN=PocketJS E7 Development/O=Pocket Nexus/C=CN" \
             -keyout "$signing_stage/pocketjs-e7-development.key" \
             -out "$signing_stage/pocketjs-e7-development.cer" \
             >/dev/null 2>&1

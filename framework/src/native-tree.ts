@@ -4,6 +4,7 @@
 import { NODE_TYPE, PROP, ROOT_ID, STYLE_ID_NONE, type PropName } from "../../contracts/spec/spec.ts";
 import { encodePropValue, getHost, getOps } from "./host.ts";
 import { __notifyTreeMutation, notifyDetached, registerFocusable, registerPress } from "./input.ts";
+import { clearNodeReferences } from "./model-node-ref.ts";
 
 export interface NodeMirror {
   /** Native generation-tagged node id. */
@@ -63,6 +64,11 @@ export const rootMirror: NodeMirror = {
   domTag: "root",
 };
 
+// Host-created UI roots share the node arena with the primary root but are
+// not its children. The auxiliary display root is the first such root. Keep
+// them out of detached-node sweeping and treat them as connected boundaries.
+const nativeRoots = new Set<NodeMirror>([rootMirror]);
+
 const DOM_NODE = Symbol.for("pocketjs.native-node");
 const DOM_ELEMENT = 1;
 const DOM_TEXT = 3;
@@ -72,6 +78,8 @@ const NATIVE_ATTRIBUTE_NAMES = new Set([
   "className",
   "style",
   "src",
+  "sprite",
+  "frameStep",
   "onPress",
   "on:press",
   "focusable",
@@ -238,7 +246,7 @@ export function decorateNativeNode(node: NodeMirror): NodeMirror {
       get() {
         let current: NodeMirror | null = node;
         while (current) {
-          if (current === rootMirror) return true;
+          if (nativeRoots.has(current)) return true;
           current = current.parent;
         }
         return false;
@@ -326,6 +334,21 @@ export function resetTextures(): void {
   textures.clear();
 }
 
+/**
+ * The texture handle registered for an image key. An unknown key throws on
+ * strict hosts and counts a miss on native ones (undefined).
+ */
+export function resolveTexture(key: string): number | undefined {
+  const handle = textures.get(key);
+  if (handle === undefined) {
+    if (getHost().strict) {
+      throw new Error(`PocketJS: unknown image src "${key}" - no texture registered under that key`);
+    }
+    missCounters.unknownTexture++;
+  }
+  return handle;
+}
+
 /** A `sprite` key → its atlas texture handle + animation metadata. */
 export interface SpriteMeta {
   /** uploadTexture handle of the atlas. */
@@ -359,7 +382,7 @@ export function retain(node: NodeMirror): void {
 /** Undo retain(); a still-detached node re-enters the next sweep. */
 export function release(node: NodeMirror): void {
   retained.delete(node);
-  if (node.parent === null && node !== rootMirror) sweepSet.add(node);
+  if (node.parent === null && !nativeRoots.has(node)) sweepSet.add(node);
 }
 
 function subtreeHasRetained(node: NodeMirror): boolean {
@@ -384,10 +407,12 @@ export function runSweep(): void {
   for (const node of sweepSet) {
     if (!node) continue;
     if (node.parent !== null) continue;
+    if (nativeRoots.has(node)) continue;
     if (subtreeHasRetained(node)) {
       keep.push(node);
       continue;
     }
+    clearNodeReferences(node);
     ops.destroyNode(node.id);
   }
   sweepSet.clear();
@@ -399,12 +424,44 @@ export function resetRendererState(): void {
   sweepSet.clear();
   retained.clear();
   rootMirror.children.length = 0;
+  nativeRoots.clear();
+  nativeRoots.add(rootMirror);
+}
+
+/** Mirror a root allocated by the native host before the guest mounts. */
+export function adoptNativeRoot(id: number, tag = "native-root"): NodeMirror {
+  if (!Number.isInteger(id) || id <= ROOT_ID) {
+    throw new Error(`PocketJS: invalid adopted native root id ${id}`);
+  }
+  const root = decorateNativeNode({
+    id,
+    type: NODE_TYPE.view,
+    parent: null,
+    children: [],
+    domNodeType: DOM_ELEMENT,
+    domTag: tag,
+  });
+  nativeRoots.add(root);
+  return root;
+}
+
+/** Forget a native root after its guest-owned children have been destroyed. */
+export function releaseNativeRoot(root: NodeMirror): void {
+  if (root === rootMirror) return;
+  if (root.children.length > 0) {
+    throw new Error("PocketJS: cannot release a native root with mounted children");
+  }
+  nativeRoots.delete(root);
+  sweepSet.delete(root);
+  retained.delete(root);
 }
 
 export function createElement(tag: string): NodeMirror {
   const type = (NODE_TYPE as Record<string, number>)[tag];
   if (type === undefined) {
-    throw new Error(`PocketJS: unknown element <${tag}> - only view/text/image exist`);
+    throw new Error(
+      `PocketJS: unknown element <${tag}> - only view/text/image exist`,
+    );
   }
   return decorateNativeNode({
     id: getOps().createNode(type),
@@ -417,6 +474,8 @@ export function createElement(tag: string): NodeMirror {
 }
 
 export function createTextNode(value: string): NodeMirror {
+  // Solid universal also passes primitive numbers to the host text boundary.
+  value = String(value);
   const ops = getOps();
   const id = ops.createNode(NODE_TYPE.text);
   ops.setText(id, value);
@@ -440,6 +499,7 @@ export function createCommentNode(data = ""): NodeMirror {
 }
 
 export function replaceText(node: NodeMirror, value: string): void {
+  value = String(value);
   getOps().replaceText(node.id, value);
   node.text = value;
   treeMutated();
@@ -482,12 +542,22 @@ function unlink(node: NodeMirror): void {
 
 export function insertNode(parent: NodeMirror, node: NodeMirror, anchor?: NodeMirror | null): void {
   const ops = getOps();
+  if (anchor && (anchor.parent !== parent || !parent.children.includes(anchor))) {
+    throw new Error("PocketJS: insert anchor is not a child of parent");
+  }
+  if (anchor === node) {
+    // DOM pre-insertion re-anchors on the node's next sibling, so inserting a
+    // child before itself is a positional no-op. Solid's keyed reconciler can
+    // emit this during an adjacent swap; neither the mirror nor the native
+    // host should see a detach followed by a now-invalid anchor.
+    sweepSet.delete(node);
+    return;
+  }
   unlink(node);
   sweepSet.delete(node);
   ops.insertBefore(parent.id, node.id, anchor ? anchor.id : 0);
   if (anchor) {
     const i = parent.children.indexOf(anchor);
-    if (i < 0) throw new Error("PocketJS: insert anchor is not a child of parent");
     parent.children.splice(i, 0, node);
   } else {
     parent.children.push(node);
@@ -557,21 +627,20 @@ function setSrc(node: NodeMirror, value: unknown): void {
   if (typeof value !== "string") {
     throw new Error("PocketJS: src must be a string key");
   }
-  const handle = textures.get(value);
-  if (handle === undefined) {
-    if (getHost().strict) {
-      throw new Error(
-        `PocketJS: unknown image src "${value}" - no texture registered under that key`,
-      );
-    }
-    missCounters.unknownTexture++;
-    return;
-  }
-  ops.setImage(node.id, handle);
+  const handle = resolveTexture(value);
+  if (handle !== undefined) ops.setImage(node.id, handle);
 }
 
 /** `sprite` prop → bind an animated sprite atlas. Auto-play is native; JS never
  *  touches it per frame. Clearing reverts the node to a plain (empty) image. */
+function spriteStep(node: NodeMirror, fallback: number, value: unknown = node.domAttrs?.frameStep): number {
+  if (value == null) return fallback;
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error("PocketJS: frameStep must be a finite number");
+  }
+  return Math.min(0xffff, Math.max(1, Math.floor(value)));
+}
+
 function setSpriteSrc(node: NodeMirror, value: unknown): void {
   const ops = getOps();
   if (value == null || value === "") {
@@ -591,7 +660,7 @@ function setSpriteSrc(node: NodeMirror, value: unknown): void {
     missCounters.unknownTexture++;
     return;
   }
-  ops.setSprite(node.id, meta.handle, meta.frames, meta.cols, meta.step);
+  ops.setSprite(node.id, meta.handle, meta.frames, meta.cols, spriteStep(node, meta.step));
 }
 
 type StyleObject = Record<string, number | string>;
@@ -636,6 +705,24 @@ export function setProp<T>(node: NodeMirror, name: string, value: T, prev?: T): 
       return value;
     case "sprite":
       setSpriteSrc(node, value);
+      return value;
+    case "frameStep":
+      if (value != null) spriteStep(node, 1, value);
+      if (node.domAttrs?.sprite != null) {
+        const key = node.domAttrs.sprite;
+        const meta = sprites.get(String(key));
+        if (meta !== undefined) {
+          getOps().setSprite(
+            node.id,
+            meta.handle,
+            meta.frames,
+            meta.cols,
+            spriteStep(node, meta.step, value),
+          );
+        } else {
+          setSpriteSrc(node, key);
+        }
+      }
       return value;
     case "style":
       setStyleObject(node, value, prev);

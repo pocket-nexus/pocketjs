@@ -1,6 +1,7 @@
 // Component-facing public API.
 
-import type { JSX as SolidJSX } from "solid-js";
+import type { Accessor, JSX as SolidJSX } from "solid-js";
+import { Key } from "@solid-primitives/keyed";
 import {
   children as resolveChildren,
   createEffect,
@@ -11,13 +12,21 @@ import {
   onMount,
   Show as SolidShow,
   splitProps,
+  untrack,
+  useContext,
 } from "solid-js";
 import { BTN, ENUMS, SCREEN_H, SCREEN_W } from "../../contracts/spec/spec.ts";
 import { animate, type EasingName } from "./anim.ts";
-import { pushButtonHandlerBlock, onButtonPress, onFrame, type ButtonPressOptions } from "./frame.ts";
-import { getOps, hostViewport } from "./host.ts";
+import { pushButtonHandlerBlock, onButtonPress, onAxisDelta, onMotion, onFrame, type ButtonPressOptions } from "./frame.ts";
+import { RelativeAxis } from "./relative-axis.ts";
+import { MOTION_DEFAULT_MIN_QUALITY } from "./motion.ts";
+import type { MicroTsMotionHandlerProps } from "./component-types-microts.ts";
+import type { i32 } from "./numeric-microts.ts";
+import { RowContext, captureNodeRow, type RowContextValue } from "./solid-row.ts";
+import { getOps, hostViewport, onViewport } from "./host.ts";
 import { pushFocusGrid, pushFocusScope, type FocusGridOptions, type FocusScopeOptions } from "./input.ts";
 import { getOverlayRoot } from "./overlay.ts";
+import { getAuxiliarySurfaceRoots } from "./display.ts";
 import { View, type ViewProps } from "./primitives.ts";
 import {
   createElement,
@@ -27,9 +36,18 @@ import {
   setProp,
   type NodeMirror,
 } from "./renderer.ts";
-import { setDebugName } from "./native-tree.ts";
+import { createCommentNode, setDebugName } from "./native-tree.ts";
 
-export { View, Text, Image, Sprite, type ViewProps, type TextProps, type ImageProps, type SpriteProps } from "./primitives.ts";
+export {
+  View,
+  Text,
+  Image,
+  Sprite,
+  type ViewProps,
+  type TextProps,
+  type ImageProps,
+  type SpriteProps,
+} from "./primitives.ts";
 export {
   DeepZoom,
   type DeepZoomGesture,
@@ -39,6 +57,30 @@ export {
   type TileLevel,
 } from "./deepzoom.ts";
 export type { NodeMirror } from "./renderer.ts";
+
+/** The logical viewport an app lays out in, in logical pixels. */
+export interface ViewportSize {
+  w: number;
+  h: number;
+}
+
+/**
+ * The logical viewport as a signal: the size the host published at mount
+ * (the spec screen on a host that publishes none), then each size the host
+ * resizes to. Read it in a component to choose a layout from the width: the
+ * columns of a grid, a row that becomes a column. Needs
+ * `display.viewport.live` to change; on a fixed screen the first value is the
+ * only one.
+ */
+export function useViewport(): Accessor<ViewportSize> {
+  const now = hostViewport(getOps());
+  const [size, setSize] = createSignal<ViewportSize>(
+    { w: now?.w ?? SCREEN_W, h: now?.h ?? SCREEN_H },
+    { equals: (a, b) => a.w === b.w && a.h === b.h },
+  );
+  onCleanup(onViewport((w, h) => setSize({ w, h })));
+  return size;
+}
 
 type RefProp = ViewProps["ref"];
 
@@ -153,12 +195,96 @@ export interface ActionHandlerProps extends ButtonPressOptions {
 }
 
 export function ActionHandler(props: ActionHandlerProps): SolidJSX.Element {
+  const marker = inputPlacement("action");
   onButtonPress(props.button, props.onPress, {
     allowWhenBlocked: props.allowWhenBlocked,
-    active: props.active,
+    active: () => resolveActive(props.active),
     latched: props.latched,
+  }, marker);
+  return inputBlock(marker, () => props.children);
+}
+
+function inputPlacement(name: string): NodeMirror {
+  const marker = createCommentNode(name);
+  setProp(marker, "style", { display: ENUMS.Display.None });
+  captureNodeRow(marker);
+  return marker;
+}
+
+function inputBlock(marker: NodeMirror, children: () => SolidJSX.Element): SolidJSX.Element {
+  return [marker, children] as unknown as SolidJSX.Element;
+}
+
+export interface AxisHandlerProps {
+  axis: "primary" | "secondary";
+  active?: boolean;
+  onDelta: (delta: i32) => void;
+  children?: SolidJSX.Element;
+}
+
+export function AxisHandler(props: AxisHandlerProps): SolidJSX.Element {
+  if (props.axis !== "primary" && props.axis !== "secondary") throw new Error(`Unknown relative axis ${props.axis}`);
+  const marker = inputPlacement("axis");
+  onAxisDelta(props.axis === "primary" ? RelativeAxis.Primary : RelativeAxis.Secondary,
+    props.onDelta, { active: () => props.active ?? true }, marker);
+  return inputBlock(marker, () => props.children);
+}
+
+export type MotionHandlerProps = MicroTsMotionHandlerProps & { children?: SolidJSX.Element };
+
+/** Fires in document order on frames whose motion state carries `value` at `minQuality` or better. */
+export function MotionHandler(props: MotionHandlerProps): SolidJSX.Element {
+  const marker = inputPlacement("motion");
+  onMotion(props.value, (...payload: number[]) => (props.onUpdate as ((...payload: number[]) => void) | undefined)?.(...payload),
+    { active: () => resolveActive(props.active), minQuality: props.minQuality ?? MOTION_DEFAULT_MIN_QUALITY }, marker);
+  return inputBlock(marker, () => props.children);
+}
+
+export interface ForProps<T, K> {
+  each: readonly T[] | undefined;
+  by: (item: T) => K;
+  fallback?: SolidJSX.Element;
+  children: (item: Accessor<T>, index: Accessor<number>) => SolidJSX.Element;
+}
+
+/** Keep the row owner by key, and expose dispatch snapshots through accessors. */
+export function For<T, K>(props: ForProps<T, K>): SolidJSX.Element {
+  const parent = useContext(RowContext);
+  return Key({
+    get each() {
+      const list = props.each;
+      const seen = new Set<K>();
+      for (const item of list ?? []) {
+        const key = props.by(item);
+        if (seen.has(key)) throw new Error(`PocketJS: duplicate For key ${String(key)}`);
+        seen.add(key);
+      }
+      return list;
+    },
+    by: props.by,
+    get fallback() { return props.fallback; },
+    children: (row: Accessor<T>, rowIndex: Accessor<number>) => {
+      const key = props.by(untrack(row));
+      const context: RowContextValue<T> = {
+        parent,
+        resolve() {
+          const list = props.each ?? [];
+          const index = list.findIndex(item => props.by(item) === key);
+          return index < 0 ? undefined : { item: list[index]!, index };
+        },
+      };
+      const item = () => {
+        if (context.snapshot) return context.snapshot.item;
+        // A model may mutate a plain record and publish a new source array.
+        // Key's own row signal compares object identity, so subscribe to the
+        // source too to make that published write visible to row bindings.
+        void props.each;
+        return row();
+      };
+      const index = () => context.snapshot ? context.snapshot.index : rowIndex();
+      return RowContext.Provider({ value: context, get children() { return props.children(item, index); } });
+    },
   });
-  return props.children ?? null;
 }
 
 export interface PortalProps {
@@ -209,6 +335,69 @@ export function Portal(props: PortalProps): SolidJSX.Element {
     if (host?.parent) detachNode(host.parent, host);
   });
 
+  return null;
+}
+
+export interface AuxiliarySurfaceProps {
+  children?: SolidJSX.Element | (() => SolidJSX.Element);
+}
+
+/** Mount children into the current AppInstance's auxiliary output. */
+export function AuxiliarySurface(props: AuxiliarySurfaceProps): SolidJSX.Element {
+  let host: NodeMirror | undefined;
+  let dispose: (() => void) | undefined;
+  onMount(() => {
+    const surface = getAuxiliarySurfaceRoots();
+    host = createElement("view");
+    setProp(
+      host,
+      "style",
+      {
+        width: surface.viewport.width,
+        height: surface.viewport.height,
+        overflow: ENUMS.Overflow.Hidden,
+      },
+      undefined,
+    );
+    insertNode(surface.app, host);
+    dispose = rendererRender(() => renderPortalChild(props.children) as NodeMirror, host);
+  });
+  onCleanup(() => {
+    dispose?.();
+    if (host?.parent) detachNode(host.parent, host);
+  });
+  return null;
+}
+
+/** Render overlay content above the auxiliary application layer. */
+export function AuxiliaryPortal(props: AuxiliarySurfaceProps): SolidJSX.Element {
+  let host: NodeMirror | undefined;
+  let dispose: (() => void) | undefined;
+  onMount(() => {
+    const surface = getAuxiliarySurfaceRoots();
+    host = createElement("view");
+    setProp(
+      host,
+      "style",
+      {
+        width: surface.viewport.width,
+        height: surface.viewport.height,
+        posType: ENUMS.PosType.Absolute,
+        insetT: 0,
+        insetR: 0,
+        insetB: 0,
+        insetL: 0,
+        hitPass: 1,
+      },
+      undefined,
+    );
+    insertNode(surface.overlay, host);
+    dispose = rendererRender(() => renderPortalChild(props.children) as NodeMirror, host);
+  });
+  onCleanup(() => {
+    dispose?.();
+    if (host?.parent) detachNode(host.parent, host);
+  });
   return null;
 }
 

@@ -13,7 +13,8 @@
 //   /playground/          the live editor page
 //   /docs/*, /index.html  rendered from site/content (added below)
 
-import { validateAndResolveBuildPlan } from "../framework/src/manifest/resolve.ts";
+import { stageWebAssets } from "../tools/build/web-assets.ts";
+import { loadHostConfig } from "../tools/profile-resolver.ts";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, cpSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -32,6 +33,7 @@ import {
 import {
   ICON_LINKS,
   OG_IMAGE_URL,
+  PIXEL_FONT_PRELOAD,
   SITE_DESC,
   SITE_TITLE,
   SITE_URL,
@@ -39,7 +41,16 @@ import {
   renderPage,
 } from "./templates.ts";
 import { BLOG_POSTS, DOC_NAV, type DocSection } from "./nav.ts";
+import { candyHeadings } from "./candy.ts";
+import {
+  assertDocDemoBuilt,
+  findDocDemoDirectives,
+  resolveDocDemo,
+  type DocDemo,
+} from "./doc-demos.ts";
 import { emitSingleLodStagePackage } from "./stage-package.ts";
+import { renderHomeShowcase } from "./home-showcase.ts";
+import { SHOWCASE_APPS } from "./showcase.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname; // repo root
 const SITE = ROOT + "site/";
@@ -83,6 +94,23 @@ const shimPlugin: import("bun").BunPlugin = {
 // binding but prune its declaration in a browser bundle. Resolve the browser
 // compiler straight to the owning module; normal Bun/Node consumers keep using
 // the public `octane/compiler` subpath in source.
+// The playground runtimes bundle the framework with the hero build's style
+// table (tools/site-build.ts builds hero before this script) as the default
+// table for applications that pass none.
+const HERO_STYLES = ROOT + "dist/hero.styles.ts";
+function heroStyles(): string {
+  if (!existsSync(HERO_STYLES)) {
+    throw new Error(`site build: ${HERO_STYLES} is missing; run \`bun tools/build.ts hero\` first`);
+  }
+  return readFileSync(HERO_STYLES, "utf8");
+}
+const heroStylesPlugin: import("bun").BunPlugin = {
+  name: "hero-styles",
+  setup(build) {
+    build.onResolve({ filter: /(?:^|\/)styles\.generated(?:\.ts)?$/ }, () => ({ path: HERO_STYLES }));
+  },
+};
+
 const octaneBrowserCompilerPlugin: import("bun").BunPlugin = {
   name: "octane-browser-compiler",
   setup(b) {
@@ -265,27 +293,29 @@ function writeStaticHeaders(): void {
   );
 }
 
+// Docs slugs that were retired by merging their page into the one that already
+// owned the subject. The Worker serves site/dist with not_found_handling set to
+// the 404 page (site/wrangler.jsonc), so without these a bookmark to a retired
+// slug dies instead of landing on its successor.
+const RETIRED_DOC_SLUGS: [from: string, to: string][] = [
+  ["/docs/concepts/", "/docs/architecture/"],
+  ["/docs/tailwind/", "/docs/styling/"],
+  ["/docs/net/", "/docs/api/"],
+  ["/docs/app-contract/", "/docs/app-config/"],
+];
+
+function writeStaticRedirects(): void {
+  const lines = RETIRED_DOC_SLUGS.map(([from, to]) => `${from} ${to} 301`);
+  write("_redirects", lines.join("\n") + "\n");
+  console.log(`  _redirects  (${lines.length} retired docs slugs)`);
+}
+
 // --- editable demos (mostly single-file; gallery inlines generated tile data)
 type SpriteMeta = Record<string, { cols: number; rows: number; frames: number; step: number; psm?: number }>;
 type DemoVariant = { framework: "solid" | "vue-vapor" | "octane"; source: string; spriteMeta?: SpriteMeta };
 type DemoEntry = { name: string; title: string; variants: DemoVariant[] };
 
 function inlinePlaygroundImports(name: string, source: string): string | null {
-  if (name === "launcher") {
-    const registryPath = ROOT + "apps/launcher/registry.generated.ts";
-    const registrySource = readFileSync(registryPath, "utf8");
-    const registryStart = registrySource.indexOf("export const REGISTRY");
-    if (registryStart < 0) throw new Error("launcher registry has no REGISTRY export");
-    const registry = registrySource.slice(registryStart).replace(/^export\s+/gm, "");
-    const withDefaultRegistry = source.replace(
-      "export default function Launcher(props: LauncherProps) {",
-      "export default function Launcher(props: LauncherProps = { registry: REGISTRY }) {",
-    );
-    if (withDefaultRegistry === source) {
-      throw new Error("launcher Playground wrapper could not supply its registry");
-    }
-    return registry + "\n" + withDefaultRegistry;
-  }
   if (!/from\s+["']\.\.?\//.test(source)) return source;
   if (name === "gallery") {
     const tilesPath = ROOT + "apps/gallery/tiles.ts";
@@ -304,7 +334,7 @@ function demoSpriteMeta(name: string): SpriteMeta | undefined {
   return JSON.parse(readFileSync(path, "utf8")) as SpriteMeta;
 }
 
-function demoManifest() {
+async function playgroundDemos() {
   const dir = ROOT + "apps/";
   const out: DemoEntry[] = [];
   for (const name of readdirSync(dir).sort()) {
@@ -313,15 +343,11 @@ function demoManifest() {
     const octaneApp = dir + name + "/app.octane.tsx";
     const main = dir + name + "/main.tsx";
     if (!existsSync(app)) continue;
-    // The playground (and every demo shelf on the site) shows only
-    // PSP-admissible demos: a committed manifest that does not resolve
-    // against the psp target (desktop-only capabilities, non-console
-    // viewport) keeps its demo off the site.
-    const manifestPath = dir + name + "/pocket.json";
-    if (existsSync(manifestPath)) {
-      const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-      if (!validateAndResolveBuildPlan(manifest, { target: "psp" }).ok) continue;
-    }
+    // The playground (and every demo shelf on the site) shows only demos
+    // built for the PSP: a demo whose host config does not list psp
+    // (desktop-only features, a non-console viewport) stays off the site.
+    const configPath = dir + name + "/pocket.host.config.ts";
+    if (existsSync(configPath) && !(await loadHostConfig(configPath)).profiles.some((profile) => profile.id === "psp")) continue;
     const source = inlinePlaygroundImports(name, readFileSync(app, "utf8"));
     if (source === null) continue; // multi-file demo
     let title = name[0].toUpperCase() + name.slice(1);
@@ -359,8 +385,6 @@ function copyDemoAssets(): void {
       if (/\.(?:png|svg)$/i.test(file)) copy(dir + file, "demo-assets/" + file);
     }
   }
-  const launcherCovers = ROOT + "apps/launcher/covers/";
-  if (existsSync(launcherCovers)) copy(launcherCovers, "demo-assets/covers/");
 }
 
 type BabelImport = {
@@ -482,14 +506,22 @@ async function main() {
   rmSync(OUT, { recursive: true, force: true });
   mkdirSync(OUT, { recursive: true });
   writeStaticHeaders();
+  writeStaticRedirects();
 
   // 1. bundles
   await bundleSolid("pg/solid.js");
   await bundleSolidUniversal("pg/solid-universal.js");
   await bundleVueVapor("pg/vue-vapor.js");
   writeVueVaporHelpers();
-  await bundle("playground/runtime-entry.ts", "pg/runtime.js", { external: ["solid-js", "solid-js/universal"] });
-  await bundle("playground/runtime-vue-vapor-entry.ts", "pg/runtime-vue-vapor.js", { external: ["vue"] });
+  heroStyles();
+  await bundle("playground/runtime-entry.ts", "pg/runtime.js", {
+    external: ["solid-js", "solid-js/universal"],
+    plugins: [heroStylesPlugin],
+  });
+  await bundle("playground/runtime-vue-vapor-entry.ts", "pg/runtime-vue-vapor.js", {
+    external: ["vue"],
+    plugins: [heroStylesPlugin],
+  });
   await bundle("playground/compiler-entry.ts", "pg/compiler.js", {
     shims: true,
     prelude: PROCESS_PRELUDE,
@@ -505,53 +537,54 @@ async function main() {
   // with a require-of-top-level-await error.
   const { jsxPlugin } = await import("../framework/compiler/jsx-plugin.ts");
   await bundle("playground/runtime-octane-entry.ts", "pg/runtime-octane.js", {
-    plugins: [jsxPlugin("octane")],
+    plugins: [jsxPlugin("octane", { generatedStyles: heroStyles() })],
   });
   await bundle("playground/playground.js", "pg/playground.bundle.js");
+  // Live docs demos (`:::demo <app>`). Bundled from source so it can import
+  // the framework's own touch packing helpers instead of restating them.
+  await bundle("playground/embed.js", "pg/embed.js");
   await bundle("assets/pocket-stage-web.js", "assets/pocket-stage-web.js");
+  await bundle("assets/handheld-stages.js", "assets/handheld-stages.js", {
+    external: ["/assets/pocket-stage-web.js"],
+  });
 
   // 2. runtime assets
   // Keep the editor-facing URL byte-identical to the schema used by the
-  // validator. The deployed path is POCKET_MANIFEST_SCHEMA_ID —
-  // /schema/pocket-2.json, independent of where the repo keeps the file.
-  copy(ROOT + "contracts/schema/pocket-2.json", "schema/pocket-2.json");
-  copy(ROOT + "hosts/web/pocketjs.wasm", "pg/pocketjs.wasm");
+  // validator: /schema/pocket-host-2.json, independent of where the repo
+  // keeps the file.
+  copy(ROOT + "contracts/schema/pocket-host-2.json", "schema/pocket-host-2.json");
+  copy(ROOT + "platforms/web/pocketjs.wasm", "pg/pocketjs.wasm");
+  // Preserve program/provider module and worker URLs under the deployed root.
+  stageWebAssets(OUT + "pg", {
+    wasm: ROOT + "platforms/web/pocketjs.wasm",
+    textWasm: ROOT + "platforms/web/pocket_text.wasm",
+  });
   copy(ROOT + "assets/fonts/Inter-Regular.ttf", "pg/fonts/Inter-Regular.ttf");
   copy(ROOT + "assets/fonts/Inter-Bold.ttf", "pg/fonts/Inter-Bold.ttf");
   for (const f of readdirSync(ROOT + "assets/images/")) copy(ROOT + "assets/images/" + f, "demo-assets/" + f);
   copyDemoAssets();
 
-  // Homepage Pocket Stage package: the Pocket Launcher plus every admitted
-  // app (docs/LAUNCHER.md) — the same deck the PSP EBOOT ships, wasm-rendered.
-  // The deploy workflow builds the launcher family first; fail here instead
-  // of silently publishing a shell with a missing screen app when
-  // site/build.ts is run by hand.
-  const registryPath = ROOT + "dist/launcher-registry.json";
-  if (!existsSync(registryPath)) {
-    throw new Error("missing dist/launcher-registry.json — run: bun tools/launcher.ts covers");
-  }
-  const launcherRegistry = JSON.parse(readFileSync(registryPath, "utf8")) as {
-    apps: { output: string; id: string; title: string }[];
-  };
-  const stageApps = ["launcher-main", ...launcherRegistry.apps.map((a) => a.output)];
-  for (const output of stageApps) {
-    const source = ROOT + `dist/packages/${output}.pocket`;
-    if (!existsSync(source)) {
-      throw new Error(`missing dist/packages/${output}.pocket — run: bun tools/launcher.ts pack`);
-    }
-    copy(source, `stage/apps/${output}.pocket`);
-  }
-  write(
-    "stage/apps/apps.json",
-    JSON.stringify({
-      apps: launcherRegistry.apps.map(({ output, id, title }) => ({ output, id, title })),
-    }),
-  );
+  // Pocket Stage packages: one authored model per handheld and one prebuilt
+  // app per model. tools/site-build.ts builds the apps first; a missing one
+  // fails here when site/build.ts is run by hand.
   const pspPackage = ROOT + "engine/pocket3d/examples/handheld/assets/dibad-psp/";
   emitSingleLodStagePackage(pspPackage, OUT + "stage/", "psp-profile.json", "orbit");
+  for (const device of ["new-nintendo-3ds", "ps-vita-2000"]) {
+    emitSingleLodStagePackage(ROOT + `engine/pocket3d/examples/handheld/assets/${device}/`,
+      OUT + `stage/${device}/`, "profile.json", "orbit");
+  }
+  // psp/motions-main is the density-1 build the PSP model runs; motions-main
+  // beside it is the Vita's density-2 build of the same app.
+  for (const app of ["3ds-demo-main", "motions-main", "psp/motions-main"]) {
+    for (const ext of ["js", "pak"]) {
+      const path = ROOT + `dist/handheld-apps/${app}.${ext}`;
+      if (!existsSync(path)) throw new Error(`missing ${path}; run bun run site:build`);
+      copy(path, `stage/handheld-apps/${app}.${ext}`);
+    }
+  }
 
-  // 3. demos manifest
-  const demos = demoManifest();
+  // 3. the playground's demo list
+  const demos = await playgroundDemos();
   write("pg/demos.json", JSON.stringify(demos));
   console.log(`  pg/demos.json  (${demos.length} demos: ${demos.map((d) => d.name).join(", ")})`);
   await verifyPlaygroundModules(demos);
@@ -564,6 +597,11 @@ async function main() {
     "favicon.ico",
     "favicon-96.png",
     "apple-touch-icon.png",
+    // what an iOS client fetches from the root when it reads no link tag
+    "apple-touch-icon-precomposed.png",
+    "apple-touch-icon-167.png",
+    "apple-touch-icon-152.png",
+    "apple-touch-icon-120.png",
     "icon-192.png",
     "icon-512.png",
     "icon-512-maskable.png",
@@ -574,6 +612,12 @@ async function main() {
   ]) {
     if (existsSync(SITE + "assets/" + asset)) copy(SITE + "assets/" + asset, asset);
   }
+  // The Pocket3D mark beside the homepage's link to 3d.pocket.nexus: that site's
+  // drawing, copied at build time so this one keeps no second copy.
+  copy(SITE + "pocket3d/mark.svg", "assets/pocket3d-mark.svg");
+  // The Arcade look for pages outside the homepage, and its self-hosted pixel font.
+  copy(SITE + "assets/arcade.css", "assets/arcade.css");
+  copy(SITE + "assets/fonts/", "assets/fonts/");
   // OpenStrike desktop screenshot (referenced by the shipping-openstrike post).
   copy(SITE + "assets/os-dust2.jpg", "assets/os-dust2.jpg");
   // The original hardware capture (embedded by the introducing-pocketjs post).
@@ -581,9 +625,6 @@ async function main() {
   // The hero demo wall + its poster frame (baked by site/bake-demo-wall.ts).
   copy(SITE + "assets/pocketjs-demo-wall.mp4", "assets/pocketjs-demo-wall.mp4");
   copy(SITE + "assets/pocketjs-demo-wall.jpg", "assets/pocketjs-demo-wall.jpg");
-  // The Pocket Vapor promo film (embedded at the top of the pocket-vapor post;
-  // rendered by vapor/scripts/promo/, poster frame lives in assets/blog/).
-  copy(SITE + "assets/pocket-vapor-promo.mp4", "assets/pocket-vapor-promo.mp4");
   // Blog illustration loops (animated GIFs rendered by the engine itself).
   if (existsSync(SITE + "assets/blog/")) {
     for (const f of readdirSync(SITE + "assets/blog/")) copy(SITE + "assets/blog/" + f, "assets/blog/" + f);
@@ -598,6 +639,10 @@ async function main() {
   // out to GitHub at run time.
   if (existsSync(SITE + "assets/sponsors/")) {
     for (const f of readdirSync(SITE + "assets/sponsors/")) copy(SITE + "assets/sponsors/" + f, "assets/sponsors/" + f);
+  }
+  // Community author avatars are local assets, with their sources recorded beside them.
+  for (const f of readdirSync(SITE + "assets/community/")) {
+    if (/\.(?:jpg|png|webp)$/.test(f)) copy(SITE + "assets/community/" + f, "assets/community/" + f);
   }
 
   // 5. playground page
@@ -615,11 +660,17 @@ async function main() {
   //    header/footer (those stay for docs + playground).
   write("index.html", renderHome());
   // The homepage ships one stylesheet: the same tokens and chrome the Tailwind
-  // build imports, plus the landing sections, concatenated in layer order.
-  write("assets/landing.css", ["tokens.css", "base.css", "chrome.css", "landing.css"]
+  // build imports, plus the landing sections, concatenated in layer order and
+  // closed by the Arcade look. Other pages link arcade.css after their own CSS.
+  write("assets/landing.css", ["tokens.css", "base.css", "chrome.css", "landing.css", "showcase.css", "arcade.css"]
     .map((f) => readFileSync(SITE + "assets/" + f, "utf8"))
     .join("\n"));
-  await bundle("assets/landing.js", "assets/landing.js");
+  await bundle("assets/landing.js", "assets/landing.js", {
+    external: ["/assets/pocket-stage-web.js", "/assets/handheld-stages.js"],
+  });
+  for (const image of new Set(SHOWCASE_APPS.map((app) => app.image))) {
+    if (image.startsWith("/assets/showcase/")) copy(SITE + image.slice(1), image.slice(1));
+  }
   // home.css stays for the /for/ pages, which keep the .lp-* chrome.
   copy(SITE + "assets/home.css", "assets/home.css");
 
@@ -661,9 +712,8 @@ async function main() {
 // The homepage is a standalone document (its design owns its own header +
 // footer + CSS). site/home.html holds the body; site/assets/landing.css the
 // styles. Display faces come from Google Fonts; the fallback stacks keep the
-// page readable when that request fails.
-const HOME_DESC =
-  "PocketJS is a UI runtime that keeps JSX, Tailwind and reactive state, then removes every layer below them: no DOM, no CSS engine, no WebView. A QuickJS guest on a Rust core that lays out and draws every pixel itself.";
+// page readable when that request fails. Its meta description is the shared
+// SITE_DESC, so the positioning sentence is stated in exactly one place.
 const escapeHtml = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
@@ -687,14 +737,14 @@ function renderHome(): string {
   const raw = readFileSync(SITE + "home.html", "utf8");
   const slots = raw.split(SPONSOR_SLOT).length - 1;
   if (slots !== 1) throw new Error(`Expected ${SPONSOR_SLOT} exactly once in the homepage; found ${slots}`);
-  const body = raw.replace(SPONSOR_SLOT, () => renderSponsorGallery());
+  const body = renderHomeShowcase(raw.replace(SPONSOR_SLOT, () => renderSponsorGallery()));
   const jsonLd = JSON.stringify({
     "@context": "https://schema.org",
     "@type": "SoftwareSourceCode",
     name: "PocketJS",
     description: SITE_DESC,
     url: SITE_URL,
-    codeRepository: "https://github.com/pocket-stack/pocketjs",
+    codeRepository: "https://github.com/pocket-nexus/pocketjs",
     programmingLanguage: ["TypeScript", "JavaScript", "Rust"],
     runtimePlatform: [
       "Sony PSP",
@@ -713,17 +763,17 @@ function renderHome(): string {
       "Bun",
     ],
   });
-  return `<!doctype html>
+  return candyHeadings(`<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${SITE_TITLE}</title>
-<meta name="description" content="${HOME_DESC}">
+<meta name="description" content="${SITE_DESC}">
 <meta name="robots" content="index,follow">
 <link rel="canonical" href="${SITE_URL}/">
 <meta property="og:title" content="${SITE_TITLE}">
-<meta property="og:description" content="${HOME_DESC}">
+<meta property="og:description" content="${SITE_DESC}">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="PocketJS">
 <meta property="og:url" content="${SITE_URL}/">
@@ -733,13 +783,14 @@ function renderHome(): string {
 <meta property="og:image:alt" content="${SITE_TITLE}">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="${SITE_TITLE}">
-<meta name="twitter:description" content="${HOME_DESC}">
+<meta name="twitter:description" content="${SITE_DESC}">
 <meta name="twitter:image" content="${OG_IMAGE_URL}">
-<meta name="theme-color" content="#05070d">
+<meta name="theme-color" content="#171226">
 ${ICON_LINKS}
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=STIX+Two+Text:ital,wght@0,400;0,600;1,400&family=VT323&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=STIX+Two+Text:ital,wght@0,400;0,600;1,400&family=VT323&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Fredoka:wght@500;600;700&display=swap">
+${PIXEL_FONT_PRELOAD}
 <link rel="stylesheet" href="/assets/landing.css">
 <script type="application/ld+json">${jsonLd}</script>
 </head>
@@ -747,27 +798,18 @@ ${ICON_LINKS}
 ${body}
 <script type="module" src="/assets/landing.js"></script>
 </body>
-</html>`;
+</html>`);
 }
 
 // The /for/ pages share the homepage's bespoke chrome (home.css, no shared
 // Tailwind shell): site/for/shell.html holds the nav + footer, and
-// site/for/<slug>.html the main content. Linked from the use-case cards.
+// site/for/<slug>.html the main content. Games and 3D have no page here: that
+// subject belongs to Pocket3D and its own site.
 const FOR_PAGES = [
   {
     slug: "interfaces",
     title: "PocketJS for user interfaces",
     desc: "Components, signals and Tailwind classes in Solid, Vue Vapor or Octane become one native tree that runs on every machine in the registry.",
-  },
-  {
-    slug: "games",
-    title: "PocketJS for games",
-    desc: "Rust engine cores under JavaScript gameplay: OpenStrike holds a locked 60 fps on a 333 MHz PSP while the HUD stays a Solid app.",
-  },
-  {
-    slug: "worlds",
-    title: "PocketJS for 3D worlds",
-    desc: "Pocket3D cooks a scene once and renders it through wgpu, sceGu, GXM and OpenGL ES, up to VRM humans with spring-bone physics.",
   },
   {
     slug: "agents",
@@ -782,7 +824,7 @@ function renderForPage(page: { slug: string; title: string; desc: string }): str
   if (!shell.includes("{{FOR_MAIN}}")) throw new Error("for/shell.html must contain {{FOR_MAIN}}");
   const body = shell.replace("{{FOR_MAIN}}", main);
   const url = `${SITE_URL}/for/${page.slug}/`;
-  return `<!doctype html>
+  return candyHeadings(`<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -804,14 +846,19 @@ function renderForPage(page: { slug: string; title: string; desc: string }): str
 <meta name="twitter:title" content="${page.title} · PocketJS">
 <meta name="twitter:description" content="${page.desc}">
 <meta name="twitter:image" content="${OG_IMAGE_URL}">
-<meta name="theme-color" content="#05070d">
+<meta name="theme-color" content="#171226">
 ${ICON_LINKS}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&display=swap">
+${PIXEL_FONT_PRELOAD}
 <link rel="stylesheet" href="/assets/home.css">
+<link rel="stylesheet" href="/assets/arcade.css">
 </head>
 <body>
 ${body}
 </body>
-</html>`;
+</html>`);
 }
 
 async function compileCss() {
@@ -843,9 +890,9 @@ const PLAYGROUND_IMPORTS: Record<string, string> = {
   "@pocketjs/framework/audio": "/pg/runtime.js",
   "@pocketjs/framework/clock": "/pg/runtime.js",
   "@pocketjs/framework/components": "/pg/runtime.js",
+  "@pocketjs/framework/game2d": "/pg/runtime.js",
   "@pocketjs/framework/host": "/pg/runtime.js",
   "@pocketjs/framework/input": "/pg/runtime.js",
-  "@pocketjs/framework/launcher": "/pg/runtime.js",
   "@pocketjs/framework/lifecycle": "/pg/runtime.js",
   "@pocketjs/framework/renderer": "/pg/runtime.js",
   "@pocketjs/framework/solid": "/pg/runtime.js",
@@ -877,7 +924,7 @@ type Highlight = (text: string, rawLang: string) => string;
 async function setupMarkdown(): Promise<Highlight> {
   const highlighter = await createHighlighter({
     themes: ["one-dark-pro"],
-    langs: ["tsx", "typescript", "jsx", "javascript", "json", "bash", "rust", "toml", "html", "css", "diff", "c", "cpp"],
+    langs: ["tsx", "typescript", "jsx", "javascript", "json", "bash", "rust", "toml", "html", "vue", "css", "diff", "c", "cpp"],
   });
   const LANG_ALIAS: Record<string, string> = { ts: "typescript", js: "javascript", sh: "bash", shell: "bash", console: "bash", jsonc: "json", rs: "rust", text: "text", txt: "text" };
   const loaded = new Set(highlighter.getLoadedLanguages());
@@ -912,8 +959,69 @@ async function setupMarkdown(): Promise<Highlight> {
   return highlight;
 }
 
+const DOC_DEMO_SCRIPT = '<script type="module" src="/pg/embed.js"></script>';
+
+// `:::demo <app>` -> a live PocketJS app on the page. The figure carries every
+// resolved fact site/playground/embed.js needs; the markdown carries only the
+// app name and an optional caption.
+//
+// The .pg-stage chrome is deliberately NOT reused: site/assets/chrome.css hides
+// .pg-stage__screen (that stage textures onto a Three.js model) and hardcodes a
+// 16/9 box, which is wrong for a 320x480 portrait app. .doc-demo is its own
+// component in site/assets/tailwind.css.
+function docDemoFigure(demo: DocDemo, caption: string): string {
+  // A caption is the directive's own body. A bare `:::demo <app>` gets none:
+  // the page's prose around it is the docs author's, not this generator's.
+  const captionHtml = caption ? (marked.parseInline(caption) as string) : "";
+  const attrs: Record<string, string> = {
+    "data-app": demo.app,
+    "data-package-id": demo.packageId,
+    "data-instance": "/pg/programs/web/app-instance.html",
+    "data-wasm": "/pg/pocketjs.wasm",
+    "data-bundle": `/pg/demos/${demo.bundleFile}`,
+    "data-pak": `/pg/demos/${demo.pakFile}`,
+    "data-width": String(demo.width),
+    "data-height": String(demo.height),
+    "data-density": String(demo.rasterDensity),
+  };
+  const attrText = Object.entries(attrs).map(([k, v]) => `${k}="${v}"`).join(" ");
+  return (
+    `<figure class="doc-demo" data-doc-demo data-state="idle" ${attrText}>` +
+    `<div class="doc-demo__stage" style="--doc-demo-w:${demo.width}px;--doc-demo-ratio:${demo.width}/${demo.height}">` +
+    `<canvas class="doc-demo__screen" data-doc-demo-canvas width="${demo.width}" height="${demo.height}"` +
+    ` role="img" aria-label="${demo.title}, running live"></canvas>` +
+    `<p class="doc-demo__status" data-doc-demo-status>${demo.title} starts when you scroll it into view.</p>` +
+    `</div>` +
+    (captionHtml ? `<figcaption class="doc-demo__caption">${captionHtml}</figcaption>` : "") +
+    `</figure>`
+  );
+}
+
 async function buildDocs(highlight: Highlight) {
   let frameworkCodeId = 0;
+  // One copy per app however many pages embed it.
+  const copiedDemos = new Set<string>();
+  const renderDocDemos = async (markdown: string, used: DocDemo[]) => {
+    const directives = findDocDemoDirectives(markdown);
+    if (directives.length === 0) return markdown;
+    const lines = markdown.split("\n");
+    for (const directive of directives) {
+      const demo = await resolveDocDemo(directive.app);
+      // dist/ holds no demo artifact on a fresh clone, so this is the default
+      // state, not an edge case: name the command instead of shipping a page
+      // with a dead frame.
+      assertDocDemoBuilt(demo);
+      used.push(demo);
+      if (!copiedDemos.has(demo.app)) {
+        copiedDemos.add(demo.app);
+        copy(demo.distJs, `pg/demos/${demo.bundleFile}`);
+        copy(demo.distPak, `pg/demos/${demo.pakFile}`);
+      }
+      lines[directive.start] = `\n${docDemoFigure(demo, directive.caption)}\n`;
+      for (let i = directive.start + 1; i <= directive.end; i++) lines[i] = "";
+    }
+    return lines.join("\n");
+  };
   const renderFrameworkCode = (markdown: string) =>
     markdown.replace(/:::framework-code\n([\s\S]*?)\n:::/g, (_match, body: string) => {
       const FW_LABELS = { solid: "Solid", "vue-vapor": "Vue Vapor", octane: "Octane" } as const;
@@ -969,7 +1077,7 @@ async function buildDocs(highlight: Highlight) {
         (sec) =>
           `<div class="doc-sec"><div class="doc-sec-t">${sec.title}</div>` +
           sec.items
-            .map((it) => `<a href="${hrefFor(it.slug)}" class="${it.slug === active ? "on" : ""}">${it.title}</a>`)
+            .map((it) => `<a href="${hrefFor(it.slug)}" class="${it.slug === active ? "on" : ""}"${it.slug === active ? ' aria-current="page"' : ""}>${it.title}</a>`)
             .join("") +
           `</div>`,
       ).join("");
@@ -982,7 +1090,9 @@ async function buildDocs(highlight: Highlight) {
         continue;
       }
       const source = readFileSync(md, "utf8");
-      const html = await marked.parse(tree.transformFrameworkCode ? renderFrameworkCode(source) : source);
+      const pageDemos: DocDemo[] = [];
+      const withDemos = await renderDocDemos(source, pageDemos);
+      const html = await marked.parse(tree.transformFrameworkCode ? renderFrameworkCode(withDemos) : withDemos);
       const prev = allSlugs[i - 1];
       const next = allSlugs[i + 1];
       const pager =
@@ -991,7 +1101,10 @@ async function buildDocs(highlight: Highlight) {
         (next ? `<a href="${hrefFor(next.slug)}" class="next"><span>Next</span>${next.title}</a>` : `<span></span>`) +
         `</nav>`;
       const body =
-        `<div class="doc-shell"><aside class="doc-nav">${sidebarFor(slug)}</aside>` +
+        `<div class="doc-shell">` +
+        `<details class="doc-mobile-nav"><summary><span>Browse docs</span><span class="doc-current">${title}</span></summary>` +
+        `<nav class="doc-mobile-links" aria-label="Documentation">${sidebarFor(slug)}</nav></details>` +
+        `<aside class="doc-nav"><nav aria-label="Documentation">${sidebarFor(slug)}</nav></aside>` +
         `<article class="doc-body" data-slug="${slug}"><div class="prose prose-invert max-w-none doc-content">${html}</div>${pager}</article></div>`;
       write(`${tree.outPrefix}/${slug}/index.html`, renderPage({
         title,
@@ -999,7 +1112,8 @@ async function buildDocs(highlight: Highlight) {
         body,
         bodyClass: "doc-page",
         head: tree.head,
-        scripts: [],
+        // Only a page that carries a demo pays for the embed bundle.
+        scripts: pageDemos.length > 0 ? [DOC_DEMO_SCRIPT] : [],
         path: hrefFor(slug),
         robots: tree.robots,
       }));

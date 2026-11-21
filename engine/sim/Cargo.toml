@@ -1,0 +1,16 @@
+[package]
+name = "pocket-sim"
+readme = "README.md"
+homepage = "https://pocketjs.pocket.nexus"
+documentation = "https://docs.rs/pocket-sim"
+keywords = ["simulation", "prediction", "reconciliation"]
+categories = ["no-std", "game-development"]
+description = "Bounded prediction, reconciliation and snapshot sampling for fixed-step simulations"
+edition.workspace = true
+
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]

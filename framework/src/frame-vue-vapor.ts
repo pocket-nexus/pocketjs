@@ -2,27 +2,55 @@
 
 import { computed, onScopeDispose, shallowRef, type ComputedRef } from "vue";
 import { __resetAnalog } from "./analog.ts";
+import { __beginAxisFrame, __endAxisFrame, __resetAxisInput, __axisDelta, RelativeAxis, type RelativeAxisId, type AxisDelta } from "./relative-axis.ts";
+import { __beginMotionFrame, __endMotionFrame, __motionReader, __resetMotionInput, type MotionMinQualityName, type MotionPayload, type MotionState, type MotionValueName } from "./motion.ts";
+import type { i32 } from "./numeric-microts.ts";
+import type { NodeMirror } from "./native-tree.ts";
+import type { DeferredPress } from "./input.ts";
+import { dispatchFrame, FrameRegistry, type FrameCallback, type RunPress } from "./frame-dispatch.ts";
+import { flushLifecycleHooks, resetLifecycleHooks } from "./lifecycle-vue-aot.ts";
+import { reactModelRegions } from "./model-reactive.ts";
+import { resumeModelTasks, resetModelTaskClock } from "./model-tasks.ts";
+import { pollModelAnimations } from "./model-animation.ts";
 
-export { __setAnalog, analogRaw, analogX, analogY } from "./analog.ts";
+export { __setAnalog, analogRaw, analogX, analogY, rightAnalogRaw, rightAnalogX, rightAnalogY } from "./analog.ts";
 
-type FrameCallback = (buttons: number) => void;
-
-const callbacks = new Set<FrameCallback>();
+const registry = new FrameRegistry();
 let buttonHandlerBlockDepth = 0;
 
+const runPress: RunPress = (_node, invoke) => invoke();
+
 export function resetFrameHooks(): void {
-  callbacks.clear();
+  resetModelTaskClock();
+  registry.clear();
   buttonHandlerBlockDepth = 0;
   __resetAnalog();
+  __resetAxisInput();
+  __resetMotionInput();
+  resetLifecycleHooks();
 }
 
-export function runFrameHooks(buttons: number): void {
-  for (const cb of [...callbacks]) cb(buttons);
+export function runFrameHooks(buttons: number, axisDeltas?: readonly AxisDelta[], resolveInput?: (defer: DeferredPress) => void, beforeHooks?: (defer: DeferredPress) => void, motion?: MotionState | null): void {
+  __beginAxisFrame(axisDeltas);
+  try {
+    __beginMotionFrame(motion);
+    const frame = registry.freeze();
+    pollModelAnimations(); resumeModelTasks();
+    dispatchFrame(frame, buttons, runPress, beforeHooks, resolveInput);
+    reactModelRegions();
+    flushLifecycleHooks();
+  }
+  finally { __endAxisFrame(); __endMotionFrame(); }
+}
+
+function registerFrame(callback: FrameCallback, placement?: NodeMirror): () => void {
+  const dispose = registry.add(callback, placement);
+  onScopeDispose(dispose, true);
+  return dispose;
 }
 
 export function onFrame(callback: FrameCallback): void {
-  callbacks.add(callback);
-  onScopeDispose(() => callbacks.delete(callback), true);
+  registerFrame(callback);
 }
 
 export interface ButtonPressOptions {
@@ -30,6 +58,31 @@ export interface ButtonPressOptions {
   active?: boolean | (() => boolean);
   /** See framework/src/frame.ts: arm only after the button is seen up for one frame. */
   latched?: boolean;
+}
+
+export interface AxisDeltaOptions { active?: boolean | (() => boolean) }
+export function onAxisDelta(axis: RelativeAxisId, callback: (delta: i32) => void, options: AxisDeltaOptions = {}, placement?: NodeMirror): () => void {
+  if (axis !== RelativeAxis.Primary && axis !== RelativeAxis.Secondary) throw new Error(`Unknown relative axis ${axis}`);
+  const listener: FrameCallback = () => {
+    const delta = __axisDelta(axis);
+    if (delta === 0) return;
+    const active = typeof options.active === "function" ? options.active() : options.active ?? true;
+    if (active) callback(delta);
+  };
+  return registerFrame(listener, placement);
+}
+
+export interface MotionOptions { active?: boolean | (() => boolean); minQuality?: MotionMinQualityName }
+/** See framework/src/frame.ts: fires on frames carrying `value` at `minQuality` or better. */
+export function onMotion<V extends MotionValueName>(value: V, callback: (...payload: MotionPayload<V>) => void, options: MotionOptions = {}, placement?: NodeMirror): () => void {
+  const read = __motionReader(value, options.minQuality);
+  const listener: FrameCallback = () => {
+    const payload = read();
+    if (!payload) return;
+    const active = typeof options.active === "function" ? options.active() : options.active ?? true;
+    if (active) (callback as (...payload: number[]) => void)(...payload);
+  };
+  return registerFrame(listener, placement);
 }
 
 export function pushButtonHandlerBlock(): () => void {
@@ -46,16 +99,18 @@ export function onButtonPress(
   mask: number,
   callback: (pressed: number, buttons: number) => void,
   opts: ButtonPressOptions = {},
+  placement?: NodeMirror,
 ): void {
   let prevButtons = opts.latched ? ~0 : 0; // latched: "everything held" until released
-  onFrame((buttons) => {
+  registerFrame((buttons) => {
     const pressed = buttons & ~prevButtons;
     prevButtons = buttons;
+    if (!(pressed & mask)) return;
     const active = typeof opts.active === "function" ? opts.active() : opts.active ?? true;
     if (!active) return;
     if (buttonHandlerBlockDepth > 0 && !opts.allowWhenBlocked) return;
-    if (pressed & mask) callback(pressed, buttons);
-  });
+    callback(pressed, buttons);
+  }, placement);
 }
 
 export interface SpriteAnimationOptions {

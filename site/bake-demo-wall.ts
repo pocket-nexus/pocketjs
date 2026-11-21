@@ -60,7 +60,7 @@ type Clip = { src: string };
 const loop = (src: string): Clip => ({ src });
 const sim = (app: string): Clip => ({ src: ensureSimClip(app) });
 
-// Three tiles are satellite apps with their own repos (pocket-stack's
+// Three tiles are satellite apps with their own repos (pocket-nexus's
 // open-strike, pocket-voxel and pocket-figma), so this script cannot boot
 // them the way it boots the in-repo demos. Their tiles are frames those
 // runtimes rendered themselves, each held for an equal share of the loop and

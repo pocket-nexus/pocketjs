@@ -15,7 +15,7 @@ const waitMs = Number(process.argv[3] ?? 4000);
 const probe =
   process.argv[4] ??
   `(() => {
-     // FPS + memory are drawn IN the canvas now (hosts/web/hud.js), not in the
+     // FPS + memory are drawn IN the canvas now (programs/web/dev/hud.js), not in the
      // DOM — so they show up in the canvas pixel stats below, not a text probe.
      const out = { status: null, error: null, canvases: [] };
      const s = document.querySelector('#pg-status'); if (s) out.status = s.textContent;
@@ -230,6 +230,12 @@ try {
     if (process.env.CLIP) {
       const [x, y, w, h] = process.env.CLIP.split(",").map(Number);
       shotOpts.clip = { x, y, width: w, height: h, scale: 1 };
+    } else if (process.env.POCKETJS_VERIFY_SELECTOR) {
+      const bounds = await S("Runtime.evaluate", {
+        expression: `(() => { const r = document.querySelector(${JSON.stringify(process.env.POCKETJS_VERIFY_SELECTOR)}).getBoundingClientRect(); return { x: r.left + scrollX, y: r.top + scrollY, width: r.width, height: r.height, scale: 1 }; })()`,
+        returnByValue: true,
+      });
+      shotOpts.clip = bounds.result.value;
     }
     const shot = await S("Page.captureScreenshot", shotOpts);
     if (shot.data) {

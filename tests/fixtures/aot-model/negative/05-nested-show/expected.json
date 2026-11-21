@@ -1,0 +1,16 @@
+{
+  "designRow": 5,
+  "viewOnly": true,
+  "frames": [
+    { "text": ["hits:0", "target"], "commands": [] },
+    { "text": ["hits:1", "target"], "commands": ["hit"] },
+    { "text": ["hits:1", "target"], "commands": [] },
+    { "text": ["hits:1"], "commands": [] },
+    { "text": ["hits:1"], "commands": [] },
+    { "text": ["hits:1"], "commands": [] },
+    { "text": ["hits:1"], "commands": [] },
+    { "text": ["hits:1", "target"], "commands": [] },
+    { "text": ["hits:1", "target"], "commands": [] },
+    { "text": ["hits:2", "target"], "commands": ["hit"] }
+  ]
+}

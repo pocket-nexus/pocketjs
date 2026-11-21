@@ -1,0 +1,128 @@
+/* The look of the player pocket3d-player.js builds: the bar with the game's
+ * name, the choice of device and the mark beside it, the panels its controls
+ * open, and the dock under the stage: a bar with the game's two doors,
+ * Download and Remix. A page links this file after pocket3d-stage.css.
+ *
+ * A host may draw the dock itself (pocket3d-player.js, `chrome`): the dock is
+ * then marked `data-pocket-hosted`, and the rules for the dock's own links
+ * below do not apply. The bar's place, its line and its ground stay; a host's
+ * stylesheet changes them with `[data-pocket-studio][data-pocket-hosted]`.
+ *
+ * The colours are Pocket Studio's own player's, as custom properties a page
+ * may set on `:root`:
+ *
+ *   --pocket3d-ground  the page                       #171226
+ *   --pocket3d-panel   a panel, the dock              #211a38
+ *   --pocket3d-line    hairlines                      #342a57
+ *   --pocket3d-ink     names, what is chosen          #fcf6ff
+ *   --pocket3d-ink-2   sentences                      #cbbde2
+ *   --pocket3d-muted   what waits to be chosen        #8f7fb0
+ *   --pocket3d-accent  the one action                 #ffd23f
+ *
+ * Gabarito (SIL Open Font License, ./fonts/OFL.txt) sets the game's name;
+ * everything else is the system's own face. The page draws with the system's
+ * face until the file has come.
+ *
+ * Japanese is in the system's Japanese face (Hiragino Sans, Yu Gothic, Meiryo,
+ * Noto Sans JP) after the Latin ones, headings too: a heading can hold a
+ * game's own words, which no subset of the player's characters would cover,
+ * and a heading in two faces reads worse than one in the system's. Japanese
+ * lines are taller and break between phrases (`word-break: auto-phrase`).
+ */
+
+@font-face {
+  font-family: "Gabarito";
+  src: url("./fonts/gabarito-800-latin.woff2") format("woff2");
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+[data-pocket-player] {
+  --ground: var(--pocket3d-ground, #171226);
+  --panel: var(--pocket3d-panel, #211a38);
+  --line: var(--pocket3d-line, #342a57);
+  --ink: var(--pocket3d-ink, #fcf6ff);
+  --ink-2: var(--pocket3d-ink-2, #cbbde2);
+  --muted: var(--pocket3d-muted, #8f7fb0);
+  --accent: var(--pocket3d-accent, #ffd23f);
+  --japanese: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", "YuGothic", "Meiryo", "Noto Sans JP", sans-serif;
+  --display: "Gabarito", ui-sans-serif, system-ui, -apple-system, "Segoe UI", var(--japanese);
+  position: fixed;
+  inset: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  background: var(--ground);
+  color: var(--ink-2);
+  font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", var(--japanese);
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
+}
+[data-pocket-player] :is(h1, h2, p, dl, dd) { margin: 0; }
+[data-pocket-player] [hidden] { display: none; }
+/* Japanese: taller lines, breaks between phrases, and no tightened tracking on its headings. */
+[data-pocket-player]:lang(ja) { line-height: 1.7; }
+[data-pocket-player]:lang(ja) :is(p, dd, h2) { word-break: auto-phrase; overflow-wrap: anywhere; }
+
+/* The bar: the game at the left, the device in the middle, the player's own controls at the right. */
+[data-pocket-bar] { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 8px 24px; padding: max(14px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) 6px max(20px, env(safe-area-inset-left)); }
+[data-pocket-game] { min-width: 0; }
+[data-pocket-game] h1 { color: var(--ink); font: 800 22px/1.15 var(--display); letter-spacing: -0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+[data-pocket-game] p { color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+[data-pocket-device] { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: center; gap: 4px 20px; }
+/* The mark beside the device's name: a word with the dotted line of a term that explains itself. */
+[data-pocket-mark] { all: unset; cursor: help; color: var(--muted); font-size: 12px; text-decoration: underline dotted; text-decoration-color: color-mix(in srgb, var(--muted) 70%, transparent); text-underline-offset: 4px; }
+[data-pocket-mark]:hover, [data-pocket-mark][aria-expanded="true"] { color: var(--ink-2); }
+/* (a hairline between the devices and the mark: it is said of the one that is chosen, and is not one of them) */
+[data-pocket-device] { position: relative; }
+[data-pocket-mark]::before { content: ""; display: inline-block; width: 1px; height: 1em; margin-right: 20px; vertical-align: -0.15em; background: var(--line); }
+[data-pocket-tools] { display: flex; justify-content: flex-end; gap: 20px; }
+[data-pocket-open], [data-pocket-language] { all: unset; cursor: pointer; color: var(--muted); white-space: nowrap; }
+[data-pocket-open]:hover, [data-pocket-open][aria-expanded="true"], [data-pocket-language]:hover { color: var(--ink); }
+/* (the other language, after the panels' controls: a hairline sets it apart, as the mark is from the devices) */
+[data-pocket-language]::before { content: ""; display: inline-block; width: 1px; height: 1em; margin-right: 20px; vertical-align: -0.15em; background: var(--line); }
+:is([data-pocket-mark], [data-pocket-open], [data-pocket-language]):focus-visible { outline: 1px solid var(--muted); outline-offset: 4px; border-radius: 2px; }
+
+/* A sentence in place of the game. */
+[data-pocket-say] { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; color: var(--ink-2); pointer-events: none; }
+[data-pocket-say]:empty { display: none; }
+
+/* What a control opens: under it, over the stage, never under a pointer that plays. */
+[data-pocket-panel] { position: absolute; z-index: 2; box-sizing: border-box; width: max-content; max-width: min(340px, calc(100vw - 24px)); padding: 14px 16px; display: grid; gap: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 12px 32px rgb(0 0 0 / 0.45); color: var(--ink-2); font-size: 13px; }
+[data-pocket-panel] h2 { color: var(--ink); font-size: 13px; font-weight: 600; line-height: 1.3; }
+[data-pocket-panel] a { color: var(--ink); text-underline-offset: 3px; }
+[data-pocket-panel] dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 16px; }
+[data-pocket-panel] dt { color: var(--ink); font: 12px/1.6 ui-monospace, "SF Mono", Menlo, Consolas, monospace; white-space: nowrap; }
+[data-pocket-panel] dd { color: var(--ink-2); }
+
+/* The dock: a bar under the stage with the game's doors at its right, each an icon and a word. */
+[data-pocket-studio] { display: flex; align-items: center; justify-content: flex-end; gap: 12px 20px; padding: 10px max(20px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left)); border-top: 1px solid var(--line); background: linear-gradient(color-mix(in srgb, var(--panel) 55%, var(--ground)), var(--ground)); }
+/* The dock's own doors. A dock a host draws (`data-pocket-hosted`) is the host's stylesheet's. */
+[data-pocket-studio]:not([data-pocket-hosted]) [data-pocket-actions] { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px 12px; }
+[data-pocket-studio]:not([data-pocket-hosted]) [data-pocket-action] { display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); font-weight: 600; line-height: 1.3; text-decoration: none; white-space: nowrap; }
+[data-pocket-studio]:not([data-pocket-hosted]) [data-pocket-action] svg { flex: none; }
+[data-pocket-studio]:not([data-pocket-hosted]) [data-pocket-action][hidden] { display: none; }
+[data-pocket-studio]:not([data-pocket-hosted]) [data-pocket-action]:focus-visible { outline: 1px solid var(--muted); outline-offset: 3px; }
+[data-pocket-studio]:not([data-pocket-hosted]) [data-pocket-action]:hover { border-color: var(--muted); }
+/* (the dock's first door is its action: the one to the game's files, or the only one it has) */
+[data-pocket-studio]:not([data-pocket-hosted]) [data-pocket-action][data-pocket-primary] { border-color: var(--accent); background: var(--accent); color: #1c1503; }
+[data-pocket-studio]:not([data-pocket-hosted]) [data-pocket-action][data-pocket-primary]:hover { filter: brightness(1.06); }
+
+/* A window narrower than its bar: the game and the controls on one line, the devices under them. */
+@media (max-width: 760px) {
+  [data-pocket-bar] { grid-template-columns: minmax(0, 1fr) auto; }
+  [data-pocket-device] { grid-column: 1 / -1; grid-row: 2; justify-content: flex-start; gap: 4px 14px; }
+  [data-pocket-device] [data-pocket-choices] { justify-content: flex-start; gap: 4px 14px; }
+  /* (no hairline: on a line of its own the mark would start with it) */
+  [data-pocket-mark]::before { display: none; }
+  [data-pocket-tools] { gap: 16px; }
+  [data-pocket-language]::before { margin-right: 16px; }
+}
+/* A low window (a phone on its side): a thinner bar and a thinner dock. Both doors stay: each is one word. */
+@media (max-height: 560px) {
+  [data-pocket-bar] { padding-top: max(8px, env(safe-area-inset-top)); padding-bottom: 2px; }
+  [data-pocket-game] p { display: none; }
+  [data-pocket-studio] { padding-top: 5px; padding-bottom: max(5px, env(safe-area-inset-bottom)); }
+  [data-pocket-studio]:not([data-pocket-hosted]) [data-pocket-action] { padding: 4px 12px; }
+}

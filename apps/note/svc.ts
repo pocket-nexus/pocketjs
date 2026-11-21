@@ -4,7 +4,7 @@
 // The desktop widget host is the app's companion process: it forwards the
 // real keyboard, mouse and window into the guest as JSON lines, and the
 // guest sends intents (save, quit) back. One poll per frame, per the
-// HostOps contract. Hosts without the channel (goldens, hosts/sim, PSP)
+// HostOps contract. Hosts without the channel (goldens, programs/sim, PSP)
 // feature-detect to null and the app runs standalone on its sample doc —
 // an unmodified-app base case, per docs/RUNTIMES.md rule 5.
 //

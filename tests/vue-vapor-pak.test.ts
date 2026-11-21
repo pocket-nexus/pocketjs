@@ -1,14 +1,19 @@
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { IMG_FLAG_LINEAR, PAK_DTYPE, PROP, PSM } from "../contracts/spec/spec.ts";
 import { encodeImageEntry, pack } from "../framework/compiler/pak.ts";
 import type { HostOps } from "../framework/src/host.ts";
 import { resetPack } from "../framework/src/pak.ts";
 import {
+  createElement,
+  insertNode,
   resetRendererState,
   resetSprites,
   resetTextures,
   rootMirror,
 } from "../framework/src/native-tree.ts";
+import { resolveTouchHit, resetInput } from "../framework/src/input.ts";
+import { getAuxiliarySurfaceRoots } from "../framework/src/display.ts";
 import { resetStyles } from "../framework/src/styles.ts";
 import { createVueVaporTestRuntime } from "./vue-vapor-test-runtime.ts";
 
@@ -36,6 +41,7 @@ afterEach(() => {
   resetSprites();
   resetTextures();
   resetStyles();
+  resetInput();
 });
 
 function symbianHost(calls: string[], propCalls: unknown[][] = []): HostOps {
@@ -43,7 +49,7 @@ function symbianHost(calls: string[], propCalls: unknown[][] = []): HostOps {
   const noop = () => {};
   return {
     __host: "symbian-e7-dev",
-    __hostAbi: 4,
+    __hostAbi: POCKET_BINDING_GENERATION,
     createNode: () => nextId++,
     destroyNode: noop,
     insertBefore: noop,
@@ -68,7 +74,22 @@ function symbianHost(calls: string[], propCalls: unknown[][] = []): HostOps {
   };
 }
 
-describe("Vue Vapor native pak loading", () => {
+describe("Vue Vapor native runtime", () => {
+  test("registers and clears the auxiliary hit root", () => {
+    const calls: string[] = [];
+    const ops = symbianHost(calls);
+    ops.__auxiliarySurface = { root: 90, w: 320, h: 240 };
+    globals.ui = ops;
+
+    const dispose = mount(() => null, { ops, styles: {} });
+    const target = createElement("view");
+    insertNode(getAuxiliarySurfaceRoots().app, target);
+    expect(resolveTouchHit(10, 20, target.id, "auxiliary")).toBe(target);
+
+    dispose();
+    expect(resolveTouchHit(10, 20, target.id, "auxiliary")).toBeNull();
+  });
+
   test("target-marked host without native resource tables consumes the portable pak", () => {
     const calls: string[] = [];
     const ops = symbianHost(calls);

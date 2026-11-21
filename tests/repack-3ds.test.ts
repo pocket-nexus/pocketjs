@@ -1,0 +1,212 @@
+import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
+import { BUNDLE_SECTION, encodeBundle } from "../contracts/spec/bundle.ts";
+import { resolveAppPlan } from "../framework/compiler/app-plan.ts";
+import { hashPocketProfile } from "../framework/src/profile.ts";
+import { POCKET_PROFILES } from "../hosts/index.ts";
+import { makeBundle } from "../tools/bundle.ts";
+import { profileRegistry } from "../tools/profile-resolver.ts";
+import {
+parse3dsx,
+repack3ds,
+tiledRgb565,
+write3dsx,
+writeRomfs
+} from "../tools/repack/3ds.ts";
+import { decodePng, encodePng } from "../tools/repack/shared/png.ts";
+import type { RepackInput } from "../tools/repack/shared/runtime.ts";
+import { runtimeDirectory } from "./helpers/runtime-directory.ts";
+const softwareProfile = POCKET_PROFILES["3ds-runtime"];
+
+const ROOT = join(import.meta.dir, "..");
+const FIXTURES = join(ROOT, "tests/fixtures/repack-3ds");
+const fixture = (name: string) => new Uint8Array(readFileSync(join(FIXTURES, name)));
+const ID = "dev.pocket-nexus.studio.twenty48";
+
+// The fixtures come from devkitPro's tools in the pinned devkitARM image
+// (3dstools 1.3.1), written by:
+//   bun tools/repack/reference-3ds.ts --bundle <twenty48.pkb> --id dev.pocket-nexus.studio.twenty48 \
+//     --title "Twenty48 二〇四八 🎲" --author "Pocket Nexus" --version 0.1.0 --icon <rgba.png> \
+//     --fixtures tests/fixtures/repack-3ds
+//   smdhtool.smdh        smdhtool --create <title> "<title> 0.1.0" "Pocket Nexus" icon48.png out icon24.png
+// The same command byte-compares a whole repacked .3dsx against 3dsxtool's.
+
+/** The `app` section of the application's host config. */
+function app(features: string[] = []) {
+  return {
+    id: ID,
+    title: "Twenty48",
+    version: "0.1.0",
+    entry: "main.tsx",
+    output: "twenty48",
+    framework: "solid",
+    viewport: { fixed: { logical: [400, 240], presentation: "native" } },
+    surfaces: { auxiliary: { fixed: { logical: [320, 240], presentation: "native" } } },
+    features: ["text.glyphs.baked", "display.auxiliary", "input.buttons", ...features],
+  };
+}
+
+function planFor(source = app()) {
+  const resolution = resolveAppPlan(source, { target: softwareProfile.id }, profileRegistry(softwareProfile));
+  if (!resolution.ok) throw new Error(JSON.stringify(resolution.diagnostics));
+  return resolution.plan;
+}
+
+function bundleFor(source = app()): Uint8Array {
+  return encodeBundle(makeBundle({
+    plan: planFor(source),
+    js: new TextEncoder().encode("globalThis.frame = () => {};"),
+    pak: new Uint8Array([1, 2, 3, 4]),
+  }));
+}
+
+/** A runtime program: three tiny segments and no relocations, with the fixture SMDH. */
+function runtimeProgram(): Uint8Array {
+  const header = new Uint8Array(32);
+  const view = new DataView(header.buffer);
+  view.setUint32(0, 0x58534433, true);
+  view.setUint16(4, 32, true);
+  view.setUint16(6, 8, true);
+  view.setUint32(16, 8, true); // code
+  view.setUint32(20, 4, true); // rodata
+  view.setUint32(24, 12, true); // data
+  view.setUint32(28, 4, true); // bss
+  const program = new Uint8Array(24 + 8 + 4 + 8);
+  program.set([0xde, 0xad, 0xbe, 0xef, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16], 24);
+  return write3dsx({ header, program }, fixture("smdhtool.smdh"), null);
+}
+
+async function runtimeFiles(overrides: { target?: string; hostAbi?: number; program?: Uint8Array } = {}) {
+  const files = runtimeDirectory(softwareProfile, new Map([["runtime.3dsx", runtimeProgram()]]), {
+    target: overrides.target ?? "3ds-runtime", hostAbi: overrides.hostAbi ?? POCKET_BINDING_GENERATION,
+  });
+  if (overrides.program) files.set("runtime.3dsx", overrides.program);
+  return files;
+}
+
+async function input(overrides: Partial<RepackInput> = {}): Promise<RepackInput> {
+  return {
+    runtime: await runtimeFiles(),
+    bundle: bundleFor(),
+    identity: { id: ID, title: "Twenty48", author: "Pocket Nexus", version: "0.1.0", icon: fixture("icon48.png") },
+    ...overrides,
+  };
+}
+
+function utf16At(bytes: Uint8Array, offset: number, units: number): string {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let text = "";
+  for (let index = 0; index < units; index++) {
+    const unit = view.getUint16(offset + index * 2, true);
+    if (unit === 0) break;
+    text += String.fromCharCode(unit);
+  }
+  return text;
+}
+
+describe("3DS SMDH and RomFS writers", () => {
+
+  test("RomFS rejects parent traversal", () => {
+    const bytes = new Uint8Array([1]);
+    expect(() => writeRomfs([{ path: "../app.pkb", bytes }])).toThrow(/bad or repeated path/);
+  });
+
+  test("tile icons in 8x8 Morton order as RGB565 over black", () => {
+    const rgba = new Uint8Array(8 * 8 * 4);
+    rgba.set([255, 0, 0, 255], 0); // (0,0) opaque red
+    rgba.set([255, 255, 255, 128], (1 * 8 + 0) * 4); // (0,1) half white
+    const tiled = new DataView(tiledRgb565({ width: 8, height: 8, rgba }).buffer);
+    expect(tiled.getUint16(0, true)).toBe(0xf800);
+    // tile_order[2] = 8: the third pixel is (0,1); 255*128/255 = 128 -> 16/32/16.
+    expect(tiled.getUint16(4, true)).toBe((16 << 11) | (32 << 5) | 16);
+  });
+});
+
+describe("repack3ds", () => {
+  test("keeps the runtime's program and writes the game's SMDH and app.pkb", async () => {
+    const repackInput = await input();
+    const out = await repack3ds(repackInput);
+    const parsed = parse3dsx(out);
+    const runtime = parse3dsx(repackInput.runtime.get("runtime.3dsx")!);
+    expect(parsed.program).toEqual(runtime.program);
+    expect(new DataView(out.buffer).getUint16(4, true)).toBe(44);
+    expect(Array.from(parsed.header.subarray(8))).toEqual(Array.from(runtime.header.subarray(8)));
+
+    const smdh = parsed.smdh!;
+    expect(new TextDecoder().decode(smdh.subarray(0, 4))).toBe("SMDH");
+    for (const language of [0, 1, 15]) {
+      const base = 8 + language * 0x200;
+      expect(utf16At(smdh, base, 0x40)).toBe("Twenty48");
+      expect(utf16At(smdh, base + 0x80, 0x80)).toBe("Twenty48 0.1.0");
+      expect(utf16At(smdh, base + 0x180, 0x40)).toBe("Pocket Nexus");
+    }
+    // The icon fixture is 48x48 already, so the large icon is that PNG tiled.
+    expect(smdh.subarray(0x2040 + 24 * 24 * 2)).toEqual(tiledRgb565(await decodePng(fixture("icon48.png"))));
+
+    expect(parsed.romfs).toEqual(writeRomfs([{ path: "app.pkb", bytes: repackInput.bundle }]));
+    const at = parsed.romfs!.length - ((repackInput.bundle.length + 3) & ~3);
+    expect(parsed.romfs!.subarray(at, at + repackInput.bundle.length)).toEqual(repackInput.bundle);
+  });
+
+  test("is deterministic", async () => {
+    const first = await repack3ds(await input());
+    const second = await repack3ds(await input());
+    expect(first).toEqual(second);
+  });
+
+  test("keeps the runtime's icons when the identity has none and scales any square PNG", async () => {
+    const plain = await repack3ds(await input({ identity: { id: ID, title: "Twenty48", author: "Pocket Nexus", version: "0.1.0" } }));
+    expect(parse3dsx(plain).smdh!.subarray(0x2040)).toEqual(fixture("smdhtool.smdh").subarray(0x2040));
+
+    const big = new Uint8Array(200 * 200 * 4).fill(255);
+    const scaled = await repack3ds(await input({
+      identity: { id: ID, title: "Twenty48", author: "Pocket Nexus", version: "0.1.0", icon: await encodePng({ width: 200, height: 200, rgba: big }) },
+    }));
+    expect(new DataView(parse3dsx(scaled).smdh!.buffer, parse3dsx(scaled).smdh!.byteOffset).getUint16(0x2040, true)).toBe(0xffff);
+
+    const wide = await encodePng({ width: 20, height: 10, rgba: new Uint8Array(20 * 10 * 4) });
+    await expect(repack3ds(await input({
+      identity: { id: ID, title: "Twenty48", author: "Pocket Nexus", version: "0.1.0", icon: wide },
+    }))).rejects.toThrow(/not square/);
+  });
+
+  test("refuses a runtime for another target, a wrong host ABI and a broken footer", async () => {
+    await expect(repack3ds(await input({ runtime: await runtimeFiles({ target: "psp" }) }))).rejects.toThrow(/for "psp", not "3ds-runtime"/);
+    await expect(repack3ds(await input({ runtime: await runtimeFiles({ hostAbi: POCKET_BINDING_GENERATION - 1 }) }))).rejects.toThrow(/runtime binding generation .* is unsupported/);
+
+
+    const tampered = await runtimeFiles({ program: new Uint8Array(runtimeProgram()).fill(7, 40, 44) });
+    await expect(repack3ds(await input({ runtime: tampered }))).rejects.toThrow(/not the file runtime.json describes/);
+  });
+
+  test("refuses a bundle for another app, host contract or a plan the runtime cannot run", async () => {
+    await expect(repack3ds(await input({ identity: { id: "dev.pocket-nexus.other", title: "T", author: "A", version: "1" } })))
+      .rejects.toThrow(/the identity says "dev.pocket-nexus.other"/);
+    const planless = encodeBundle({ hostAbi: 1, profileHash: hashPocketProfile(softwareProfile), sections: [{ kind: BUNDLE_SECTION.js, bytes: new Uint8Array([0]) }] });
+    await expect(repack3ds(await input({ bundle: planless }))).rejects.toThrow("not admitted: bindingGeneration, plan");
+    // Features the generic runtime lacks compile off.
+    for (const capability of ["io.offload", "net.http"] as const)
+      expect(planFor(app([capability])).features[capability]).toBe(false);
+    await expect(repack3ds(await input({ identity: { id: "nodots", title: "T", author: "A", version: "1" } })))
+      .rejects.toThrow(/reverse-DNS/);
+  });
+
+  test("refuses a plan that turns on a capability the runtime's host contract does not list", async () => {
+    // A product's 3DS host contract with the same facts and one capability
+    // more: one it defines, and one the registry defines.
+    for (const capability of ["vendor.camera", "net.http"]) {
+      const product = { ...softwareProfile, capabilities: [...softwareProfile.capabilities, capability] };
+      const resolution = resolveAppPlan(app([capability]), { target: product.id }, profileRegistry(product));
+      if (!resolution.ok) throw new Error(JSON.stringify(resolution.diagnostics));
+      expect(resolution.plan.features[capability]).toBe(true);
+      const bundle = encodeBundle(makeBundle({
+        plan: resolution.plan,
+        js: new TextEncoder().encode("globalThis.frame = () => {};"),
+        pak: new Uint8Array([1, 2, 3, 4]),
+      }));
+      await expect(repack3ds(await input({ bundle }))).rejects.toThrow(`not admitted: capability ${capability}`);
+    }
+  });
+});

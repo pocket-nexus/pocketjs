@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { Text, View } from "@pocketjs/framework/vue-vapor/components";
+import type { i32 } from "@pocketjs/framework/vue-vapor/std";
 
 const props = withDefaults(defineProps<{ label?: string }>(), {
   label: "VALUE +1",
 });
-const model = defineModel<number>({ required: true });
+const model = defineModel<i32>({ required: true });
 </script>
 
 <template>

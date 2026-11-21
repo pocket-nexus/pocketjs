@@ -21,25 +21,12 @@ import {
 } from "@pocketjs/framework/components";
 ```
 
-## The primitives at a glance
-
-| Primitive       | What it is                                                                 |
-| --------------- | -------------------------------------------------------------------------- |
-| `Screen`        | A full-bleed root `View` with sensible defaults — one per visible page.    |
-| `Focusable`     | A `View` that is `focusable` and takes an `onPress`.                        |
-| `FocusScope`    | Traps d-pad traversal + CIRCLE inside its subtree while active.             |
-| `FocusGrid`     | Gives its subtree explicit row/column d-pad traversal.                     |
-| `ActionHandler` | Binds a raw button bitmask to a callback (no focus required).              |
-| `Portal`        | Mounts children into the overlay root, outside the screen's flex layout.   |
-| `Modal`         | A portalled panel that owns a focus scope and blocks background input.     |
-| `ActionBar`     | A portalled, bottom-anchored hint/button strip.                            |
-| `Grid`          | A wrapping tile layout that can hand its tiles row/column d-pad traversal.  |
-| `Lazy`          | Mounts a subtree on demand, with an optional reveal (loading) delay.        |
-| `Gallery`       | A full-screen L/R-paged strip — one whole screen slides in per shoulder press. |
-
-Every one of these except `ActionHandler` and `Portal` extends
-[`ViewProps`](/docs/components/) (`class`, `style`, `ref`, `children`,
-`focusable`, `onPress`), so anything you can do to a `View` you can do to them.
+`Screen`, `Focusable`, `FocusScope`, `FocusGrid`, `Grid` and `ActionBar` extend
+[`ViewProps`](/docs/components/) and pass the rest through to a `View`;
+`ActionHandler`, `Portal`, `Modal`, `Lazy` and `Gallery` declare **their own prop
+shapes** and take no `class`/`style`/`focusable`/`onPress` beyond what those
+shapes list. All eleven are typed with their defaults in the
+[API reference](/docs/api/#pocketjsframeworkcomponents).
 
 ## Screen
 
@@ -72,21 +59,19 @@ clearly at the call site; `<Focusable onPress={...}>` and
 </Focusable>
 ```
 
-CIRCLE fires the `onPress` of the focused node, bubbling to the nearest ancestor
-handler. The `focus:` style variant is applied by the core with zero extra JS —
+`onPress` fires on activation: CIRCLE on the focused node, a tap on a touch
+host, or a cursor click. Whichever the source, the press bubbles to the
+nearest ancestor handler. The `focus:` style variant is applied by the core
+with zero extra JS —
 see [Input & focus](/docs/input-focus/) for the full model.
 
 ## FocusScope
 
 `FocusScope` temporarily restricts d-pad traversal **and** CIRCLE press to its
 subtree. This is what keeps a dialog from letting focus wander back into the page
-behind it. It adds two options on top of `ViewProps`:
-
-| Prop           | Type                          | Default | Effect                                                          |
-| -------------- | ----------------------------- | ------- | -------------------------------------------------------------- |
-| `active`       | `boolean \| (() => boolean)`  | `true`  | Whether the scope is currently pushed. Accepts a signal.       |
-| `autoFocus`    | `boolean`                     | `true`  | On entry, move focus to the first focusable inside the scope.  |
-| `restoreFocus` | `boolean`                     | `true`  | On exit, return focus to whatever was focused before.          |
+behind it. On top of `ViewProps` it takes `active`, `autoFocus` and
+`restoreFocus` — all default `true`, `active` also accepts an accessor
+([signature](/docs/api/#focusscope)).
 
 While the scope is active, navigation is confined to its focusables; when it
 tears down it restores the previous focus (unless `restoreFocus={false}`). You
@@ -99,13 +84,8 @@ open.
 By default, focus traversal is linear over document order: DOWN/RIGHT go to the
 next focusable, UP/LEFT to the previous. `FocusGrid` overrides that inside its
 subtree with true two-dimensional movement, which is what you want for a grid of
-tiles or a picker.
-
-| Prop      | Type                          | Default | Effect                                                    |
-| --------- | ----------------------------- | ------- | -------------------------------------------------------- |
-| `columns` | `number`                      | —       | Number of columns (required, floored to at least `1`).   |
-| `wrap`    | `boolean`                     | `false` | Wrap around row/column edges instead of clamping.        |
-| `active`  | `boolean \| (() => boolean)`  | `true`  | Whether the grid traversal is currently applied.         |
+tiles or a picker. It requires `columns` (floored to at least `1`) and takes
+`wrap` (`false`) and `active` (`true`) — [signature](/docs/api/#focusgrid).
 
 The grid collects its focusables in document order and treats them as a
 `columns`-wide table. From index `i`: RIGHT goes to `i + 1` unless you are at the
@@ -173,15 +153,10 @@ override only — it does not lay anything out, so use flexbox
 
 `ActionHandler` binds a raw button bitmask to a callback, independent of focus.
 Use it for global shortcuts — open a menu on SELECT, back out on CROSS, cycle a
-value on a shoulder button.
-
-| Prop               | Type                                          | Notes                                              |
-| ------------------ | --------------------------------------------- | -------------------------------------------------- |
-| `button`           | `number`                                      | A `BTN` value, or several OR'd together.           |
-| `onPress`          | `(pressed: number, buttons: number) => void`  | `pressed` = newly-pressed edge bits this frame.    |
-| `active`           | `boolean \| (() => boolean)`                  | Gate the handler on/off. Defaults to on.           |
-| `allowWhenBlocked` | `boolean`                                     | Keep firing even while a `Modal` blocks input.     |
-| `latched`          | `boolean`                                     | Wait for a release before the next edge can fire.  |
+value on a shoulder button. `button` is a `BTN` value or several OR'd together,
+and `onPress(pressed, buttons)` receives the edge bits newly pressed this frame.
+It inherits `active` (`true`), `allowWhenBlocked` and `latched` from
+`ButtonPressOptions` ([signature](/docs/api/#actionhandler)).
 
 It renders its `children` (or nothing), so drop it anywhere in the tree.
 
@@ -236,98 +211,51 @@ button handlers** while open. Any [`ActionHandler`](#actionhandler) /
 `onButtonPress` handler in the rest of the app stops firing until the modal
 closes, so the page behind can't react to input it can't see.
 
-| Prop         | Type                          | Default                                                                      |
-| ------------ | ----------------------------- | --------------------------------------------------------------------------- |
-| `open`       | `boolean \| (() => boolean)`  | `true` — visibility. Pass a signal accessor to drive it reactively.         |
-| `panelClass` | `string`                      | `flex-col gap-2 w-[328] p-3 rounded-xl shadow-lg bg-white border-slate-200` |
-| `class`      | `string`                      | `absolute inset-0 z-50 flex-col items-center justify-center` (the layer)    |
-| `children`   | `Element`                     | The panel contents.                                                         |
+`ModalProps` is `open` (`true`, accepts an accessor), `class` for the centering
+layer, `panelClass` for the panel, and `children` — no `focusable`, `onPress` or
+`ref` ([signature and default classes](/docs/api/#modal)).
 
 :::framework-code
 ```tsx solid
-import { Modal, Focusable, Text, View } from "@pocketjs/framework/components";
+import { Modal, Focusable, Text } from "@pocketjs/framework/components";
 import { createSignal } from "solid-js";
 
-function DeletePrompt(props: { onConfirm: () => void }) {
-  const [open, setOpen] = createSignal(false);
-  return (
-    <Modal open={open}>
-      <Text class="text-lg text-slate-950 font-bold">Delete save?</Text>
-      <View class="flex-row gap-2">
-        <Focusable
-          class="px-3 py-1 rounded-md bg-slate-100 border-slate-200 focus:border-blue-500"
-          onPress={() => setOpen(false)}
-        >
-          <Text class="text-sm text-slate-950">Cancel</Text>
-        </Focusable>
-        <Focusable
-          class="px-3 py-1 rounded-md bg-rose-600 border-rose-500 focus:border-rose-300"
-          onPress={props.onConfirm}
-        >
-          <Text class="text-sm text-white">Delete</Text>
-        </Focusable>
-      </View>
-    </Modal>
-  );
-}
+const [open, setOpen] = createSignal(false);
+
+<Modal open={open}>
+  <Text class="text-lg text-slate-950 font-bold">Delete save?</Text>
+  <Focusable class="px-3 py-1 rounded-md bg-rose-600 focus:border-rose-300" onPress={confirm}>
+    <Text class="text-sm text-white">Delete</Text>
+  </Focusable>
+</Modal>;
 ```
 
 ```tsx vue-vapor
+import { Modal, Focusable, Text } from "@pocketjs/framework/components";
 import { ref } from "vue";
-import { Modal, Focusable, Text, View } from "@pocketjs/framework/components";
 
-function DeletePrompt(props: { onConfirm: () => void }) {
-  const open = ref(false);
-  return () => (
-    <Modal open={() => open.value}>
-      <Text class="text-lg text-slate-950 font-bold">Delete save?</Text>
-      <View class="flex-row gap-2">
-        <Focusable
-          class="px-3 py-1 rounded-md bg-slate-100 border-slate-200 focus:border-blue-500"
-          onPress={() => {
-            open.value = false;
-          }}
-        >
-          <Text class="text-sm text-slate-950">Cancel</Text>
-        </Focusable>
-        <Focusable
-          class="px-3 py-1 rounded-md bg-rose-600 border-rose-500 focus:border-rose-300"
-          onPress={props.onConfirm}
-        >
-          <Text class="text-sm text-white">Delete</Text>
-        </Focusable>
-      </View>
-    </Modal>
-  );
-}
+const open = ref(false);
+
+<Modal open={() => open.value}>
+  <Text class="text-lg text-slate-950 font-bold">Delete save?</Text>
+  <Focusable class="px-3 py-1 rounded-md bg-rose-600 focus:border-rose-300" onPress={confirm}>
+    <Text class="text-sm text-white">Delete</Text>
+  </Focusable>
+</Modal>;
 ```
 
 ```tsx octane
+import { Modal, Focusable, Text } from "@pocketjs/framework/components";
 import { useState } from "octane";
-import { Modal, Focusable, Text, View } from "@pocketjs/framework/components";
 
-function DeletePrompt(props: { onConfirm: () => void }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <Modal open={open}>
-      <Text class="text-lg text-slate-950 font-bold">Delete save?</Text>
-      <View class="flex-row gap-2">
-        <Focusable
-          class="px-3 py-1 rounded-md bg-slate-100 border-slate-200 focus:border-blue-500"
-          onPress={() => setOpen(false)}
-        >
-          <Text class="text-sm text-slate-950">Cancel</Text>
-        </Focusable>
-        <Focusable
-          class="px-3 py-1 rounded-md bg-rose-600 border-rose-500 focus:border-rose-300"
-          onPress={props.onConfirm}
-        >
-          <Text class="text-sm text-white">Delete</Text>
-        </Focusable>
-      </View>
-    </Modal>
-  );
-}
+const [open, setOpen] = useState(false);
+
+<Modal open={open}>
+  <Text class="text-lg text-slate-950 font-bold">Delete save?</Text>
+  <Focusable class="px-3 py-1 rounded-md bg-rose-600 focus:border-rose-300" onPress={confirm}>
+    <Text class="text-sm text-white">Delete</Text>
+  </Focusable>
+</Modal>;
 ```
 :::
 
@@ -340,9 +268,9 @@ Two behaviors to know:
   fade and slide in while the page behind it holds still.
 - **The block is global**, so even a handler *inside* the modal is suppressed
   unless it opts out with `allowWhenBlocked`. If your dialog drives its own
-  cursor with an `ActionHandler`, set `allowWhenBlocked` on it (see the picker
-  below). D-pad focus navigation is unaffected — the modal's `FocusScope`
-  already confines it to the panel.
+  cursor with an [`ActionHandler`](#actionhandler), set `allowWhenBlocked` on
+  it. D-pad focus navigation is unaffected — the modal's `FocusScope` confines
+  it to the panel.
 
 ## ActionBar
 
@@ -369,18 +297,13 @@ underlying screen scrolls or reflows.
 
 ## Grid
 
-`Grid` lays a wall of fixed-width tiles out as a wrapping row and — when you give
-it `columns` and turn `focus` on — hands them the same row/column d-pad traversal
-as [`FocusGrid`](#focusgrid). Layout stays pure flexbox: the visible column count
-emerges from the tile width vs. the container width, and `columns` drives
-*traversal only*.
-
-| Prop      | Type                         | Default | Effect                                                        |
-| --------- | ---------------------------- | ------- | ------------------------------------------------------------- |
-| `columns` | `number`                     | —       | Column count for d-pad traversal (only used when `active` is on). |
-| `gap`     | `number`                     | —       | Cross-axis gap in px, applied via `style` (keeps `class` a single literal). |
-| `wrap`    | `boolean`                    | `false` | Wrap traversal around row/column edges.                       |
-| `active`  | `boolean \| (() => boolean)` | —       | Enable `FocusGrid` traversal (needs `columns`). Accepts a signal — same `active` convention as `FocusScope`/`FocusGrid`. |
+`Grid` lays a wall of fixed-width tiles out as a wrapping row. **Passing
+`columns` is what turns it into a [`FocusGrid`](#focusgrid)** — with no
+`columns` it renders a plain `View`. Layout stays pure flexbox: the visible
+column count emerges from the tile width vs. the container width, and `columns`
+drives *traversal only*. `active` (default `true`) gates that traversal on and
+off, and `gap` is a number applied through `style` so `class` stays one compiled
+literal — [typed signature](/docs/api/#grid).
 
 It otherwise takes ordinary [`ViewProps`](/docs/components/); pass a fixed width
 so the tiles wrap where you want them to.
@@ -410,19 +333,12 @@ shows a `fallback` (a spinner or skeleton). The reveal is a **one-shot latch**:
 it runs the first time the subtree activates and then stays revealed for the
 component's lifetime, so re-activating shows the content immediately (no replayed
 spinner). With `reveal` at its `0` default `Lazy` is a plain gate with no
-per-frame cost.
+per-frame cost. `LazyProps` is `when`, `reveal`, `fallback` and a `children`
+*factory* — no `class`, `style` or `ref` ([signature](/docs/api/#lazy)).
 
-| Prop       | Type                         | Default | Effect                                                             |
-| ---------- | ---------------------------- | ------- | ------------------------------------------------------------------ |
-| `when`     | `boolean \| (() => boolean)` | —       | Mount the content while truthy; unmount (destroy) when false.      |
-| `reveal`   | `number`                     | `0`     | Host frames to show `fallback` before revealing content the first time it activates. |
-| `fallback` | `Element \| (() => Element)` | —       | Shown during the reveal delay.                                     |
-| `children` | `() => Element`              | —       | Deferred content — only built once active and past the reveal.     |
-
-> **What "lazy" means here.** Textures are uploaded eagerly at pak load (there is
-> no runtime texture streaming), so `Lazy` defers *content build/layout/draw*, not
-> texture residency. The `reveal` delay models an on-demand load for the demo's
-> sake — it is a frame counter, not real I/O.
+> **What "lazy" means here.** Textures upload at pak load and there is no runtime
+> texture streaming, so `Lazy` defers content build, layout and draw, not texture
+> residency. `reveal` counts host frames; it is not I/O.
 
 ```tsx
 <Lazy when={isOpen} reveal={16} fallback={() => <Spinner />}>
@@ -434,103 +350,58 @@ per-frame cost.
 
 `Gallery` is a horizontally paged, full-screen strip: pressing `LTRIGGER` /
 `RTRIGGER` slides one whole screen at a time. It is the natural shell for a photo
-wall, an app launcher, or any "screen-by-screen" browse.
-
-| Prop           | Type                          | Default | Effect                                                       |
-| -------------- | ----------------------------- | ------- | ------------------------------------------------------------ |
-| `count`        | `number`                      | —       | Total number of pages.                                       |
-| `page`         | `() => number`                | —       | Controlled current-page accessor (0-based).                  |
-| `onPageChange` | `(next: number) => void`      | —       | Called with the next page when L/R paging is requested.      |
-| `renderPage`   | `(index: number) => Element`  | —       | Page factory — invoked only for pages inside the mount window (lazy). |
-| `window`       | `number`                      | `1`     | Pages kept mounted on each side of the current one.          |
-| `duration`     | `number`                      | `300`   | Slide duration in ms.                                        |
-| `easing`       | `EasingName`                  | `"out"` | Slide easing.                                                |
-| `bindTriggers` | `boolean`                     | `true`  | Bind `LTRIGGER`/`RTRIGGER` to page(-/+1) internally.         |
-| `wrap`         | `boolean`                     | `false` | Wrap past the ends instead of clamping.                      |
+wall, an app launcher, or any "screen-by-screen" browse. `count`, `page` and
+`renderPage` are required; `onPageChange`, `window` (`1`), `duration` (`300` ms),
+`easing` (`"out"`), `bindTriggers` (`true`), `wrap` (`false`) and `class` are not
+([signature](/docs/api/#gallery)).
 
 `Gallery` is **controlled** — you own the `page` signal, so the rest of the UI (a
 page indicator, a title) can read it. It reads L/R itself and calls
-`onPageChange`; the slide is a single native [`translateX`](/docs/animation/)
-tween per press (paint-only, no relayout), and pages outside the `window` are not
-built at all, so a many-page gallery stays within the draw budget.
+`onPageChange`.
 
 :::framework-code
 ```tsx solid
-import { Gallery, Screen } from "@pocketjs/framework/components";
+import { Gallery } from "@pocketjs/framework/components";
 import { createSignal } from "solid-js";
 
-function Photos() {
-  const [page, setPage] = createSignal(0);
-  return (
-    <Screen class="relative w-full h-full bg-slate-950 overflow-hidden">
-      <Gallery
-        count={4}
-        page={page}
-        onPageChange={setPage}
-        renderPage={(i) => <PhotoPage index={i} current={page} />}
-      />
-    </Screen>
-  );
-}
+const [page, setPage] = createSignal(0);
+
+<Gallery count={4} page={page} onPageChange={setPage} renderPage={(i) => <PhotoPage index={i} />} />;
 ```
 
 ```tsx vue-vapor
+import { Gallery } from "@pocketjs/framework/components";
 import { ref } from "vue";
-import { Gallery, Screen } from "@pocketjs/framework/components";
 
-function Photos() {
-  const page = ref(0);
-  return () => (
-    <Screen class="relative w-full h-full bg-slate-950 overflow-hidden">
-      <Gallery
-        count={4}
-        page={page.value}
-        onPageChange={(next) => {
-          page.value = next;
-        }}
-        renderPage={(i) => <PhotoPage index={i} current={() => page.value} />}
-      />
-    </Screen>
-  );
-}
+const page = ref(0);
+
+<Gallery
+  count={4}
+  page={page.value}
+  onPageChange={(next) => { page.value = next; }}
+  renderPage={(i) => <PhotoPage index={i} />}
+/>;
 ```
 
 ```tsx octane
+import { Gallery } from "@pocketjs/framework/components";
 import { useState } from "octane";
-import { Gallery, Screen } from "@pocketjs/framework/components";
 
-function Photos() {
-  const [page, setPage] = useState(0);
-  return (
-    <Screen class="relative w-full h-full bg-slate-950 overflow-hidden">
-      <Gallery
-        count={4}
-        page={page}
-        onPageChange={setPage}
-        renderPage={(i) => <PhotoPage index={i} current={page} />}
-      />
-    </Screen>
-  );
-}
+const [page, setPage] = useState(0);
+
+<Gallery count={4} page={page} onPageChange={setPage} renderPage={(i) => <PhotoPage index={i} />} />;
 ```
 :::
 
-Under the hood `Gallery` is a **static `overflow-hidden` viewport** wrapping an
-**animated strip** of absolutely-positioned page cells. The split matters: the
-scissor is taken from the clip node's own box, so the clipping viewport must not
-move — only the inner strip's `translateX` animates. `apps/gallery` is a full
-worked example (L/R paging, a [`Grid`](#grid) of baked tiles, [`Lazy`](#lazy)
-first-visit loading, and a page-dot [`ActionBar`](#actionbar)); build it with
+It is a **static `overflow-hidden` viewport** wrapping an **animated strip** of
+absolutely-positioned page cells. The split is load-bearing: the scissor comes
+from the clip node's own box, so the clipping viewport must not move — only the
+inner strip's [`translateX`](/docs/animation/) animates, one paint-only native
+tween per press, and pages outside `window` are never built, which keeps a
+many-page gallery inside the draw budget. `apps/gallery` is the worked example
+(L/R paging, a [`Grid`](#grid) of baked tiles, [`Lazy`](#lazy) first-visit
+loading, a page-dot [`ActionBar`](#actionbar)); build it with
 `bun tools/build.ts gallery-main` and press **L / R** (or **Q / E**).
-
-## Routing is just app state
-
-There is deliberately no router package. A screen is a component; "navigating"
-is writing a signal that a `Switch`/`Match` (or a `Show`) reads. That keeps
-navigation fully reactive, testable in [headless Bun](/docs/architecture/), and
-free of any global you didn't put there yourself. When you need a back stack,
-store an array of screen ids in a signal and push/pop it — the same primitives
-compose all the way up.
 
 See also: [Input & focus](/docs/input-focus/) for the traversal model,
 [Animation](/docs/animation/) for the frame hooks modals leave running, and

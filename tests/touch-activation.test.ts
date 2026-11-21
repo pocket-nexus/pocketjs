@@ -17,7 +17,8 @@ import { resetRendererState, rootMirror, type NodeMirror } from "../framework/sr
 import { resetStyles } from "../framework/src/styles.ts";
 import { resetInput } from "../framework/src/input.ts";
 import { resetPack } from "../framework/src/pak.ts";
-import { Focusable, Text } from "../framework/src/components.ts";
+import { AuxiliarySurface, Focusable, Text, View } from "../framework/src/components.ts";
+import { getAuxiliarySurfaceRoots } from "../framework/src/display.ts";
 import { __packTouch } from "../framework/src/touch.ts";
 import { ROOT_ID } from "../contracts/spec/spec.ts";
 
@@ -53,12 +54,24 @@ let host: Host;
 let dispose: (() => void) | null = null;
 const g = globalThis as Record<string, unknown>;
 
-function frame(buttons = 0, touches?: readonly number[], hits?: readonly number[]): void {
-  (g.frame as (b: number, a?: number, t?: readonly number[], h?: readonly number[]) => void)(
+function frame(
+  buttons = 0,
+  touches?: readonly number[],
+  hits?: readonly number[],
+  surfaces?: readonly number[],
+): void {
+  (g.frame as (
+    b: number,
+    a?: number,
+    t?: readonly number[],
+    h?: readonly number[],
+    s?: readonly number[],
+  ) => void)(
     buttons,
     undefined,
     touches,
     hits,
+    surfaces,
   );
 }
 
@@ -122,6 +135,28 @@ describe("tap → press", () => {
     frame(0, [__packTouch(1, 400, 200)], [rootMirror.id]);
     frame(0);
     expect(pressed).toEqual([]);
+  });
+
+  test("an auxiliary hit fact activates a Focusable on the auxiliary root", () => {
+    host.ops.__auxiliarySurface = { root: 90, w: 320, h: 240 };
+    const pressed: number[] = [];
+    dispose = publicRender(
+      () =>
+        View({
+          children: AuxiliarySurface({
+            children: () =>
+              Focusable({
+                onPress: () => pressed.push(1),
+                children: Text({ children: "BOTTOM" }),
+              }),
+          }),
+        }) as unknown as NodeMirror,
+      { ops: host.ops, styles: {} },
+    );
+    const button = getAuxiliarySurfaceRoots().app.children[0].children[0];
+    frame(0, [__packTouch(1, 50, 20)], [button.id], [1]);
+    frame(0);
+    expect(pressed).toEqual([1]);
   });
 });
 

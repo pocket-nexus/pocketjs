@@ -87,7 +87,7 @@ That exposed three ownership problems at once. “Runtime” was being used for 
 
 Pocket Pi therefore remains create-only today: installing an existing App id fails. Adding replacement first would only version the precompiled boundary we intend to remove.
 
-The refactor in [**Pocket Pi PR #14**](https://github.com/pocket-stack/pocket-pi/pull/14) starts below replacement. It defines which layer owns execution, policy, isolation and product meaning, so the eventual revision protocol can manage the right software unit.
+The refactor in [**Pocket Pi PR #14**](https://github.com/pocket-nexus/pocket-pi/pull/14) starts below replacement. It defines which layer owns execution, policy, isolation and product meaning, so the eventual revision protocol can manage the right software unit.
 
 ## Deriving the system from first principles
 

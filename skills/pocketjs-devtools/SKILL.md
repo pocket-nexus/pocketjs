@@ -19,13 +19,15 @@ answerable from the terminal. Use the panel when a human is co-driving.
 
 ## Headless workflow (no screen needed)
 
+Keep per-run tapes, hashes, captures, and logs in ignored output. For example:
+
 ```bash
-bun run tape record hero-main --frames 180 --input "5:64,40:8192" --out t.json
-bun run tape replay hero-main t.json --hashes h.json     # per-frame FNV hashes
-bun run tape replay hero-main t.json --assert h.json     # exit 1 + FIRST DIVERGENT FRAME
-bun run tape replay hero-main t.json --png 60,120        # render frames to PNG (read them!)
-bun run tape tree   hero-main t.json --at 60             # component tree JSON at frame 60
-bun run tape:check                                       # committed session golden
+mkdir -p .pocket-build/validation/devtools
+bun run tape record hero-main --frames 180 --input "5:64,40:8192" --out .pocket-build/validation/devtools/t.json
+bun run tape replay hero-main .pocket-build/validation/devtools/t.json --hashes .pocket-build/validation/devtools/h.json
+bun run tape replay hero-main .pocket-build/validation/devtools/t.json --assert .pocket-build/validation/devtools/h.json --outdir .pocket-build/validation/devtools
+bun run tape replay hero-main .pocket-build/validation/devtools/t.json --png 60,120 --outdir .pocket-build/validation/devtools
+bun run tape tree   hero-main .pocket-build/validation/devtools/t.json --at 60
 ```
 
 - Input masks are contracts/spec/spec.ts `BTN` values (`CIRCLE=0x2000=8192`, `DOWN=0x40=64`).
@@ -37,6 +39,10 @@ bun run tape:check                                       # committed session gol
   replay is then an approximation (warned automatically).
 - Committed session goldens live in `tests/tapes/`; regenerate hashes only when
   a visual change is intended.
+- A replay capture or exported session is temporary validation output. Promote
+  it to a committed fixture only when a named regression test consumes it.
+  Put selected screenshots in PR attachments and keep raw captures, logs and
+  receipts outside the tracked tree, following `AGENTS.md`/`CLAUDE.md`.
 
 ## Panel workflow (one command)
 
@@ -46,7 +52,7 @@ bun run devtools cards      # + build, USB-link and launch cards on a real PSP
 ```
 
 Panel at `http://127.0.0.1:8130/devtools`. `bun run devtools` auto-detects an
-already-running `bun psplink` / `bun run hw` usbhostfs session and bridges
+already-running `bun run psp:switch` / `bun run hw` usbhostfs session and bridges
 into it instead of fighting for the cable (relaunch the app there so it
 probes the mailbox at boot). Shortcuts: `o` open panel, `r` rebuild+relaunch
 (managed sessions), `q` quit.
@@ -58,7 +64,7 @@ fast-forwards); REPL evals in the app global scope between frames; 📷
 screenshot button downloads a PNG (browser: canvas; PSP: raw VRAM dump over
 usbhostfs, converted by the bridge — pixels never cross the JSON channel).
 
-## Native desktop (macOS) specifics
+## Widget and Pocket3D embedding specifics
 
 - `pocket-ui-wgpu` hosts (OpenStrike desktop, `engine/pocket3d/examples/uihost`)
   carry the same file-mailbox transport as the PSP, pointed at
@@ -102,7 +108,7 @@ Device→panel: `hello{app,host,frame}` · `tree{root:{i,t,n,c,x,k}}` ·
   (display:none, detached, or inside a `paint_3d` perspective subtree — 3D
   interiors aren't captured; the perspective ROOT is).
 - Adding spec ops: edit `contracts/spec/spec.ts` → `bun contracts/spec/gen-rust.ts` → implement
-  on `Ui` + BOTH hosts (`hosts/psp/src/ffi.rs`, `engine/wasm/src/lib.rs`) + `hosts/web/
+  on `Ui` + BOTH hosts (`programs/psp/src/service_bindings.rs`, `programs/web/wasm/src/lib.rs`) + `programs/web/dev/
   wasm-ops.js` + `HostOps` (optional members) — `tests/contract.ts` locks the
   spec halves together.
 - `debugName` / `<Named>` are JS-mirror-only: provably zero pixel impact
@@ -112,7 +118,7 @@ Device→panel: `hello{app,host,frame}` · `tree{root:{i,t,n,c,x,k}}` ·
   transport; `--conditions=browser` required). Core pause/inspect tests in
   `engine/core/src/tests.rs`.
 - Missing QuickJS symbols (vendored libquickjs-sys is minimal): declare a
-  local `extern "C"` block — precedent in `hosts/psp/src/main.rs` and `ffi.rs`.
+  local `extern "C"` block — precedent in `programs/psp/src/main.rs` and `ffi.rs`.
 - NEVER hand VRAM addresses (`0x4xxxxxxx` uncached mirror) to usbhostfs IO:
   its send path runs dcache writeback + USB bulk DMA on the caller's buffer
   and hangs the device on the first 64 KB block (frozen PSP, 0-byte file).
@@ -133,7 +139,7 @@ Device→panel: `hello{app,host,frame}` · `tree{root:{i,t,n,c,x,k}}` ·
 - The whole device-side path (eval, console, screenshot) is testable
   without hardware, at host0: fidelity: **PPSSPP maps the EBOOT's own
   directory as `host0:`**, so a mailbox in
-  `hosts/psp/target/mipsel-sony-psp/debug/pocketjs-dbg/` is found by the SAME
+  `programs/psp/target/mipsel-sony-psp/debug/pocketjs-dbg/` is found by the SAME
   probe hardware uses. Create enable/in/out there, run PPSSPPHeadless with
   a timeout, append commands to in.jsonl mid-run, read out.jsonl. (This
   also means a stale hardware-session mailbox hijacks emulator runs —

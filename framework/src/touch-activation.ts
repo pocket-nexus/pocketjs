@@ -17,17 +17,36 @@ import { createGesture, type GestureHandle } from "./gesture.ts";
 import { pressNode, setActiveNode, touchFocusable } from "./input.ts";
 
 export function installTouchActivation(): GestureHandle {
-  return createGesture({
+  const install = (surface: "primary" | "auxiliary") => createGesture({
+    surface,
     onDown: (c) => {
-      const target = touchFocusable(c.x, c.y, c.hit);
+      const target = touchFocusable(c.x, c.y, c.hit, c.surface);
       if (target) setActiveNode(target);
     },
     onTap: (c) => {
       setActiveNode(null);
-      const target = touchFocusable(c.x, c.y, c.hit);
+      const target = touchFocusable(c.x, c.y, c.hit, c.surface);
       if (target) pressNode(target);
     },
     onUp: () => setActiveNode(null),
     onCancel: () => setActiveNode(null),
   });
+  const primary = install("primary");
+  const auxiliary = install("auxiliary");
+  return {
+    dispose() {
+      primary.dispose();
+      auxiliary.dispose();
+    },
+    cancel() {
+      primary.cancel();
+      auxiliary.cancel();
+    },
+    get panning() {
+      return primary.panning || auxiliary.panning;
+    },
+    get pinching() {
+      return primary.pinching || auxiliary.pinching;
+    },
+  };
 }

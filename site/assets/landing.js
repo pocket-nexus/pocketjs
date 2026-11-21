@@ -1,4 +1,16 @@
-// Homepage glue: the framework code tabs. Everything else is CSS.
+import "./showcase.js";
+import "./community.js";
+const handhelds = document.querySelector("[data-handheld]");
+if (handhelds) {
+  const approach = new IntersectionObserver((entries) => {
+    if (!entries.some((entry) => entry.isIntersecting)) return;
+    approach.disconnect();
+    void import("/assets/handheld-stages.js");
+  }, { rootMargin: "400px" });
+  approach.observe(handhelds);
+}
+
+// Homepage interactions: framework code tabs and the lazy motion demo.
 for (const group of document.querySelectorAll("[data-subtabs]")) {
   const tabs = group.querySelectorAll(".subtab");
   tabs.forEach(t => t.addEventListener("click", () => {

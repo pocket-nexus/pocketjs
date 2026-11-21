@@ -41,11 +41,13 @@ import { analogX, analogY } from "./frame.ts";
 import { getHost, getOps, hostViewport, type HostOps } from "./host.ts";
 import { get as pakGet } from "./pak.ts";
 import type { NodeMirror } from "./renderer.ts";
+import type { SurfaceId } from "./display.ts";
 
 let root: NodeMirror | null = null;
 let focused: NodeMirror | null = null;
 let pressedNode: NodeMirror | null = null;
 let prevButtons = 0;
+let deferredPressCapture: DeferredPress | undefined;
 const focusScopeStack: NodeMirror[] = [];
 const focusGridStack: FocusGridRegistration[] = [];
 const focusControllerStack: FocusControllerRegistration[] = [];
@@ -284,15 +286,29 @@ function moveFocus(direction: FocusDirection): void {
   moveLinearFocus(direction);
 }
 
-function firePress(): void {
-  firePressFrom(focused);
+export type DeferredPress = (node: NodeMirror, invoke: () => void) => void;
+
+/** Capture declarative Vue press delivery without changing gesture recognition. */
+export function withDeferredPress(defer: DeferredPress, run: () => void): void {
+  const previous = deferredPressCapture;
+  deferredPressCapture = defer;
+  try { run(); }
+  finally { deferredPressCapture = previous; }
 }
 
-function firePressFrom(start: NodeMirror | null): void {
+function firePress(defer?: DeferredPress): void {
+  firePressFrom(focused, defer);
+}
+
+function firePressFrom(start: NodeMirror | null, defer: DeferredPress | undefined = deferredPressCapture): void {
   let n: NodeMirror | null = start;
   while (n) {
     if (n.onPress) {
-      n.onPress();
+      if (defer) {
+        const node = n, callback = n.onPress;
+        defer(node, () => callback.call(node));
+      }
+      else n.onPress();
       return;
     }
     n = n.parent;
@@ -656,9 +672,14 @@ function findMirror(node: NodeMirror | null, id: number): NodeMirror | null {
  *  Injected by render() like the input root — overlay content (Portal
  *  menus, modals) paints above the app and must resolve under the cursor. */
 let hitRoot: NodeMirror | null = null;
+let auxiliaryHitRoot: NodeMirror | null = null;
 
 export function setHitRoot(r: NodeMirror | null): void {
   hitRoot = r;
+}
+
+export function setAuxiliaryHitRoot(r: NodeMirror | null): void {
+  auxiliaryHitRoot = r;
 }
 
 /** The interaction target for a raw hit: the nearest focusable ancestor
@@ -682,10 +703,8 @@ function cursorTarget(hit: NodeMirror | null): NodeMirror | null {
  * (the system OSK maps contacts through this). Null when the host has no
  * hitTest op or nothing focusable is under the point.
  */
-export function hitFocusable(x: number, y: number): NodeMirror | null {
-  const ops = getOps();
-  if (!ops.hitTest) return null;
-  return cursorTarget(findMirror(hitRoot ?? root, ops.hitTest(x, y)));
+export function hitFocusable(x: number, y: number, surface: SurfaceId = "primary"): NodeMirror | null {
+  return cursorTarget(hitNode(x, y, surface));
 }
 
 /**
@@ -698,8 +717,9 @@ export function touchFocusable(
   x: number,
   y: number,
   fact: number | undefined,
+  surface: SurfaceId = "primary",
 ): NodeMirror | null {
-  return cursorTarget(resolveTouchHit(x, y, fact));
+  return cursorTarget(resolveTouchHit(x, y, fact, surface));
 }
 
 /**
@@ -708,10 +728,12 @@ export function touchFocusable(
  * this (a pan region is rarely focusable itself). Null when the host has no
  * hitTest op or nothing painted claims the point.
  */
-export function hitNode(x: number, y: number): NodeMirror | null {
+export function hitNode(x: number, y: number, surface: SurfaceId = "primary"): NodeMirror | null {
   const ops = getOps();
-  if (!ops.hitTest) return null;
-  return findMirror(hitRoot ?? root, ops.hitTest(x, y));
+  const query = surface === "auxiliary" ? ops.hitTestAuxiliary : ops.hitTest;
+  const searchRoot = surface === "auxiliary" ? auxiliaryHitRoot : hitRoot ?? root;
+  if (!query || !searchRoot) return null;
+  return findMirror(searchRoot, query(x, y));
 }
 
 /**
@@ -725,20 +747,25 @@ export function resolveTouchHit(
   x: number,
   y: number,
   fact: number | undefined,
+  surface: SurfaceId = "primary",
 ): NodeMirror | null {
+  const searchRoot = surface === "auxiliary" ? auxiliaryHitRoot : hitRoot ?? root;
+  if (!searchRoot) return null;
   if (fact !== undefined) {
-    return fact === 0 ? null : findMirror(hitRoot ?? root, fact);
+    return fact === 0 ? null : findMirror(searchRoot, fact);
   }
   const ops = getOps();
-  const query = ops.hitTestBounds ?? ops.hitTest;
+  const query = surface === "auxiliary"
+    ? ops.hitTestBoundsAuxiliary ?? ops.hitTestAuxiliary
+    : ops.hitTestBounds ?? ops.hitTest;
   if (!query) return null;
-  return findMirror(hitRoot ?? root, query(x, y));
+  return findMirror(searchRoot, query(x, y));
 }
 
 /** One cursor-mode frame. Returns false when the host predates the cursor
  *  ops — the caller then falls through to the classic d-pad model, so a
  *  stale host never loses input. */
-function cursorFrame(buttons: number, pressed: number, released: number): boolean {
+function cursorFrame(buttons: number, pressed: number, released: number, defer?: DeferredPress): boolean {
   const c = cursor!;
   const ops = getOps();
   if (!ops.hitTest || !ops.setCursor || !ops.setCursorPos) return false;
@@ -803,7 +830,7 @@ function cursorFrame(buttons: number, pressed: number, released: number): boolea
       const fire = target === c.pressTarget;
       c.pressTarget = null;
       setPressedNode(null);
-      if (fire) firePress();
+      if (fire) firePress(defer);
     }
   } else if (released & c.button) {
     // A press that predates the cursor (classic-mode latch, or a press held
@@ -821,11 +848,11 @@ function cursorFrame(buttons: number, pressed: number, released: number): boolea
  * With the virtual cursor enabled, the cursor state machine replaces d-pad
  * traversal and the CIRCLE press entirely.
  */
-export function handleFrame(buttons: number): void {
+export function handleFrame(buttons: number, defer?: DeferredPress): void {
   const pressed = buttons & ~prevButtons;
   const released = prevButtons & ~buttons;
   prevButtons = buttons;
-  if (cursor && cursorFrame(buttons, pressed, released)) return;
+  if (cursor && cursorFrame(buttons, pressed, released, defer)) return;
   if (released & BTN.CIRCLE) setPressedNode(null);
   if (pressed === 0) return;
   if (pressed & BTN.DOWN) moveFocus("down");
@@ -834,6 +861,6 @@ export function handleFrame(buttons: number): void {
   if (pressed & BTN.LEFT) moveFocus("left");
   if (pressed & BTN.CIRCLE) {
     setPressedNode(focused);
-    firePress();
+    firePress(defer);
   }
 }

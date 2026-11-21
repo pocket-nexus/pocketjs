@@ -1,0 +1,71 @@
+name: 3DS native program
+# The file-loaded runtime (programs/3ds), cross-compiled with the pinned
+# devkitARM image, an application compiled for its host contract, and the
+# symbols its ELF defines. The 3DS host tests (PICA kernel and driver, the
+# program's host harness, repack) run in test.yml.
+on:
+  pull_request:
+    paths: &paths
+      - ".bun-version"
+      - ".github/workflows/3ds-runtime.yml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "programs/3ds/**"
+      - "programs/native/**"
+      - "platforms/3ds/**"
+      - "devices/3ds/**"
+      - "apps/3ds-demo/**"
+      - "hosts/3ds-*/pocket.host.json"
+      - "tools/build/**"
+      - "tools/check-3ds-symbols.ts"
+      - "tools/3ds*.ts"
+      - "tools/pocket.ts"
+      - "tools/cli/**"
+      - "engine/runtime/**"
+      - "programs/sdk/archive/**"
+      - "engine/guest-quickjs/**"
+      - "engine/core/**"
+      - "engine/spec/**"
+      - "engine/drivers/**"
+      - "engine/raster/**"
+      - "engine/package/**"
+      - "engine/modules/media/**"
+      - "engine/render/**"
+      - "contracts/**"
+  push:
+    branches: [main]
+    paths: *paths
+permissions:
+  contents: read
+concurrency:
+  group: 3ds-native-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - name: Install pinned native toolchains
+        run: |
+          rustup toolchain install "$(bun -e 'import { BUILD_STD_NIGHTLY } from "./tools/build/toolchains/rust.ts"; console.log(BUILD_STD_NIGHTLY)')" --profile minimal --component rust-src
+          docker pull "$(bun -e 'import { THREE_DS_CONTAINER_IMAGE } from "./tools/build/toolchains/3ds.ts"; console.log(THREE_DS_CONTAINER_IMAGE)')"
+      - name: Build the file-loaded runtime and compile an application for it
+        run: |
+          bun tools/pocket.ts build --target 3ds --generic --out .pocket-build/validation/3ds-ci/minimal
+          bun tools/pocket.ts compile --config apps/3ds-demo/pocket.host.config.ts --target 3ds-runtime --project-root . --output .pocket-build/validation/3ds-ci/app.pkb --outdir .pocket-build/validation/3ds-ci/compiler --plan-dir .pocket-build/validation/3ds-ci/plans
+      - name: Verify the linked program's symbols
+        run: |
+          image="$(bun -e 'import { THREE_DS_CONTAINER_IMAGE } from "./tools/build/toolchains/3ds.ts"; console.log(THREE_DS_CONTAINER_IMAGE)')"
+          docker run --rm -v "$PWD:/repo" "$image" /opt/devkitpro/devkitARM/bin/arm-none-eabi-nm --defined-only /repo/.pocket-build/validation/3ds-ci/minimal/native/pocketjs-3ds.elf > .pocket-build/validation/3ds-ci/minimal.nm
+          bun tools/check-3ds-symbols.ts .pocket-build/validation/3ds-ci/minimal.nm
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: 3ds-native-program
+          path: .pocket-build/validation/3ds-ci

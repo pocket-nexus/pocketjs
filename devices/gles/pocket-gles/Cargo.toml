@@ -1,0 +1,19 @@
+[package]
+name = "pocket-gles"
+edition = "2021"
+description = "Instance GLES DrawList renderer with owned submission resources"
+
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+default = []
+# Recording definitions of every GL entry point for host tests.
+mock-gl = []
+
+[dependencies]
+pocket-drivers = { workspace = true, default-features = true }
+pocket-spec = { workspace = true, default-features = true }
+pocket-render = { workspace = true, default-features = true }

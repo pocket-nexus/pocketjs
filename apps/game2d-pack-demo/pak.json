@@ -1,0 +1,4 @@
+[
+  { "key": "audio:wav.blip", "file": "media/blip.wav" },
+  { "key": "audio:wav.chime", "file": "media/chime.wav" }
+]

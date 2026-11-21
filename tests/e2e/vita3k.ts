@@ -2,9 +2,8 @@
 // Vita3K VitaFS, wait for the guest completion marker, then compare the
 // guest-produced, native-density 960x544 frames against Vita goldens.
 
-import { $ } from "bun";
 import {
-  copyFileSync,
+  cpSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -13,21 +12,22 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
+import { demoConfigPath } from "../../tools/build/programs/handheld-common.ts";
 import { dirname } from "node:path";
+import { buildCaptureApplication, evidenceDirectory } from "./build.ts";
 import {
   DEFAULT_VITA_PACKAGE_ASSETS,
   VITA_REQUIRED_SYSTEM_ASSETS,
 } from "../../tools/vita-package.ts";
-import { vitaTitleId } from "../../framework/src/manifest/vita-package.ts";
+import { vitaTitleId } from "../../framework/compiler/vita-title-id.ts";
 import { encodePNG } from "../png.ts";
 import { encodeThresholdInput, encodeTouchInput, GOLDEN_SPECS } from "../golden-specs.ts";
 
 const ROOT = new URL("../..", import.meta.url).pathname;
-const OUT = `${ROOT}dist/e2e-vita3k`;
+const OUT = process.env.E2E_VITA3K_OUTDIR ?? evidenceDirectory(ROOT, "vita3k");
 const VITAFS = `${OUT}/vitafs`;
 const CONFIG = `${OUT}/config/config.yml`;
 const CAPTURE_DIR = `${VITAFS}/ux0/data/pocketjs-captures`;
-const NATIVE_RELEASE = `${ROOT}hosts/vita/target/armv7-sony-vita-newlibeabihf/release`;
 const VITA_GOLDENS = `${ROOT}tests/goldens/vita`;
 const W = 960;
 const H = 544;
@@ -105,20 +105,12 @@ function writeFixture(): void {
   writeFileSync(CONFIG, config);
 }
 
-function writeDemoManifest(name: string): { readonly path: string; readonly titleId: string } {
+/** The demo's host config and the E2E identity it compiles with, so an E2E
+ *  install never shadows the demo's own title. */
+function e2eDemo(name: string) {
   const demo = name.replace(/-main$/, "");
-  const applicationId = `dev.pocket-stack.e2e.${demo.replace(/-/g, ".")}`;
-  const manifest = JSON.parse(readFileSync(`${ROOT}pocket.json`, "utf8")) as Record<string, any>;
-  manifest.id = applicationId;
-  manifest.name = `pocketjs-e2e-${demo}`;
-  manifest.title = `PocketJS E2E ${demo}`;
-  manifest.app.entry = `apps/${demo}/main.tsx`;
-  manifest.app.output = name;
-  manifest.app.framework = "solid";
-  const path = `${OUT}/manifests/${name}.json`;
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify(manifest, null, 2) + "\n");
-  return { path, titleId: vitaTitleId(applicationId) };
+  const id = `dev.pocket-nexus.e2e.${demo.replace(/-/g, ".")}`;
+  return { config: demoConfigPath(demo), variant: { id, title: `PocketJS E2E ${demo}`, output: name, framework: "solid" as const }, titleId: vitaTitleId(id) };
 }
 
 process.on("exit", () => {
@@ -141,12 +133,12 @@ async function terminate(proc: ReturnType<typeof Bun.spawn>): Promise<void> {
   }
 }
 
-async function runVita3K(titleId: string): Promise<void> {
+async function runVita3K(titleId: string, evidence: string): Promise<void> {
   const done = `${CAPTURE_DIR}/done`;
   const error = `${CAPTURE_DIR}/error.txt`;
   const proc = Bun.spawn(
     [vita3k!, "--keep-config", "--load-config", "--config-location", CONFIG, "-r", titleId],
-    { cwd: ROOT, stdout: "ignore", stderr: "ignore" },
+    { cwd: ROOT, stdout: Bun.file(`${evidence}/vita3k.stdout.log`), stderr: Bun.file(`${evidence}/vita3k.stderr.log`) },
   );
   const deadline = Date.now() + TIMEOUT_MS;
   try {
@@ -196,7 +188,7 @@ function assertPackagedDefaultLiveArea(vpk: string): void {
       stdout: "pipe",
       stderr: "pipe",
     });
-    if (unpacked.exitCode !== 0) {
+    if (!unpacked.success) {
       throw new Error(`VPK is missing ${path}: ${unpacked.stderr.toString().trim()}`);
     }
     if (!Buffer.from(unpacked.stdout).equals(readFileSync(`${DEFAULT_VITA_PACKAGE_ASSETS}/${path}`))) {
@@ -222,7 +214,7 @@ for (const spec of specs) {
   const input = encodeThresholdInput(spec);
   const touch = encodeTouchInput(spec);
   const bundle = spec.app ?? spec.name;
-  const { path: manifest, titleId } = writeDemoManifest(bundle);
+  const { config, variant, titleId } = e2eDemo(bundle);
   const appDir = `${VITAFS}/ux0/app/${titleId}`;
   const globalTitleStub = `${globalVitaFs}/ux0/app/${titleId}`;
   mkdirSync(`${appDir}/sce_sys`, { recursive: true });
@@ -233,27 +225,25 @@ for (const spec of specs) {
     createdGlobalTitleStubs.add(globalTitleStub);
   }
   console.log(`\n## ${spec.name} (${spec.capture.length} golden frame(s))`);
-  // Exercise the same manifest -> plan -> compiler -> backend path as real
-  // applications, including the target/HostOps ABI startup handshake.
-  const build = await $`bun tools/pocket.ts build --target vita --manifest ${manifest} --project-root ${ROOT} -- --capture --release`
-    .cwd(ROOT)
-    .env({
-      ...process.env,
-      VITASDK: process.env.VITASDK ?? `${homedir()}/vitasdk`,
-      POCKETJS_CAPTURE_INPUT: input,
-      POCKETJS_CAPTURE_TOUCH: touch,
-      POCKETJS_CAPTURE_FRAMES: spec.capture.join(","),
-    })
-    .quiet()
-    .nothrow();
-  if (build.exitCode !== 0) {
-    console.error(`FAIL ${spec.name}: Vita build failed\n${build.stdout}${build.stderr}`);
-    failed += spec.capture.length;
-    continue;
-  }
-
   try {
-    assertPackagedDefaultLiveArea(`${ROOT}dist/vita/${bundle}.vpk`);
+    const vpk = await buildCaptureApplication({
+      root: ROOT, directory: `${OUT}/${spec.name}`, target: "vita", config, variant,
+      env: {
+        ...process.env,
+        VITASDK: process.env.VITASDK ?? `${homedir()}/vitasdk`,
+        POCKETJS_CAPTURE_INPUT: input,
+        POCKETJS_CAPTURE_TOUCH: touch,
+        POCKETJS_CAPTURE_FRAMES: spec.capture.join(","),
+      },
+    });
+    assertPackagedDefaultLiveArea(vpk);
+    rmSync(appDir, { recursive: true, force: true });
+    mkdirSync(appDir, { recursive: true });
+    const install = Bun.spawnSync([unzip, "-oq", vpk, "-d", appDir]);
+    if (!install.success) throw new Error(`VPK extraction failed: ${install.stderr}`);
+    if (!existsSync(`${appDir}/eboot.bin`) || !existsSync(`${appDir}/sce_sys/param.sfo`)) {
+      throw new Error("VPK is missing eboot.bin or sce_sys/param.sfo");
+    }
   } catch (error) {
     console.error(`FAIL ${spec.name}: ${(error as Error).message}`);
     failed += spec.capture.length;
@@ -262,20 +252,15 @@ for (const spec of specs) {
 
   rmSync(CAPTURE_DIR, { recursive: true, force: true });
   mkdirSync(CAPTURE_DIR, { recursive: true });
-  copyFileSync(`${NATIVE_RELEASE}/pocketjs-vita.self`, `${appDir}/eboot.bin`);
-  copyFileSync(`${NATIVE_RELEASE}/pocketjs-vita.sfo`, `${appDir}/sce_sys/param.sfo`);
-  for (const path of VITA_REQUIRED_SYSTEM_ASSETS) {
-    const destination = `${appDir}/${path}`;
-    mkdirSync(dirname(destination), { recursive: true });
-    copyFileSync(`${DEFAULT_VITA_PACKAGE_ASSETS}/${path}`, destination);
-  }
 
   try {
-    await runVita3K(titleId);
+    await runVita3K(titleId, `${OUT}/${spec.name}`);
   } catch (error) {
     console.error(`FAIL ${spec.name}: ${(error as Error).message}`);
     failed += spec.capture.length;
     continue;
+  } finally {
+    if (existsSync(CAPTURE_DIR)) cpSync(CAPTURE_DIR, `${OUT}/${spec.name}/captures`, { recursive: true });
   }
 
   for (const frame of spec.capture) {
@@ -305,7 +290,7 @@ for (const spec of specs) {
       const expected = readFileSync(vitaGoldenPath);
       if (!actual.equals(expected)) {
         writeFileSync(`${OUT}/${label}.actual.png`, actual);
-        throw new Error(`${label}: PNG bytes differ (see dist/e2e-vita3k/${label}.actual.png)`);
+        throw new Error(`${label}: PNG bytes differ (see ${OUT}/${label}.actual.png)`);
       }
       console.log(`PASS ${label} (960x544 native density, GXM textures/fonts resident, byte-exact)`);
       passed++;

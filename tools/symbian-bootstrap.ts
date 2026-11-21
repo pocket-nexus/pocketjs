@@ -16,8 +16,9 @@ import {
   symbianDownloadPath,
   symbianDownloadsRoot,
   symbianImplementationDigest,
-} from "./symbian-toolchain.ts";
-import { pocketStackCacheRoot, withArtifactLock } from "./psp-toolchain.ts";
+} from "./build/toolchains/symbian.ts";
+import { pocketNexusCacheRoot } from "../tools/targets/cache.ts";
+import { withArtifactLock } from "../tools/targets/lock.ts";
 
 const root = new URL("..", import.meta.url).pathname;
 
@@ -137,7 +138,7 @@ export async function setupSymbianToolchain(): Promise<void> {
   }
 
   const setupLock = join(
-    pocketStackCacheRoot(),
+    pocketNexusCacheRoot(),
     `symbian/.locks/toolchain-${SYMBIAN_TOOLCHAIN.toolchainVersion}.lock`,
   );
   await withArtifactLock(setupLock, async () => {

@@ -1,0 +1,137 @@
+{
+  "reviewed": "2026-09-10",
+  "new-nintendo-3ds": {
+    "model": "KTR-001, white, standard size (not LL/XL)",
+    "closed_shell_mm": [
+      142,
+      80.6,
+      21.6
+    ],
+    "primary_display_mm": [
+      84.6,
+      50.76
+    ],
+    "auxiliary_display_mm": [
+      67.68,
+      50.76
+    ],
+    "specification": "https://www.nintendo.co.jp/hardware/3dsseries/new3ds/index.html",
+    "photographs": [
+      {
+        "view": "front, controls and casing finish",
+        "url": "https://tomiiks.com/wp-content/uploads/2015/03/Nintendo-New-3DS-Nintendo-New-3DS-On.jpg"
+      },
+      {
+        "view": "front edge, cartridge, headset and stylus",
+        "url": "https://tomiiks.com/wp-content/uploads/2015/03/Nintendo-New-3DS-open-face.jpg"
+      },
+      {
+        "view": "rear edge, charging and shoulder buttons",
+        "url": "https://tomiiks.com/wp-content/uploads/2015/03/Nintendo-New-3DS-gachette.jpg"
+      },
+      {
+        "view": "C-stick, pigmented buttons and indicators",
+        "url": "https://tomiiks.com/wp-content/uploads/2015/03/Nintendo-New-3DS-C-stick.jpg"
+      },
+      {
+        "view": "circle pad and d-pad",
+        "url": "https://tomiiks.com/wp-content/uploads/2015/03/Nintendo-New-3DS-stick-gauche.jpg"
+      },
+      {
+        "view": "manufacturer front layout",
+        "url": "https://www.nintendo.co.jp/hardware/3dsseries/new3ds/img/body-n3ds-front.jpg"
+      },
+      {
+        "view": "manufacturer rear layout and cover seams",
+        "url": "https://www.nintendo.co.jp/hardware/3dsseries/new3ds/img/body-n3ds-back.jpg"
+      }
+    ],
+    "photo_credit": "Tomiiks, New Nintendo 3DS blanche, 2015-03-31; Nintendo product photography",
+    "article": "https://tomiiks.com/unboxing-new-nintendo-3ds-blanche/"
+  },
+  "ps-vita-2000": {
+    "model": "PCH-2000, black",
+    "shell_mm": [
+      183.6,
+      85.1,
+      15
+    ],
+    "display_diagonal_inches": 5,
+    "display_pixels": [
+      960,
+      544
+    ],
+    "specification": "https://sonyinteractive.com/en/press-releases/sony-computer-entertainment-to-introduce--new-slimmer-and-lighter-playstationvita-wi-fi-model--with-internal-memory-card/",
+    "parts_manual": "https://manuals.playstation.net/document/en/psvita/basic/partnames2.html",
+    "photographs": [
+      {
+        "view": "black PCH-2000 front and rear",
+        "url": "https://dpc8tamkiuhgi.cloudfront.net/ec_media_images/5191405-01.jpg"
+      },
+      {
+        "view": "black PCH-2000 product photo",
+        "url": "https://shopping.c.yimg.jp/lib/entameoukoku/vita2000_bk.jpg"
+      },
+      {
+        "view": "Sony front and top parts diagram",
+        "url": "https://manuals.playstation.net/document/imgpsvita/basic_partnames2_01.jpg"
+      },
+      {
+        "view": "Sony rear and bottom parts diagram",
+        "url": "https://manuals.playstation.net/document/imgpsvita/basic_partnames2_02.jpg"
+      },
+      {
+        "view": "physical PCH-2000 bottom edge and connectors",
+        "url": "https://asset.watch.impress.co.jp/img/gmw/docs/618/925/vita02.jpg"
+      },
+      {
+        "view": "physical PCH-2000 top edge and shoulders",
+        "url": "https://asset.watch.impress.co.jp/img/gmw/docs/618/925/vita03.jpg"
+      },
+      {
+        "view": "physical PCH-1000 and PCH-2000 front comparison, PCH-2000 below",
+        "url": "https://asset.watch.impress.co.jp/img/gmw/docs/618/925/vita06.jpg"
+      },
+      {
+        "view": "PCH-2000 front corner scallops, shoulder and strap bridge",
+        "url": "https://www.4gamer.net/games/990/G999021/20131013001/SS/017.jpg"
+      },
+      {
+        "view": "PCH-2000 lower corner strap passage and front panel relief",
+        "url": "https://www.4gamer.net/games/990/G999021/20131013001/SS/019.jpg"
+      },
+      {
+        "view": "PCH-2000 shoulder depth and front lip, left device",
+        "url": "https://www.4gamer.net/games/990/G999021/20131013001/SS/008.jpg"
+      },
+      {
+        "view": "PCH-2000 dismantled chassis with separate shoulder buttons",
+        "url": "https://www.4gamer.net/games/990/G999021/20131013001/SS/021.jpg"
+      }
+    ],
+    "photo_credit": "GEO (item 5191405), Entameoukoku product photographs; Sony PCH-2000 manual; GAME Watch / Impress Watch, 2013-10-10; Satoshi Yoneda / 4Gamer.net, 2013-10-15",
+    "article": "https://game.watch.impress.co.jp/docs/news/618925.html",
+    "teardown": "https://www.4gamer.net/games/990/G999021/20131013001/"
+  },
+  "vector_marks": [
+    {
+      "file": "marks/PlayStation_Vita_logo.svg",
+      "source": "https://commons.wikimedia.org/wiki/File:PlayStation_Vita_logo.svg",
+      "credit": "Sony Computer Entertainment; vectorization Tokyoship, Cbabb7",
+      "license": "PD-textlogo; trademark"
+    },
+    {
+      "file": "marks/PlayStation_logo.svg",
+      "source": "https://commons.wikimedia.org/wiki/File:PlayStation_logo.svg",
+      "credit": "Sony Computer Entertainment",
+      "license": "PD-textlogo; trademark"
+    },
+    {
+      "file": "marks/Sony_logo.svg",
+      "source": "https://commons.wikimedia.org/wiki/File:Sony_logo.svg",
+      "credit": "Sony Corporation",
+      "license": "PD-textlogo; trademark"
+    }
+  ],
+  "method": "Manufacturer dimensions set the shell and screen sizes. Photographs set the small-feature positions and materials. These are authored exterior models, not engineering scans or internal component reconstructions. Reference photographs are not redistributed or used as textures."
+}

@@ -2,19 +2,17 @@
 
 <p class="text-sm text-slate-500 -mt-4">The Hero demo running as a native BlackBerry 10 application on a real Classic — the square 720×720 screen above the tool belt and the physical keyboard.</p>
 
-The BlackBerry Classic is the only machine we have ported to that will run the same PocketJS guest through **two completely different native stacks**.
+The BlackBerry Classic is a 2014 phone with a square screen, a physical QWERTY keyboard, an optical trackpad under your thumb, and a microkernel operating system underneath in which even the display server is an ordinary user-space process. It is also, in 2026, a phone you are **not allowed to install your own software on**: every legal route onto it runs through servers that went dark on January 4, 2022.
 
-One is QNX-native: a BlackBerry 10 Core Native application that asks `libscreen` for a window, gets an OpenGL ES 2 context through EGL, and drives every frame from a BPS event loop. The other is the Android Runtime: an Android 4.3 (API 18) APK, a `GLSurfaceView` Activity sitting on one `armeabi-v7a` JNI library.
+We got a freshly written app onto one anyway. If you are new here: [PocketJS](/blog/introducing-pocketjs/) runs real Solid and Vue components on machines with no browser and no OS UI toolkit, by pairing a no-std Rust core that owns the frame with a QuickJS guest that owns the app. On the Classic that pairing compiles into a BlackBerry 10 Core Native process which asks `libscreen` for a window, gets an OpenGL ES 2 context through EGL, and drives every frame from a BPS event loop, against one private device profile: **720×720 physical pixels, 360×360 logical, raster density 2, a fixed 60 Hz simulation clock, `input.buttons` + `input.touch` + `text.glyphs.baked`**.
 
-The two paths diverge entirely **below** the QuickJS bridge. Above it, they mount the same guest bundle, the same no-std Rust UI core (with its GLES2 DrawList backend), the same QuickJS bridge (`hosts/iphone2g/pocket_runtime.c` — the filename is a historical accident; the iPhone 2G/4S and Meizu M8 hosts link it too), against one private device profile: **720×720 physical pixels, 360×360 logical, raster density 2, a fixed 60 Hz simulation clock, `input.buttons` + `input.touch` + `text.glyphs.baked`**.
+**The native QNX host is now the sole PocketJS host for the Classic.** We removed the earlier Android compatibility host, its APK build path, and its private target. The port described here uses `bun blackberry-qnx` to build a BAR for a rooted device.
 
-They differ in only three things: how the process is packaged, how it is installed, and how it is fed input.
-
-This post is about those three things, and what we ran into along the way: a phone that took security to the point where, in 2026, native development is nearly impossible; a community root project that pushed that door back open; the "everything is the network" way a BlackBerry talks to a computer; and a genuinely archaeological pair of protocols — **management and updates over HTTPS + CGI + XML/form-data, file management over SMB/CIFS** — so you can mount the phone's filesystem on your computer and manage it like local files.
+Everything above the QuickJS bridge (`programs/native/quickjs/pocket_runtime.c`, also linked by the iPhone 2G/4S and Meizu M8 hosts) is the same code every other PocketJS target runs. Everything the Classic cost us is below it, and almost none of that cost was graphics. It was **getting in**: a phone that carried security to the point where, in 2026, native development is nearly impossible; a community root project that pushed that door back open; the "everything is the network" way a BlackBerry talks to a computer; and a genuinely archaeological pair of protocols — **management and updates over HTTPS + CGI + XML/form-data, file management over SMB/CIFS** — so you can mount the phone's filesystem on your computer and manage it like local files.
 
 ## The machine
 
-<svg viewBox="0 0 760 300" width="100%" role="img" aria-label="BlackBerry Classic (SQC100 / Q20, December 2014) specifications. Screen: 3.5 inch, 720 by 720 square, about 294 ppi. SoC: Qualcomm Snapdragon S4 Plus MSM8960, dual 1.5 GHz Krait, Adreno 225. Memory: 2 GB RAM, 16 GB plus microSD. OS: BlackBerry 10.3.3 on QNX, which reports itself as QNX 8.0.0. Input: physical QWERTY keyboard plus a tool belt with an optical trackpad and four keys. For PocketJS: a 360 by 360 logical viewport at raster density 2 scaled to 720 by 720, 60 Hz, button and touch contracts. The one device runs the same PocketJS guest two ways, as a native QNX BAR and as an Android Runtime APK." font-family="ui-monospace,SFMono-Regular,Menlo,monospace">
+<svg viewBox="0 0 760 300" width="100%" role="img" aria-label="BlackBerry Classic (SQC100 / Q20, December 2014) specifications. Screen: 3.5 inch, 720 by 720 square, about 294 ppi. SoC: Qualcomm Snapdragon S4 Plus MSM8960, dual 1.5 GHz Krait, Adreno 225. Memory: 2 GB RAM, 16 GB plus microSD. OS: BlackBerry 10.3.3 on QNX, which reports itself as QNX 8.0.0. Input: physical QWERTY keyboard plus a tool belt with an optical trackpad and four keys. For PocketJS: a 360 by 360 logical viewport at raster density 2 scaled to 720 by 720, 60 Hz, button and touch contracts. The guest reaches the phone as an unsigned QNX BAR installed on a rooted Classic, with no BlackBerry server anywhere in the loop." font-family="ui-monospace,SFMono-Regular,Menlo,monospace">
   <text x="14" y="20" fill="#64748b" font-size="11">BLACKBERRY CLASSIC · SQC100 / Q20 · DECEMBER 2014</text>
   <rect x="14" y="34" width="732" height="222" rx="10" fill="#0b0f1a" stroke="#2b3a55"/>
   <g font-size="12">
@@ -30,7 +28,7 @@ This post is about those three things, and what we ran into along the way: a pho
   </g>
   <rect x="26" y="216" width="708" height="30" rx="6" fill="#0c1a22" stroke="#22d3ee"/>
   <text x="34" y="235" fill="#22d3ee" font-size="12">PocketJS</text><text x="150" y="235" fill="#e2e8f0" font-size="12">360×360 @density 2 → 720×720 · 60 Hz · input.buttons + input.touch</text>
-  <text x="14" y="278" fill="#64748b" font-size="10.5">One device, one guest, two native stacks: <tspan fill="#22d3ee">QNX unsigned BAR</tspan> (rooted) · <tspan fill="#38bdf8">Android Runtime v1-signed APK</tspan> (stock)</text>
+  <text x="14" y="278" fill="#64748b" font-size="10.5">How the guest gets on: <tspan fill="#22d3ee">unsigned QNX BAR</tspan> on a rooted Classic · <tspan fill="#38bdf8">no debug token, no signing server</tspan></text>
 </svg>
 
 The BlackBerry Classic (model SQC100, codename Q20) shipped in December 2014 as BlackBerry looking back in the all-touch era: it put the familiar physical shape from around 2011 back on. A full physical QWERTY keyboard, a navigation strip above it called the **tool belt** (Menu / Back / Send / End, with an optical trackpad in the middle), and a **square** screen.
@@ -42,66 +40,78 @@ The BlackBerry Classic (model SQC100, codename Q20) shipped in December 2014 as 
 
 In the family of PocketJS targets the Classic is not weak — it has far more compute than the PSP or the Symbian E7. What makes it hard was never performance. It is **what you are allowed to do to get code onto it**.
 
-## Two stacks, one guest
+## One guest, one thin host
 
-First, the two paths, side by side.
+Before the archaeology, the whole shape of the port in one picture.
 
-<svg viewBox="0 0 760 470" width="100%" role="img" aria-label="One PocketJS guest, two native stacks on the BlackBerry Classic. At the top sits a single guest bundle: Solid or Vue JSX, a no-std Rust UI core, a GLES2 DrawList backend, and the QuickJS bridge. Below the bridge the path forks. The QNX-native host, on a rooted device, is a libscreen window with EGL and GLES2, driven by a BPS event loop, packaged as an unsigned development BAR that runs as a native ELF process. The Android Runtime host, on a stock device, is a GLSurfaceView Activity over a JNI shared library taking Android KeyEvent and MotionEvent, packaged as a v1-signed APK that runs inside the Android runtime process. Both paths reconverge at a 720 by 720 GLES2 presentation fed by one portable button mask and touch snapshot; everything above the QuickJS bridge is byte-for-byte identical." font-family="ui-monospace,SFMono-Regular,Menlo,monospace">
-  <text x="14" y="20" fill="#64748b" font-size="11">One guest · the fork is entirely below the QuickJS bridge</text>
-  <rect x="14" y="34" width="732" height="430" rx="10" fill="#0b0f1a" stroke="#2b3a55"/>
-  <rect x="200" y="50" width="360" height="56" rx="7" fill="#0c1a22" stroke="#22d3ee"/>
-  <text x="380" y="72" fill="#f1f5f9" text-anchor="middle" font-size="12" font-weight="700">One guest bundle</text>
-  <text x="380" y="92" fill="#22d3ee" text-anchor="middle" font-size="10">Solid·JSX · no-std Rust core · GLES2 DrawList · QuickJS bridge</text>
-  <path d="M380 106 V120 H180 V134" stroke="#475569" fill="none"/><path d="M180 134 l-4 -7 M180 134 l4 -7" stroke="#475569" fill="none"/>
-  <path d="M380 120 H580 V134" stroke="#475569" fill="none"/><path d="M580 134 l-4 -7 M580 134 l4 -7" stroke="#475569" fill="none"/>
-  <text x="180" y="130" fill="#22d3ee" text-anchor="middle" font-size="10">QNX-native host</text>
-  <text x="580" y="130" fill="#38bdf8" text-anchor="middle" font-size="10">Android Runtime host</text>
-  <g font-size="10.5">
-    <rect x="40" y="140" width="280" height="40" rx="6" fill="#0c1a22" stroke="#22d3ee"/><text x="180" y="165" fill="#e2e8f0" text-anchor="middle">libscreen window + EGL / GLES2</text>
-    <rect x="40" y="192" width="280" height="40" rx="6" fill="#0c1a22" stroke="#22d3ee"/><text x="180" y="217" fill="#e2e8f0" text-anchor="middle">BPS event loop · navigator/screen</text>
-    <rect x="40" y="244" width="280" height="40" rx="6" fill="#0c1a22" stroke="#22d3ee"/><text x="180" y="269" fill="#e2e8f0" text-anchor="middle">nativepackager -devMode → unsigned BAR</text>
-    <rect x="40" y="296" width="280" height="40" rx="6" fill="#0e1626" stroke="#38bdf8"/><text x="180" y="316" fill="#e2e8f0" text-anchor="middle">rooted Classic</text><text x="180" y="330" fill="#64748b" text-anchor="middle" font-size="9">native ELF process</text>
-    <rect x="440" y="140" width="280" height="40" rx="6" fill="#0e1626" stroke="#38bdf8"/><text x="580" y="165" fill="#e2e8f0" text-anchor="middle">GLSurfaceView Activity (API 18)</text>
-    <rect x="440" y="192" width="280" height="40" rx="6" fill="#0e1626" stroke="#38bdf8"/><text x="580" y="217" fill="#e2e8f0" text-anchor="middle">JNI .so · KeyEvent / MotionEvent</text>
-    <rect x="440" y="244" width="280" height="40" rx="6" fill="#0e1626" stroke="#38bdf8"/><text x="580" y="269" fill="#e2e8f0" text-anchor="middle">apksigner v1 → signed APK</text>
-    <rect x="440" y="296" width="280" height="40" rx="6" fill="#0e1626" stroke="#38bdf8"/><text x="580" y="316" fill="#e2e8f0" text-anchor="middle">stock Classic</text><text x="580" y="330" fill="#64748b" text-anchor="middle" font-size="9">Android runtime process</text>
+<svg viewBox="0 0 760 482" width="100%" role="img" aria-label="The shape of the BlackBerry Classic port: one guest bundle over one thin QNX host. From the top, three portable layers: the guest bundle, an ordinary Solid TSX app in apps slash blackberry-classic-demo; the no-std Rust core with its GLES2 DrawList backend, the same one the Nokia E7, iPhone 2G and 4S, and Meizu M8 hosts link; and the QuickJS bridge, which runs one guest turn followed by one core tick. A dashed seam marks the QuickJS bridge as the boundary: everything above it is identical to every other PocketJS target. Below the seam sits the part written for this phone: a libscreen window bound to an EGL GLES2 surface; a BPS event loop feeding the shared pocket_input state machine, which turns screen and navigator events into a button mask and a touch snapshot; and the nativepackager step that produces an unsigned development BAR installed on a rooted Classic. The bottom layer presents 720 by 720 through eglSwapBuffers at 60 hertz, square and unscaled." font-family="ui-monospace,SFMono-Regular,Menlo,monospace">
+  <text x="14" y="20" fill="#64748b" font-size="11">ONE GUEST · ONE THIN HOST · the seam is the QuickJS bridge</text>
+  <rect x="14" y="34" width="732" height="416" rx="10" fill="#0b0f1a" stroke="#2b3a55"/>
+  <g font-size="11">
+    <rect x="40" y="54" width="418" height="44" rx="6" fill="#0c1a22" stroke="#22d3ee"/>
+    <text x="249" y="73" fill="#e2e8f0" text-anchor="middle">Guest bundle · Solid + TSX</text>
+    <text x="249" y="88" fill="#22d3ee" text-anchor="middle" font-size="9.5">apps/blackberry-classic-demo</text>
+    <text x="474" y="80" fill="#64748b" font-size="9.5">portable · knows nothing about QNX</text>
+
+    <rect x="40" y="106" width="418" height="44" rx="6" fill="#0c1a22" stroke="#22d3ee"/>
+    <text x="249" y="125" fill="#e2e8f0" text-anchor="middle">no-std Rust core + GLES2 DrawList</text>
+    <text x="249" y="140" fill="#22d3ee" text-anchor="middle" font-size="9.5">programs/native/cabi · bare-platform</text>
+    <text x="474" y="132" fill="#64748b" font-size="9.5">portable · E7 · iPhone 2G/4S · M8</text>
+
+    <rect x="40" y="158" width="418" height="44" rx="6" fill="#0c1a22" stroke="#22d3ee"/>
+    <text x="249" y="177" fill="#e2e8f0" text-anchor="middle">QuickJS bridge</text>
+    <text x="249" y="192" fill="#22d3ee" text-anchor="middle" font-size="9.5">one guest turn + one core tick</text>
+    <text x="474" y="184" fill="#64748b" font-size="9.5">portable · pocket_runtime.c</text>
   </g>
-  <path d="M180 180 V192 M180 232 V244 M180 284 V296" stroke="#475569"/>
-  <path d="M580 180 V192 M580 232 V244 M580 284 V296" stroke="#475569"/>
-  <path d="M180 336 V350 H380 V362" stroke="#475569" fill="none"/>
-  <path d="M580 336 V350 H380" stroke="#475569" fill="none"/>
-  <path d="M380 362 l-4 -7 M380 362 l4 -7" stroke="#475569" fill="none"/>
-  <rect x="40" y="366" width="680" height="52" rx="7" fill="#14251d" stroke="#65a30d"/>
-  <text x="380" y="388" fill="#d9f99d" text-anchor="middle" font-size="12" font-weight="700">720×720 GLES2 present · portable button mask + touch snapshot</text>
-  <text x="380" y="406" fill="#84a35b" text-anchor="middle" font-size="10">Above the QuickJS bridge: one core, renderer, fonts, reactivity — byte-for-byte identical</text>
-  <text x="14" y="452" fill="#64748b" font-size="10">Two separate targets only because the target id is baked into guest and host and checked at boot.</text>
+  <line x1="32" y1="216" x2="418" y2="216" stroke="#22d3ee" stroke-dasharray="5 4" opacity="0.7"/>
+  <text x="430" y="220" fill="#22d3ee" font-size="9.5">everything above: portable across targets</text>
+  <g font-size="11">
+    <rect x="40" y="230" width="418" height="44" rx="6" fill="#0e1626" stroke="#38bdf8"/>
+    <text x="249" y="249" fill="#e2e8f0" text-anchor="middle">libscreen window + EGL / GLES2</text>
+    <text x="249" y="264" fill="#64748b" text-anchor="middle" font-size="9.5">screen_create_window → eglCreateWindowSurface</text>
+    <text x="474" y="256" fill="#a3e635" font-size="9.5">new · main.c, 547 lines</text>
+
+    <rect x="40" y="282" width="418" height="44" rx="6" fill="#0e1626" stroke="#38bdf8"/>
+    <text x="249" y="301" fill="#e2e8f0" text-anchor="middle">BPS event loop → pocket_input.c</text>
+    <text x="249" y="316" fill="#64748b" text-anchor="middle" font-size="9.5">screen + navigator events → buttons + touch</text>
+    <text x="474" y="308" fill="#64748b" font-size="9.5">shared state machine, unit-tested</text>
+
+    <rect x="40" y="334" width="418" height="44" rx="6" fill="#0e1626" stroke="#38bdf8"/>
+    <text x="249" y="353" fill="#e2e8f0" text-anchor="middle">nativepackager -devMode → unsigned BAR</text>
+    <text x="249" y="368" fill="#64748b" text-anchor="middle" font-size="9.5">installed on a rooted Classic</text>
+    <text x="474" y="360" fill="#a3e635" font-size="9.5">new · toolchain + deploy glue</text>
+
+    <rect x="40" y="386" width="418" height="44" rx="6" fill="#14251d" stroke="#65a30d"/>
+    <text x="249" y="405" fill="#d9f99d" text-anchor="middle">720×720 present · eglSwapBuffers</text>
+    <text x="249" y="420" fill="#84a35b" text-anchor="middle" font-size="9.5">square panel, 1:1, 60 Hz</text>
+    <text x="474" y="412" fill="#64748b" font-size="9.5">no stretch, no scale</text>
+  </g>
+  <path d="M249 98 V106 M249 150 V158 M249 202 V216 M249 216 V230 M249 274 V282 M249 326 V334 M249 378 V386" stroke="#475569"/>
+  <text x="14" y="472" fill="#64748b" font-size="10">One new process is the entire port. Nothing above the bridge is Classic-specific.</text>
 </svg>
 
-|  | QNX-native host (`hosts/blackberry-qnx`) | Android Runtime host (`hosts/blackberry-android`) |
-| --- | --- | --- |
-| Process | BlackBerry 10 Core Native ELF: `libscreen` window, EGL, OpenGL ES 2, BPS event loop | Android 4.3 (API 18) APK: a `GLSurfaceView` Activity over one `armeabi-v7a` JNI library |
-| Package | **unsigned** development BAR (`blackberry-nativepackager -devMode`) | v1-signed APK |
-| Install prerequisite | **a rooted Classic**: a stock device accepts an unsigned BAR only with a debug token, and the token-issuing service is gone | **a stock Classic**: with "allow other sources" enabled, BB10.3 sideloads APKs from the file manager |
-| Input source | libscreen keyboard, multi-touch, `SCREEN_EVENT_JOYSTICK` trackpad events; navigator system keys | Android `KeyEvent`, touch `MotionEvent`, generic-motion / trackball events |
-| Toolchain | a digest-pinned BBNDK Docker image (compile, package, deploy) | Android SDK Platform 18 + Build-Tools 35.0.0 + NDK r23c, unpacked at `setup`; JDK 17 in Docker |
-| Device status | **verified on real hardware** | **no device result yet** |
+|  | The QNX host: `hosts/blackberry-classic-qnx` |
+| --- | --- |
+| Process | BlackBerry 10 Core Native ELF: `libscreen` window, EGL, OpenGL ES 2, BPS event loop |
+| Package | **unsigned** development BAR (`blackberry-nativepackager -devMode`) |
+| Install prerequisite | **a rooted Classic**: a stock device accepts an unsigned BAR only with a debug token, and the token-issuing service is gone |
+| Input source | libscreen keyboard, multi-touch, `SCREEN_EVENT_JOYSTICK` trackpad events; navigator system keys |
+| Toolchain | a digest-pinned BBNDK Docker image (compile, package, deploy) |
+| Device status | **verified on real hardware**: an SQC100-4 at 10.3.3.3216 |
 
-The one sentence that matters here: **they differ only below the QuickJS bridge**.
+`apps/blackberry-classic-demo` is the Hero wrapper this host builds, and the profile module (`tools/blackberry-classic-profile.ts`) registers the target `blackberry-qnx-dev`: **host ABI 9**, `takeover` form, one 720×720 display at raster density 2, and exactly three capabilities. That target id is compiled into the guest bundle *and* into the native host, and checked when the guest mounts, so a bundle built for any other machine refuses to start rather than half-running.
 
-`apps/blackberry-classic-demo` is the Hero wrapper both hosts build. The profile module (`tools/blackberry-classic-profile.ts`) registers `blackberry-qnx-dev` and `blackberry-android-dev` as two targets with an **identical display, capabilities, and host ABI (both 9)**. Why two targets and not one? Because the target id is compiled into the guest and into the native host and checked at boot — two different process paths each have to carry an identity that matches.
+The Rust package is `pocketjs-ui-cabi` under `programs/native/cabi`: the no-std C-ABI build of `pocketjs-core` plus the GLES2 DrawList backend the Nokia E7, iPhone 2G/4S, and Meizu M8 hosts all link. Its compatibility archive is still `libpocketjs_symbian_core.a`. The Classic builds it with the `bare-platform` feature against a hand-written target spec (`hosts/blackberry-classic-qnx/armv7-qnx-eabi.json`: ARMv7 + VFPv3 + NEON, soft-float ABI, PIC, `build-std`). Note the spec says `"os": "none"` — the core asks the operating system for nothing at all, so as far as Rust is concerned it is a bare-metal build that happens to get linked into a QNX process.
 
-The Rust core is `pocketjs-symbian-core` (under `engine/symbian` — another historical name): the no-std C-ABI build of `pocketjs-core` plus the GLES2 DrawList backend the Nokia E7, iPhone 2G/4S, and Meizu M8 hosts all link. Both Classic hosts build it with the `bare-platform` feature. The QNX side uses a hand-written target spec (`armv7-qnx-eabi.json`: ARMv7, VFPv3, soft-float ABI, PIC, `build-std`); the Android side uses the stock `armv7-linux-androideabi`.
+In other words, **the code this port actually adds is very thin**: one 547-line `main.c`, the shared input state machine it feeds (`pocket_input.c`, 115 lines, already unit-tested before BlackBerry existed as a target), a 33-line BAR descriptor, a 24-line target spec, and a deploy tool that has to go find the phone on the network. The core, the renderer, the fonts, the reactivity: not a byte of it changed for BlackBerry.
 
-In other words, **the code this port actually adds is very thin**: two host processes (one `main.c`, one `PocketActivity.java` + `runtime.c`), one shared input state machine both of them feed (`pocket_input.c`), the glue for two toolchains, and one shared profile. The core, the renderer, the fonts, the reactivity — not a byte of it changed for BlackBerry.
-
-The guest side is thinner still — it is an ordinary Solid component that knows nothing about whether QNX or Android is underneath it:
+The guest side is thinner still: an ordinary Solid component that knows nothing about what is underneath it.
 
 ```tsx
 import Hero from "../hero/app.tsx";
 import { reportAppAction } from "@pocketjs/framework/host";
 
-// The same guest bundle is mounted by both Classic hosts; nothing in here is
-// allowed to branch on which host is running it.
+// Nothing in here is allowed to know that QNX, libscreen or EGL exist.
 export default function BlackBerryClassicHero() {
   return (
     <Hero
@@ -117,7 +127,7 @@ export default function BlackBerryClassicHero() {
 }
 ```
 
-That `reportAppAction("hero_press", …)` writes each press into a line of status inside the device sandbox — from a tap in TSX, to a record on the device, through an entire native stack, but the same code runs on both sides.
+That `reportAppAction("hero_press", …)` writes each press into a line of status inside the device sandbox: from a tap in TSX, through an entire native stack, to a record on the phone. Not one line of it is Classic-specific.
 
 ## A phone that carved distrust into every layer
 
@@ -140,13 +150,11 @@ Then, not long ago, someone pushed the door back open.
 
 <https://bb10.root.sx> is a project called **"BlackBerry 10 root and more"**, credited to **Oleksandr** (handle `bb10root`), with **guizmox** and **sw7ft** among those who contributed and supported it. It uses known vulnerabilities in BB10 to get **root** on the device and — the part that matters most to us — **bypasses the BAR signature check so unsigned `.bar` files install directly** (one of its routes exploits the `install_apk` command path skipping the bar signature check, plus packages with certain prefixes skipping verification). It has publicly verified 10.3.3.3216 — the firmware on the unit in our hands.
 
-Our QNX-native host reaches the device exactly this way. `blackberry-nativepackager -devMode` produces an unsigned BAR, `blackberry-deploy` pushes it to a rooted Classic, installs it, and launches it. No debug token, no signing authority, not a single living BlackBerry server anywhere in the loop.
+Our host reaches the device exactly this way. `blackberry-nativepackager -devMode` produces an unsigned BAR, `blackberry-deploy` pushes it to a rooted Classic, installs it, and launches it. No debug token, no signing authority, not a single living BlackBerry server anywhere in the loop.
 
 The people who do this kind of work usually get nothing back for it. They reverse-engineer a platform its own maker has sentenced to death, to serve a small group of people still tinkering with these old machines. And yet it is exactly that work that lets a square-screened 2014 phone run freshly written code in 2026.
 
-**A salute to the developers who put this work in.** Without bb10.root.sx the QNX half of this post would not exist at all — it would be stuck forever at "the build passes, but it installs on no real device."
-
-(The other half — the Android Runtime host — needs no root. BB10.3 already lets you sideload APKs from the file manager once "allow other sources" is on. That is one reason we keep both paths: one native path for rooted devices, one Android-compatibility path for stock ones.)
+**A salute to the developers who put this work in.** Without bb10.root.sx this post would not exist at all. It would be stuck forever at "the build passes, but it installs on no real device."
 
 ## Everything is the network: how the phone talks to a computer
 
@@ -330,12 +338,6 @@ This design philosophy is quite unlike the other mobile systems of the era:
 
 What is striking is how naturally PocketJS lands on this structure. Our core is already **one pure frame function that must return quickly**, with the host owning the event pump — the same shape QNX wants ("drain the events, run a frame, return"), as naturally as it did on Symbian's active object. QNX wants to be asked politely, and PocketJS's host only knows how to ask politely.
 
-### While we're here: the Android compatibility layer
-
-This is also why the Classic can have a second stack at all. BB10's **Android runtime** is essentially **an entire Android userspace (Dalvik + frameworks) running as a QNX process**; its window is composited into the picture by `screen` through the window groups above, alongside native apps. It grew up over the course of BB10: Android 2.3.3 on PlayBook OS 2.0, up to 4.2.2 on BB10.2 (from 10.2.1 you could also sideload `.apk` straight from the file manager, and native C/C++ apps were supported), and Android 4.3 (API 18) on BB10.3, which also preloaded the Amazon Appstore. There is no Google Play Services; earlier Android apps had to be repackaged as `.bar` first (the community called the tool `apk2bar`).
-
-Our Android host is exactly an **API-18 APK**, aimed at that 4.3 runtime. So the same guest reaches the screen two ways: one path is QNX-native, asking `screen` for a window directly; the other is an Android app, hosted by the Android runtime and then composited by `screen` — **one compositor, one square screen, two completely different ways of getting there.**
-
 ## The key in the middle: from wheel to trackpad
 
 <svg viewBox="0 0 760 300" width="100%" role="img" aria-label="BlackBerry's navigation-input lineage and the Classic's tool belt. A timeline: 1999 side track wheel on the 850; 2006 trackball on the Pearl 8100; 2009 optical trackpad on the Curve 8520; 2013 all-touch BB10 phones remove it; 2014 the Classic Q20 brings it back. Below, the Classic tool belt: a Send key, a Menu key, a central optical trackpad, a Back key, and an End key. The optical trackpad is a tiny optical mouse that reports relative displacement, delivered to native apps as the SCREEN_EVENT_JOYSTICK displacement property." font-family="ui-monospace,SFMono-Regular,Menlo,monospace">
@@ -363,23 +365,20 @@ Our Android host is exactly an **API-18 APK**, aimed at that 4.3 runtime. So the
 
 BlackBerry's identity is bound, in large part, to **the navigation key under your thumb**. Its lineage is worth a moment:
 
-- **Side track wheel**: the earliest BlackBerrys (the 850 in 1999 through the 8700 series around 2005) put a wheel on the side of the body — thumb-scroll, press to confirm. This is the ancestor of the "scroll wheel" the title refers to.
+- **Side track wheel**: the earliest BlackBerrys (the 850 in 1999 through the 8700 series around 2005) put a wheel on the side of the body — thumb-scroll, press to confirm. Every navigation key BlackBerry shipped afterwards is a descendant of it.
 - **Trackball**: the Pearl 8100 in 2006 moved a small rolling ball to the front, four-way plus press; the Curve 8300 and Bold 9000 used it. Nice, but prone to dirt and wear.
 - **Optical trackpad**: from the Curve 8520 in 2009, an **optical sensor** replaced the trackball — like a tiny optical mouse, no moving parts, sensing the finger's relative motion directly; the Bold 9700 and 9900 carried it on.
 - On BB10's all-touch phones (Z10, Q10, Passport…) the key was removed entirely.
 - Then the **Classic (Q20, December 2014)**: it **deliberately put the tool belt back** — Menu / Back / Send / End, with an **optical trackpad** in the middle, a nod to the Bold 9900 era. BB10.3.1 added trackpad support to a system that was never designed for one: **there is no global cursor** (only the browser and Maps get a pointer); everywhere else, a blue focus highlight moves cell by cell through the Cascades UI.
 
-For us, this trackpad is an interesting engineering problem, because **it is a relative pointing device**: it gives you displacement deltas, not coordinates, and certainly not discrete "up/down/left/right." Our guest, meanwhile, lives in a d-pad / button world (`input.buttons`). So each host has to turn continuous relative motion into discrete focus movement:
+For us, this trackpad is an interesting engineering problem, because **it is a relative pointing device**: it gives you displacement deltas, not coordinates, and certainly not discrete "up/down/left/right." Our guest, meanwhile, lives in a d-pad / button world (`input.buttons`). So the host has to turn relative motion into discrete focus movement.
 
-- **The QNX host**: the trackpad arrives in `libscreen` as **`SCREEN_EVENT_JOYSTICK`** events carrying `SCREEN_PROPERTY_DISPLACEMENT` (displacement) and buttons. The displacement is an integer, every event is one "notch," so the host feeds it in with a threshold of 1 — every non-zero event is one d-pad pulse in its direction; a click (`buttons != 0`) becomes `CIRCLE`.
-- **The Android host**: the runtime delivers the trackpad as generic-motion scroll axes or trackball deltas — continuous floats — so the host feeds them in with a threshold of 0.35 and a pulse fires only once the running sum crosses it. This mapping is **provisional** — we haven't yet watched, on a device, whether the Classic's Android runtime presents the trackpad as scroll, trackball, or a pointer.
-
-Both hosts hand their deltas to the same few lines, in the input state machine they share (`hosts/iphone2g/pocket_input.c`); only the threshold differs:
+In `libscreen` the trackpad arrives as **`SCREEN_EVENT_JOYSTICK`** events carrying `SCREEN_PROPERTY_DISPLACEMENT` and a button mask. The displacement is an integer and every event is one "notch," so the host initialises the threshold at 1: every non-zero event is one d-pad pulse in its direction, and a click (`buttons != 0`) becomes `CIRCLE`. Those deltas go into the same few lines every relative input in PocketJS goes through, in the Classic host input state machine (`hosts/blackberry-classic/pocket_input.c`):
 
 ```c
 /* Relative motion → one d-pad pulse per threshold crossing; the axis resets
    after a pulse, so the remainder of a big move can never flip the next one.
-   QNX: integer displacement, threshold 1.  Android: float deltas, 0.35. */
+   On the Classic the threshold is 1: one displacement notch, one pulse. */
 void pocket_input_relative(PocketInputState *state, float delta_x, float delta_y)
 {
   const float threshold = state->relative_threshold;
@@ -392,30 +391,30 @@ void pocket_input_relative(PocketInputState *state, float delta_x, float delta_y
 }
 ```
 
-(The `POCKET_BTN_*` bits are not typed by hand in either host: `pocket_spec.h` is generated from `contracts/spec/spec.ts`, the same table the Rust core and the JS runtime are generated from, and the contract test refuses to let it drift.)
+(The `POCKET_BTN_*` bits are not typed by hand: `pocket_spec.h` is generated from `contracts/spec/spec.ts`, the same table the Rust core and the JS runtime are generated from, and the contract test refuses to let it drift.)
 
-This echoes a long-standing PocketJS attitude toward input. The repo already has a **hardware-neutral incremental-input contract** — `RelativeAxis` / `onAxisDelta` (`vapor/host/input.ts`) — a device-agnostic ABI for **incremental controls** like a Playdate crank or a rotary encoder. In that worldview the trackpad is "just another relative axis." The Hero demo only needs buttons, so we collapse the axis down to d-pad pulses rather than exposing `RelativeAxis` to the guest; but the bloodline is the same: **never let a device concept cross the boundary into the guest.**
+This echoes a long-standing PocketJS attitude toward input. The earlier [C/cartridge experiment](https://github.com/pocket-nexus/pocket-vapor) has a **hardware-neutral incremental-input contract** — `RelativeAxis` / `onAxisDelta` ([input.ts](https://github.com/pocket-nexus/pocket-vapor/blob/experiment/standalone/vapor/host/input.ts)) — a device-agnostic ABI for **incremental controls** like a Playdate crank or a rotary encoder. In that worldview the trackpad is "just another relative axis." The Hero demo only needs buttons, so we collapse the axis down to d-pad pulses rather than exposing `RelativeAxis` to the guest; but the bloodline is the same: **never let a device concept cross the boundary into the guest.**
 
 So the side wheel of 1999 and the optical trackpad of 2014 are, in PocketJS's eyes, the same thing — **a relative motion sensor hiding under your thumb** — exactly the way it sees a Playdate crank.
 
-## Input: collapsing two sets of hardware into one contract
+## Input: collapsing a keyboard, a trackpad and a touchscreen into one contract
 
-Whether it is QNX's `SCREEN_EVENT_*` or Android's `KeyEvent`/`MotionEvent`, none of it is **allowed across the QuickJS bridge**. The guest sees only one portable button mask and one touch snapshot. Each host translates the physical input into that contract:
+QNX's `SCREEN_EVENT_*` events and the navigator's system keys are **not allowed across the QuickJS bridge**. The guest sees only one portable button mask and one touch snapshot, and the host does the whole translation:
 
 | Physical input | Portable input |
 | --- | --- |
-| trackpad movement | discrete d-pad focus pulses — one per threshold crossing of the accumulated motion (QNX: integer `SCREEN_PROPERTY_DISPLACEMENT`, threshold 1; Android: scroll-axis/trackball deltas, threshold 0.35 — provisional, see above) |
+| trackpad movement | discrete d-pad focus pulses, one per threshold crossing of the accumulated `SCREEN_PROPERTY_DISPLACEMENT`; it arrives as integer notches, so the threshold is 1 |
 | trackpad click | the press button (`CIRCLE`), held while the button is down, tracked apart from the keys |
 | Enter/Return, d-pad center | the press button |
 | arrow keys | d-pad; a key down is one press edge, auto-repeat does not press again |
 | Space | `START` |
 | Menu | `TRIANGLE` |
-| Send (QNX navigator system key) | a one-shot press edge; End and Back stay with the system |
+| Send (a navigator system key) | a one-shot press edge; End and Back stay with the system |
 | touchscreen | one tracked contact (a second finger never becomes input), divided into 360×360 logical coordinates, with the host-resolved bounds hit fact |
 
-Both translations land in the same place: `pocket_input.c`, a small state machine the QNX BPS callbacks and the Android JNI callbacks both feed, and which the frame loop samples exactly once per guest turn. It is plain C with no platform headers, so it is unit-tested with the host compiler — key edges, trackpad pulses, the click, and the touch latch all have a scenario in `tests/fixtures/pocket-input-test.c`.
+All of it lands in `pocket_input.c`, a small state machine the BPS callbacks feed and the frame loop samples exactly once per guest turn. It is plain C with no platform headers, so it is unit-tested with the host compiler — key edges, trackpad pulses, the click, and the touch latch all have a scenario in `tests/fixtures/pocket-input-test.c`.
 
-For these two hosts, `pocket_runtime.c` also grew two entry points: `pocket_runtime_tick` — **exactly one guest turn followed by one core tick**, taking the button mask, the sampled contact, and its hit fact (the older `pocket_runtime_frame*` calls stay for the original iPhone host, whose 30 Hz presentation advances two core ticks per guest turn) — and `pocket_runtime_gl_reset`, which drops the old GL resources after the platform recreates the GL context so the backend can re-initialize — a must on Android, because `GLSurfaceView` recreates the context on pause/resume.
+For this host, `pocket_runtime.c` grew one new entry point: `pocket_runtime_tick`, **exactly one guest turn followed by one core tick**, taking the button mask, the sampled contact, and its hit fact. (The older `pocket_runtime_frame*` calls stay for the original iPhone host, whose 30 Hz presentation advances two core ticks per guest turn.)
 
 One frame's worth of input is fed in like this — sample the state machine into "a button mask + a touch snapshot," run one tick, then let the GPU draw:
 
@@ -438,47 +437,46 @@ static int render_frame(void) {
 }
 ```
 
-The press edges and the touch latch inside that state machine are the cure for the following trap. There is a problem here shared with the Meizu M8 post: **an event stream and a sampled state are two different things**. The trackpad hands you a run of displacement events, but the guest samples only once per 60 Hz; a quick press-and-release can happen entirely between two samples. So the host has to **latch** an edge like a press until at least one frame has observed it. Touch is the same: a tap's down and up can fall in the same inter-frame gap — and the latch has to fire **only on the down**, never on the release, or a long press would hand the guest one more "down" frame after the finger had already left. (The first cut of the QNX host did exactly that; a reviewer caught it, and it is now the kind of mistake the unit test refuses.)
+The press edges and the touch latch inside that state machine are the cure for a trap this port shares with the Meizu M8 one: **an event stream and a sampled state are two different things**. The trackpad hands you a run of displacement events, but the guest samples only once per 60 Hz; a quick press-and-release can happen entirely between two samples. So the host has to **latch** an edge like a press until at least one frame has observed it. Touch is the same: a tap's down and up can fall in the same inter-frame gap — and the latch has to fire **only on the down**, never on the release, or a long press would hand the guest one more "down" frame after the finger had already left. (The first cut of this host did exactly that; a reviewer caught it, and it is now the kind of mistake the unit test refuses.)
 
 ## The translation seam: the host owns the pump, the guest owns the UI
 
-<svg viewBox="0 0 760 402" width="100%" role="img" aria-label="PocketJS as a translator between the modern app model and two BlackBerry Classic host pumps. On the guest side, Solid signals and TSX drive a retained PocketJS tree that does layout, focus and hit testing, and a GLES2 DrawList renders a complete 720 by 720 frame on the GPU. That frame crosses one narrow seam to the host, which presents it with eglSwapBuffers on QNX or through GLSurfaceView on Android. Input returns through the same seam: QNX SCREEN and navigator events, or Android KeyEvent and MotionEvent, are normalized by a host adapter into one portable frame input of a button mask and a touch snapshot. The app never sees a screen window, BPS, GLSurfaceView or MotionEvent; the host never learns what a button or a component means." font-family="ui-monospace,SFMono-Regular,Menlo,monospace">
+<svg viewBox="0 0 760 402" width="100%" role="img" aria-label="PocketJS as a translator between the modern app model and the BlackBerry Classic host pump. On the guest side, Solid signals and TSX drive a retained PocketJS tree that does layout, focus and hit testing, and a GLES2 DrawList renders a complete 720 by 720 frame on the GPU. That frame crosses one narrow seam to the host, which presents it with eglSwapBuffers. Input returns through the same seam: QNX screen events and navigator system keys are normalized by a host adapter into one portable frame input of a button mask and a touch snapshot. The app never sees a screen window, BPS or a joystick event; the host never learns what a button or a component means." font-family="ui-monospace,SFMono-Regular,Menlo,monospace">
   <text x="14" y="20" fill="#64748b" font-size="11">Translation seam · host owns pump and presentation, guest owns state and its UI</text>
   <rect x="14" y="34" width="440" height="340" rx="10" fill="#0c1a22" stroke="#22d3ee"/>
   <rect x="474" y="34" width="272" height="340" rx="10" fill="#0b0f1a" stroke="#2b3a55"/>
   <text x="32" y="60" fill="#f1f5f9" font-size="13" font-weight="700">Modern app model (guest)</text>
-  <text x="492" y="60" fill="#f1f5f9" font-size="13" font-weight="700">The two host pumps</text>
+  <text x="492" y="60" fill="#f1f5f9" font-size="13" font-weight="700">The host pump (QNX)</text>
   <rect x="34" y="80" width="182" height="48" rx="7" fill="#0e2530" stroke="#22d3ee"/><text x="125" y="100" fill="#e2e8f0" text-anchor="middle" font-size="11.5">Solid signals + TSX</text><text x="125" y="117" fill="#22d3ee" text-anchor="middle" font-size="9.8">declare relationships</text>
   <path d="M220 104 H250" stroke="#475569"/><path d="M250 104 l-8 -5 M250 104 l-8 5" stroke="#475569" fill="none"/>
   <rect x="254" y="80" width="182" height="48" rx="7" fill="#0e2530" stroke="#22d3ee"/><text x="345" y="100" fill="#e2e8f0" text-anchor="middle" font-size="11.5">PocketJS retained tree</text><text x="345" y="117" fill="#22d3ee" text-anchor="middle" font-size="9.8">layout · focus · hit test</text>
   <path d="M345 132 V164" stroke="#475569"/><path d="M345 164 l-5 -8 M345 164 l5 -8" stroke="#475569" fill="none"/>
   <rect x="254" y="168" width="182" height="48" rx="7" fill="#0e1626" stroke="#38bdf8"/><text x="345" y="188" fill="#e2e8f0" text-anchor="middle" font-size="11.5">GLES2 DrawList</text><text x="345" y="205" fill="#64748b" text-anchor="middle" font-size="9.8">GPU draws all of 720×720</text>
   <path d="M440 192 H506" stroke="#22d3ee"/><path d="M506 192 l-8 -5 M506 192 l-8 5" stroke="#22d3ee" fill="none"/>
-  <rect x="510" y="168" width="216" height="48" rx="7" fill="#0c1a22" stroke="#22d3ee"/><text x="618" y="188" fill="#e2e8f0" text-anchor="middle" font-size="11">eglSwapBuffers / GLSurfaceView</text><text x="618" y="205" fill="#22d3ee" text-anchor="middle" font-size="9.8">720×720 present · no stretch</text>
+  <rect x="510" y="168" width="216" height="48" rx="7" fill="#0c1a22" stroke="#22d3ee"/><text x="618" y="188" fill="#e2e8f0" text-anchor="middle" font-size="11">eglSwapBuffers</text><text x="618" y="205" fill="#22d3ee" text-anchor="middle" font-size="9.8">720×720 present · no stretch</text>
   <line x1="32" y1="246" x2="728" y2="246" stroke="#1e293b"/>
   <text x="32" y="268" fill="#64748b" font-size="10">Input returns through the same seam · no OS concept crosses the boundary</text>
-  <rect x="510" y="286" width="216" height="48" rx="7" fill="#0e1626" stroke="#38bdf8"/><text x="618" y="306" fill="#e2e8f0" text-anchor="middle" font-size="10.5">QNX SCREEN_* / navigator</text><text x="618" y="323" fill="#64748b" text-anchor="middle" font-size="9.5">Android KeyEvent / MotionEvent</text>
+  <rect x="510" y="286" width="216" height="48" rx="7" fill="#0e1626" stroke="#38bdf8"/><text x="618" y="306" fill="#e2e8f0" text-anchor="middle" font-size="10.5">SCREEN_EVENT_* · bps_get_event</text><text x="618" y="323" fill="#64748b" text-anchor="middle" font-size="9.5">navigator system keys</text>
   <path d="M506 310 H440" stroke="#475569"/><path d="M440 310 l8 -5 M440 310 l8 5" stroke="#475569" fill="none"/>
   <rect x="254" y="286" width="182" height="48" rx="7" fill="#0e2530" stroke="#22d3ee"/><text x="345" y="306" fill="#e2e8f0" text-anchor="middle" font-size="11">host adapter</text><text x="345" y="323" fill="#22d3ee" text-anchor="middle" font-size="9.5">coords · edges · one tick</text>
   <path d="M250 310 H220" stroke="#475569"/><path d="M220 310 l8 -5 M220 310 l8 5" stroke="#475569" fill="none"/>
-  <rect x="34" y="286" width="182" height="48" rx="7" fill="#0e2530" stroke="#22d3ee"/><text x="125" y="306" fill="#e2e8f0" text-anchor="middle" font-size="11">frame input</text><text x="125" y="323" fill="#22d3ee" text-anchor="middle" font-size="9.5">buttons + touch, no HWND/BPS</text>
+  <rect x="34" y="286" width="182" height="48" rx="7" fill="#0e2530" stroke="#22d3ee"/><text x="125" y="306" fill="#e2e8f0" text-anchor="middle" font-size="11">frame input</text><text x="125" y="323" fill="#22d3ee" text-anchor="middle" font-size="9.5">buttons + touch, nothing else</text>
   <path d="M125 286 V136" stroke="#475569" stroke-dasharray="4 4"/><path d="M125 136 l-5 8 M125 136 l5 8" stroke="#475569" fill="none"/>
   <text x="234" y="360" fill="#22d3ee" text-anchor="middle" font-size="10.5">app speaks only state + desired UI</text>
   <text x="610" y="360" fill="#64748b" text-anchor="middle" font-size="10.5">host speaks only pump + present</text>
 </svg>
 
-Put the two paths side by side and PocketJS's role on BlackBerry is the same as it was on Windows CE: **it does not replace the OS event loop; it sits inside it.**
+PocketJS's role on BlackBerry is the same as it was on Windows CE: **it does not replace the OS event loop; it sits inside it.** `bps_get_event` is the pump. It drains the screen and navigator events, normalizes them into one frame input, lets the guest take exactly one tick, and presents 720×720 with `eglSwapBuffers`.
 
-- In the QNX host, `bps_get_event` is the pump. It drains the screen/navigator events, normalizes them into one frame input, lets the guest take one tick, and presents 720×720 with `eglSwapBuffers`.
-- In the Android host, `GLSurfaceView`'s `onDrawFrame` is the pump. Each frame, the JNI layer folds the accumulated key/touch/relative events into the same contract under one mutex and drives one guest tick.
+Solid, the app code, and the Rust core **never know** that `screen_window_t`, BPS, or `SCREEN_EVENT_JOYSTICK` exist. And in reverse, the host never learns what "a button" or "a component" means. Each side of the boundary owns half the world: **the host owns the pump and the presentation, the guest owns the state and the UI it wants.**
 
-On both sides, Solid, the app code, and the Rust core **never know** that `screen_window_t`, BPS, `GLSurfaceView`, or `MotionEvent` exist. And in reverse, the host never learns what "a button" or "a component" means. Each side of the boundary owns half the world: **the host owns the pump and the presentation, the guest owns the state and the UI it wants.**
-
-This is also why adding a new target costs so little. The M8 turned Windows CE into a whole phone platform; we go the other way, bringing a self-contained modern UI runtime and asking the OS for only the smallest surface that will hold it. QNX and the Android Runtime each provide only that smallest surface.
+This is also why adding a new target costs so little. The M8 turned Windows CE into a whole phone platform; we go the other way, bringing a self-contained modern UI runtime and asking the OS for only the smallest surface that will hold it. From QNX that surface is three things: a window, an event queue, and a GL context.
 
 ## Why bother
 
-PocketJS's whole bet is that **one guest, one core, dropped onto machines of every shape, changes only a thin layer of host**. The BlackBerry Classic pushes that bet to a new extreme: it runs **the same guest on the same phone through two unrelated native stacks** — once as a QNX-native application asking `screen` for a window, once as an Android 4.3 app hosted by the compatibility layer. The two paths split entirely below the QuickJS bridge and are byte-for-byte identical above it. It is probably the cleanest proof we have of "draw the boundary right and the machine becomes swappable."
+PocketJS's whole bet is that **one guest, one core, dropped onto machines of every shape, changes only a thin layer of host**. The Classic tests that bet from an unfamiliar direction.
+
+It is not a slow machine. Two 1.5 GHz cores and an Adreno 225 are more than the PSP or the E7 ever had, and the frame loop was never in doubt. What is strange about the Classic is everything *around* the frame loop. The window is a buffer you ask a user-space service for. The phone shows up on your desk as a host on the network, not as a disk. The keyboard is real, the trackpad reports displacement instead of position, and the screen is a square. Against all of that, the port is one 547-line `main.c`, and the component sitting above it would run unchanged on a PSP.
 
 And the machine itself is a specimen about trust. BlackBerry carved security into every layer: even a developer's local debugging needs a time-limited, device-bound, officially blessed pass; files go over challenge-response CGI or password-protected SMB; an app is either signed or holds a token. It was impregnable in its day, and the price was this — when the servers behind it went dark, the whole device closed its door to new code. It was the community, not the vendor, that pushed the door back open.
 
@@ -488,4 +486,4 @@ Respect.
 
 ---
 
-*Further reading: QNX's [System Architecture](https://www.qnx.com/developers/docs/7.1/com.qnx.doc.neutrino.sys_arch/topic/kernel.html) on the Neutrino microkernel and its [message passing](https://www.qnx.com/developers/docs/6.5.0SP1.update/com.qnx.doc.neutrino_sys_arch/ipc.html); the [Screen Graphics Subsystem](https://www.qnx.com/developers/docs/8.0/com.qnx.doc.screen/topic/manual/cscreen_appDevelopment.html) developer guide, including [composition](https://www.qnx.com/developers/docs/8.0/com.qnx.doc.screen/topic/manual/cscreen_composition.html) and [window groups](http://www.qnx.com/developers/docs/7.0.0/com.qnx.doc.screen/topic/manual/cscreen_windowing-groups.html); the [PPS](https://www.qnx.com/developers/docs/7.1/com.qnx.doc.neutrino.sys_arch/topic/pps.html) service; RIM's own [GoodCitizen](https://github.com/blackberry/NDK-Samples/blob/master/GoodCitizen/main.c) sample for BPS, screen, and the navigator. The BB10 root project lives at [bb10.root.sx](https://bb10.root.sx), and [Sachesi](https://github.com/xsacha/Sachesi) is the community tool whose source made the device protocol legible. BlackBerry's [End of Life FAQ](https://www.blackberry.com/us/en/support/devices/end-of-life) records the January 4, 2022 shutdown. PocketJS's Classic hosts are documented in [`docs/BLACKBERRY_CLASSIC.md`](https://github.com/pocket-stack/pocketjs/blob/main/docs/BLACKBERRY_CLASSIC.md).*
+*Further reading: QNX's [System Architecture](https://www.qnx.com/developers/docs/7.1/com.qnx.doc.neutrino.sys_arch/topic/kernel.html) on the Neutrino microkernel and its [message passing](https://www.qnx.com/developers/docs/6.5.0SP1.update/com.qnx.doc.neutrino_sys_arch/ipc.html); the [Screen Graphics Subsystem](https://www.qnx.com/developers/docs/8.0/com.qnx.doc.screen/topic/manual/cscreen_appDevelopment.html) developer guide, including [composition](https://www.qnx.com/developers/docs/8.0/com.qnx.doc.screen/topic/manual/cscreen_composition.html) and [window groups](http://www.qnx.com/developers/docs/7.0.0/com.qnx.doc.screen/topic/manual/cscreen_windowing-groups.html); the [PPS](https://www.qnx.com/developers/docs/7.1/com.qnx.doc.neutrino.sys_arch/topic/pps.html) service; RIM's own [GoodCitizen](https://github.com/blackberry/NDK-Samples/blob/master/GoodCitizen/main.c) sample for BPS, screen, and the navigator. The BB10 root project lives at [bb10.root.sx](https://bb10.root.sx), and [Sachesi](https://github.com/xsacha/Sachesi) is the community tool whose source made the device protocol legible. BlackBerry's [End of Life FAQ](https://www.blackberry.com/us/en/support/devices/end-of-life) records the January 4, 2022 shutdown. PocketJS's Classic host is documented in [`docs/BLACKBERRY_CLASSIC.md`](https://github.com/pocket-nexus/pocketjs/blob/38471d0ac0918fb3f2fca2f0cf527dd0ebd492b2/docs/BLACKBERRY_CLASSIC.md).*

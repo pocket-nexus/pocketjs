@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use glam::Vec3;
 
+use crate::geometry::WorldModel;
 use crate::model::ModelInstance;
-use crate::world::WorldModel;
 
 /// Procedural gradient sky (no cubemap assets required).
 #[derive(Clone, Copy, Debug)]

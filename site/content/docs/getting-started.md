@@ -1,10 +1,18 @@
 # Getting started
 
+For Vue templates with Rust application logic, use the
+[MicroTS guide](/docs/microts/). This page covers the JavaScript
+application workflow.
+
 This is the fastest path from an empty checkout to JSX running on screen. You'll
 write a component, mount it, build it, and see it in the browser dev host — the
-same source and `pocket.json` can also be compiled into target-specific PSP and
-PS Vita packages. The logical 480×272 UI stays portable while each target owns
-its native renderer, raster density, and HostOps ABI.
+same source and `pocket.host.config.ts` can also be compiled into target-specific bundles
+for PSP, PS Vita, and the other registered targets. Your app states one
+logical viewport in the `app` section of `pocket.host.config.ts` and the
+target's host contract decides
+whether that size is admissible: PSP and Vita are fixed at 480×272, while window and widget
+targets carry a default size and resize the core live. Each target owns its
+native renderer, raster density, and HostOps ABI.
 
 If you only want to *try* PocketJS, skip the toolchain entirely and open the
 online [Playground](/playground/): it runs the Rust core as WebAssembly in your
@@ -20,45 +28,24 @@ the targets that compile the core natively — you don't need them to write UI.
 | ------------------------------------- | --------------------------------------------------------------- |
 | Write components, build bundles       | [Bun](https://bun.sh) (drives the build, tests, and dev host)   |
 | Run the local **browser** dev host    | Bun + Rust with the wasm target (`rustup target add wasm32-unknown-unknown`) |
-| Ship a **PSP EBOOT** | `bun run bootstrap` (pinned Rust, [`cargo-psp`](https://github.com/pocket-stack/rust-psp), LLVM, and verified SDK) |
+| Ship a **PSP EBOOT** | rustup, then `bun run pocket target add psp` (pinned Rust, [`cargo-psp`](https://github.com/pocket-nexus/rust-psp), the verified SDK and a prebuilt QuickJS) |
 | Ship a **PS Vita VPK** | [VitaSDK](https://vitasdk.org/), `cargo-vita` 0.2.2, and Rust nightly `2026-05-28` with `rust-src` |
+| Embed PocketJS in **ESP-IDF** | ESP-IDF 6.0 or 6.1; Registry releases include the P4/S3 native core archives |
 | Hot-reload on **real PSP hardware** | The build toolchain above + optional [PSPLINK](https://github.com/pspdev/psplinkusb) host tools |
 
 The Rust core is `no_std` and gets built once per platform. For this guide we
 stay on the JS side and let the dev host compile the wasm core for us.
+Existing P4 and S3 firmware projects use the independent workflow in the
+[ESP-IDF guide](/docs/esp-idf/).
 
 ## Install
 
 ```sh
-git clone https://github.com/pocket-stack/pocketjs
+git clone https://github.com/pocket-nexus/pocketjs
 cd pocketjs
 bun install
-bun run bootstrap   # one-time PSP setup; omit for browser-only development
+bun run pocket target add psp   # one-time PSP setup; omit for browser-only development
 ```
-
-The [`@pocketjs/cli`](https://www.npmjs.com/package/@pocketjs/cli) package can
-check (and mostly install) the toolchain for you, flutter-doctor style:
-
-```sh
-npm install -g @pocketjs/cli
-pocket doctor   # diagnoses bun, the Rust targets, and the PSP toolchain
-pocket setup    # runs the checkout's pinned, idempotent bootstrap
-```
-
-The PSP setup is self-contained in PocketJS; it does not inspect DreamCart or
-any sibling source checkout. Its exact revisions and SDK checksum live in
-`tools/cli/psp-toolchain.json`. By default artifacts are shared through
-`${XDG_CACHE_HOME:-~/.cache}/pocket-stack`; `POCKET_STACK_CACHE_DIR` overrides
-that root. For a custom SDK, set `PSP_SDK` or `PSPDEV` (in that precedence
-order). The build validates an explicit path and then exports both names to the
-selected SDK, so a typo cannot silently fall through to a different cached
-toolchain.
-
-It also wraps the day-to-day commands. `pocket create <name>` scaffolds a
-manifest-first demo; `pocket check|compile|build --target psp|vita` delegate to
-the canonical resolver; `pocket dev|psp|vita|hw|psplink` retain the low-level
-host-development paths; and `pocket devtools [app]` opens the
-[DevTools](/docs/devtools/) panel with the USB debug bridge.
 
 That pulls `solid-js`, the Vue Vapor and Octane dependencies, and the
 build-time tooling (the
@@ -67,45 +54,63 @@ separate runtime to install — the framework is the `@pocketjs/framework` packa
 in this repo, exposed through subpath imports like
 `@pocketjs/framework/components`.
 
-Create an app and validate it against both stock profiles:
+This guide uses the `pocket` command from `@pocketjs/cli`, which runs on Bun:
+
+```sh
+bun add -g @pocketjs/cli   # or: npm install -g @pocketjs/cli
+```
+
+The [CLI reference](/docs/cli/) lists every command, the target toolchains
+`pocket target add` installs, and the cache they live in.
+
+Create an app and validate it against its host contract:
 
 ```sh
 pocket create my-app
-pocket check --target psp --manifest apps/my-app/pocket.json
-pocket check --target vita --manifest apps/my-app/pocket.json
+cd apps/my-app
+pocket check
 ```
 
-The generated `pocket.json` is strict application intent:
+Outside a checkout, `pocket create` writes a standalone project with its own
+`package.json`; see [create](/docs/cli/#create).
 
-```json
-{
-  "$schema": "https://pocketjs.dev/schema/pocket-2.json",
-  "pocket": 2,
-  "id": "dev.example.my-app",
-  "name": "my-app",
-  "title": "My App",
-  "version": "0.1.0",
-  "engine": {
-    "capabilities": {
-      "requires": ["text.glyphs.baked", "input.buttons"]
-    }
+The generated `pocket.host.config.ts` names the host the application is built
+for and holds the application in its `app` section; the
+[Application config](/docs/app-config/) page lists every field:
+
+```ts
+import { defineHostConfig } from "@pocketjs/framework/host-config";
+
+export default defineHostConfig({
+  host: "psp",
+  app: {
+    id: "dev.example.my.app",
+    title: "My App",
+    version: "0.1.0",
+    entry: "main.tsx",
+    output: "my-app-main",
+    framework: "solid",
+    viewport: { logical: [480, 272], presentation: "integer-fit" },
+    features: ["text.glyphs.baked", "input.buttons"],
   },
-  "app": {
-    "entry": "main.tsx",
-    "output": "my-app-main",
-    "framework": "solid",
-    "viewport": {
-      "logical": [480, 272],
-      "presentation": "integer-fit"
-    }
-  }
-}
+});
+```
+
+To build for the Vita as well, list both hosts and select one per command:
+
+```ts
+hosts: ["psp", "vita"],
+```
+
+```sh
+pocket check --target psp
+pocket check --target vita
 ```
 
 Keep `id` stable across releases: the Vita backend derives the installed Title
-ID from it. Put optional APIs such as `input.touch` under `enhances` and retain
-a controller fallback; unsupported entries under `requires` fail before the
-compiler runs.
+ID from it. A feature such as `input.touch` turns on where the host provides
+it and compiles to `false` elsewhere, so keep a controller path behind
+`hasFeature("input.touch")`.
 
 ## Write your first component
 
@@ -114,12 +119,15 @@ style with `class` — a **build-time subset of Tailwind**, not runtime CSS.
 State comes directly from the selected framework: `createSignal` in Solid,
 `ref` in Vue Vapor, `useState` in Octane.
 
-Solid is the default low-level framework. Manifest builds select Solid, Vue
-Vapor, or Octane with `app.framework` in `pocket.json`; see
+Solid is the default low-level framework. Application builds select Solid,
+Vue Vapor, or Octane with `app.framework` in `pocket.host.config.ts`; see
 [Frameworks](/docs/frameworks/) for the full selection model.
 
-Here's a focusable counter. Put it in the scaffolded
-`apps/my-app/app.tsx`:
+`pocket create` writes an `app.tsx` that counts CROSS presses through
+`onButtonPress` from `@pocketjs/framework/solid/lifecycle` (or the
+`vue-vapor`/`octane` subpath for `--framework`). Replace it with
+this focusable counter, which routes the same increment through d-pad focus and
+`onPress`:
 
 :::framework-code
 ```tsx solid
@@ -211,8 +219,8 @@ What's happening:
 - **Styling** is class literals only. Each utility (`bg-blue-600`,
   `rounded-xl`, `text-white`, …) is resolved at build time into a style table —
   there is no CSS at runtime. The `focus:` and `active:` variants swap styles
-  based on input state. Details in [Styling](/docs/styling/) and the exact
-  supported utilities in [Tailwind subset](/docs/tailwind/).
+  based on input state. Details and the supported utilities are in
+  [Styling](/docs/styling/).
 - **`focusable`** opts the `View` into d-pad focus, and **`onPress`** fires when
   the focused node is confirmed (the Circle button on a PSP). Focus and input
   are covered in [Input & focus](/docs/input-focus/).
@@ -225,8 +233,9 @@ What's happening:
 ## The mount entry
 
 `app.tsx` exports a component but doesn't put anything on screen. The **mount
-entry** does that. Keep it tiny — this is just app bootstrap. Put it in the
-scaffolded `apps/my-app/main.tsx`:
+entry** does that. Keep it small — this is app bootstrap. `pocket create`
+writes the spelling for its `--framework` (Solid by default) to `main.tsx`; the
+three differ in the import:
 
 :::framework-code
 ```tsx solid
@@ -248,13 +257,19 @@ mount(App);
 ```tsx octane
 // @title PocketJS: My App
 import App from "./app.tsx";
-import { mount } from "@pocketjs/framework/octane";
+import { mount } from "@pocketjs/framework";
 
 // Pass the component itself: in Octane, JSX inside a call-argument arrow
 // (mount(() => <App />)) is a compile error.
 mount(App);
 ```
 :::
+
+The Octane entry imports `mount` from the generic root: the build resolves
+`@pocketjs/framework` to the framework named in `app.framework`, and the root's
+`mount` type accepts a JSX component. `@pocketjs/framework/octane` types `mount`
+for compiled universal components, which `pocket check` does not see in app
+sources.
 
 `mount` comes from the selected framework runtime subpath. It handles host
 detection (native PSP/Vita vs. injected browser/headless hosts), wiring the generated style table,
@@ -265,17 +280,20 @@ app.)
 
 ## Build it
 
-Use the manifest path for product builds. It validates the app, resolves the
-target once, compiles target-specific assets, and dispatches the native backend:
+**`compile` validates the application and produces one bundle (`.pkb`) for the selected host.**
+The runtime program owns native linking and device packaging. The checkout
+provides PSP and Vita commands for building a demo program:
 
 ```sh
-pocket build --target psp --manifest apps/my-app/pocket.json -- --release
-# hosts/psp/target/mipsel-sony-psp/release/EBOOT.PBP
+pocket compile --target psp
+pocket psp my-app --release
+# programs/psp/target/mipsel-sony-psp/release/EBOOT.PBP
 
 export VITASDK="$HOME/vitasdk"
 export PATH="$VITASDK/bin:$HOME/.cargo/bin:$PATH"
-pocket build --target vita --manifest apps/my-app/pocket.json -- --release
-# apps/my-app/dist/vita/my-app-main.vpk
+pocket compile --target vita
+pocket vita my-app --release
+# dist/vita/my-app-main.vpk
 ```
 
 Vita VPKs include PocketJS's default black 128x128 bubble icon and complete
@@ -285,9 +303,8 @@ a blank bubble or generic launch gate. Custom native hosts call
 assets override matching defaults while missing artwork continues to inherit
 PocketJS's complete set.
 
-`pocket compile --target …` stops after the JS/pak artifacts for a custom native
-host. `pocket check --target …` is read-only. Arguments after `--` belong to the
-selected native backend.
+[check, compile, build](/docs/cli/#check-and-compile) lists the options of
+the three commands and the `build` output of each target.
 
 For framework work, the lower-level compiler remains available:
 
@@ -305,16 +322,11 @@ bun tools/build.ts hero --framework=octane
 ```
 :::
 
-That density-1 development command produces two files in `dist/`:
-
-| File              | What it is                                                                 |
-| ----------------- | ------------------------------------------------------------------------- |
-| `dist/hero.js`    | Your app bundled to a single IIFE for the selected development contract   |
-| `dist/hero.pak` | The packed asset file: the compiled style table, font atlases, and images |
-
-Vue Vapor builds use the `.vue-vapor` suffix, for example
-`dist/hero.vue-vapor.js` and `dist/hero.vue-vapor.pak`; Octane builds use the
-`.octane` suffix, for example `dist/hero.octane.js` and `dist/hero.octane.pak`.
+That density-1 development command writes the bundle and its packed assets to
+`dist/`; the per-framework file names are in
+[Build pipeline](/docs/build-pipeline/#output-naming). The dev host and the sim
+are development paths rather than stock targets — see
+[Transitional dev targets](/docs/platform-contracts/#transitional-dev-targets).
 
 A few notes on the low-level command:
 
@@ -363,15 +375,15 @@ bun tools/dev.ts hero-main cards
 PORT=9000 bun tools/dev.ts
 ```
 
-Rebuild-on-change is deliberately manual: after editing a component, re-run
+Rebuild-on-change is manual: after editing a component, re-run
 `bun tools/build.ts <app>` (or the whole `dev` script) and reload the page.
 The first run compiles the Rust core to wasm with cargo, so it takes a moment;
 subsequent runs are fast.
 
 ### In Vita3K
 
-For stock demos, one command builds a manifest-driven VPK, installs it under a
-stable per-demo Title ID, and launches it:
+For stock demos, one command builds a VPK from the demo's host config,
+installs it under a stable per-demo Title ID, and launches it:
 
 ```sh
 pocket play vita hero
@@ -379,43 +391,15 @@ pocket play vita gallery --fullscreen
 ```
 
 Vita3K is interactive here; `--fullscreen` controls the emulator window. The
-application still uses the profile's 480×272 logical viewport rendered at
-960×544 density 2. See the [Vita host guide](https://github.com/pocket-stack/pocketjs/blob/main/hosts/vita/README.md)
+application still uses the `vita` host contract's 480×272 logical viewport
+rendered at 960×544 density 2. See the [Vita host guide](https://github.com/pocket-nexus/pocketjs/blob/main/programs/vita/README.md)
 for toolchain setup, key mappings, real-device installation, and the golden E2E.
-
-### In the Playground
-
-No local build at all: open the [Playground](/playground/), which loads the same
-wasm core in your browser. Pick Solid, Vue Vapor, or Octane in the toolbar,
-edit JSX in the editor, and it renders live — the quickest way to explore the component and
-styling surface before wiring up a local project.
-
-## What the build just did
-
-`bun tools/build.ts` is a **two-pass** build:
-
-1. **Transform & collect.** The selected framework's JSX transform — Solid's
-   universal Babel preset, `vue-jsx-vapor`, or the Octane universal compiler —
-   plus TypeScript runs
-   over every module reachable from your entry, content-hash cached in `.cache/`.
-   As it goes it collects every class literal and every text codepoint from the
-   AST. The Tailwind-subset compiler turns the collected classes into
-   `styles.bin`, the font baker rasterizes an Inter atlas containing *only* the
-   characters your app uses, images are decoded, and it's all packed into
-   `dist/<app>.pak`.
-2. **Bundle.** Bun bundles the app (IIFE, targeting the browser, unminified) from
-   the cached pass-1 transforms into `dist/<app>.js`.
-
-Because styles and fonts are derived from your source, a class literal only
-compiles if *every* token is a supported utility, and the atlas only holds glyphs
-you reference. The full mechanics — caching, the class/codepoint collection, the
-pak format — are in [Build pipeline](/docs/build-pipeline/).
 
 ## Next steps
 
 - [Architecture](/docs/architecture/) — how one Rust core drives every host.
 - [Frameworks](/docs/frameworks/) — switch between Solid, Vue Vapor, and Octane.
 - [Components](/docs/components/) — `View`, `Text`, `Image`, control flow, and the app-shell primitives.
-- [Styling](/docs/styling/) and [Tailwind subset](/docs/tailwind/) — the compile-time class rules.
-- [Reactivity](/docs/reactivity/) and [Animation](/docs/animation/) — signals, effects, and native tweens.
+- [Styling](/docs/styling/) — the compile-time class rules and the utility tables.
+- [Animation](/docs/animation/) — native tweens, baked timelines, and sprite atlases.
 - [Input & focus](/docs/input-focus/) — d-pad traversal, buttons, and focus scopes.

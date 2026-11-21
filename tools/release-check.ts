@@ -7,7 +7,6 @@ const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(?:0|[1-9]\d*|\d*[A
 export const RELEASE_VERSION_FILES = [
   "package.json",
   "tools/cli/package.json",
-  "pocket.json",
 ] as const;
 
 export interface ReleaseVersionCheck {
@@ -23,6 +22,12 @@ export function normalizeReleaseVersion(input: string): string {
     );
   }
   return version;
+}
+
+export function releaseChannel(input: string): string {
+  const label = normalizeReleaseVersion(input).match(/^\d+\.\d+\.\d+-([^.+]+)/)?.[1];
+  if (!label) return "latest";
+  return ["alpha", "beta", "rc"].includes(label) ? label : "next";
 }
 
 async function readVersion(root: string, path: string): Promise<string> {

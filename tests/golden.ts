@@ -1,7 +1,7 @@
 // tests/golden.ts — headless byte-exact pixel goldens for the wasm rasterizer.
 //
-// Loads hosts/web/pocketjs.wasm under Bun, installs the SAME HostOps binding the
-// browser host uses (hosts/web/wasm-ops.js), evals a dist/<demo>.js bundle with
+// Loads platforms/web/pocketjs.wasm under Bun, installs the SAME HostOps binding the
+// browser host uses (platforms/web/wasm-ops.js), evals a dist/<demo>.js bundle with
 // globalThis.ui + globalThis.__pak pre-installed (the host contract), drives
 // N fixed-dt frames with a scripted input function, captures the RGBA
 // framebuffer at chosen frames and byte-compares the encoded PNG against the
@@ -18,7 +18,7 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join, resolve } from "node:path";
-import { createWasmUi } from "../hosts/web/wasm-ops.js";
+import { createWasmUi } from "../platforms/web/wasm-ops.js";
 import { SCREEN_H, SCREEN_W } from "../contracts/spec/spec.ts";
 import { GOLDEN_SPECS, packedTouchFor, type GoldenSpec } from "./golden-specs.ts";
 import { createTouchHitFacts } from "../framework/src/touch.ts";
@@ -30,7 +30,7 @@ const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url))); // PocketJS
 // from the same compiler invocation.
 const DIST = join(ROOT, "dist/golden/");
 const GOLDEN_DIR = join(ROOT, "tests/goldens/web/");
-const WASM_PATH = join(ROOT, "hosts/web/pocketjs.wasm");
+const WASM_PATH = join(ROOT, "platforms/web/pocketjs.wasm");
 const UPDATE = !!process.env.UPDATE;
 
 const W = SCREEN_W;

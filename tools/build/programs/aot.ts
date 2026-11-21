@@ -1,0 +1,28 @@
+import { resolve } from "node:path";
+import { compilerOnly, type RuntimeBuild } from "../../../framework/src/host-config.ts";
+import { POCKET_PROFILES } from "../../../hosts/index.ts";
+import { buildGba } from "../gba/build.ts";
+import { buildIpodNano } from "../ipodnano/build.ts";
+import { buildHosts, repository, nativeSources } from "./handheld-common.ts";
+import { requireProgramProfile } from "./application.ts";
+const gbaProfile = POCKET_PROFILES["gba"];
+const nanoProfile = POCKET_PROFILES["ipodnano"];
+
+const runtimeSources = ["engine/core", "engine/spec", "engine/drivers", "engine/package", "engine/runtime", "engine/modules/media", "engine/render", "engine/microts-runtime", "engine/profile-build"];
+
+export const gbaBuild: RuntimeBuild = {
+  sourceInputs: [...nativeSources("programs/gba", "platforms/gba/video", "tools/build/gba/bake", ...runtimeSources), resolve(repository, "programs/gba/gba.ld")],
+  hosts: buildHosts, input: "aot", steps: compilerOnly(), artifact: "{outdir}/gba-hero.gba",
+  async run(context) {
+    requireProgramProfile(context, gbaProfile);
+    await buildGba(context.args, context);
+  },
+};
+export const ipodNanoBuild: RuntimeBuild = {
+  sourceInputs: [...nativeSources("programs/ipodnano", "platforms/rockbox/input", "programs/ipodnano/preview", ...runtimeSources), resolve(repository, "programs/ipodnano/rockbox"), resolve(repository, "platforms/rockbox/display")],
+  hosts: buildHosts, input: "aot", steps: compilerOnly(), artifact: "{outdir}/pockethero.rock",
+  async run(context) {
+    requireProgramProfile(context, nanoProfile);
+    await buildIpodNano(context.args, context);
+  },
+};

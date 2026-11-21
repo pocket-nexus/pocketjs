@@ -47,8 +47,22 @@ pub enum EditKey {
     Escape,
 }
 
+/// Ordered pointer events in physical window pixels. Keep edges even when a
+/// complete click arrives between rendered frames.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum PointerEvent {
+    Move(Option<Vec2>),
+    Button {
+        position: Option<Vec2>,
+        button: MouseButton,
+        down: bool,
+    },
+    Cancel,
+}
+
 #[derive(Default)]
 pub struct Input {
+    pointer_events: Vec<PointerEvent>,
     down: HashSet<KeyCode>,
     pressed: HashSet<KeyCode>,
     mouse_down: HashSet<u8>,
@@ -123,9 +137,8 @@ impl Input {
                     if let Some(k) = named {
                         self.edits.push(k);
                     } else if let Some(text) = &event.text {
-                        self.edits.extend(
-                            text.chars().filter(|c| !c.is_control()).map(EditKey::Char),
-                        );
+                        self.edits
+                            .extend(text.chars().filter(|c| !c.is_control()).map(EditKey::Char));
                     }
                 } else if matches!(&event.logical_key, Key::Named(NamedKey::Super)) {
                     self.super_down = false;
@@ -152,6 +165,11 @@ impl Input {
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => {
+                self.pointer_events.push(PointerEvent::Button {
+                    position: self.cursor,
+                    button: *button,
+                    down: state.is_pressed(),
+                });
                 let id = button_id(*button);
                 match state {
                     ElementState::Pressed => {
@@ -166,8 +184,12 @@ impl Input {
             }
             WindowEvent::CursorMoved { position, .. } => {
                 self.cursor = Some(Vec2::new(position.x as f32, position.y as f32));
+                self.pointer_events.push(PointerEvent::Move(self.cursor));
             }
-            WindowEvent::CursorLeft { .. } => self.cursor = None,
+            WindowEvent::CursorLeft { .. } => {
+                self.cursor = None;
+                self.pointer_events.push(PointerEvent::Move(None));
+            }
             WindowEvent::Focused(false) => self.clear(),
             _ => {}
         }
@@ -186,6 +208,8 @@ impl Input {
 
     /// Forget everything held (focus loss, mode switches).
     pub fn clear(&mut self) {
+        self.pointer_events.clear();
+        self.pointer_events.push(PointerEvent::Cancel);
         self.down.clear();
         self.pressed.clear();
         self.mouse_down.clear();
@@ -202,6 +226,7 @@ impl Input {
 
     /// Call once per simulation turn, after game logic consumed edge state.
     pub fn end_frame(&mut self) {
+        self.pointer_events.clear();
         self.pressed.clear();
         self.mouse_pressed.clear();
         self.mouse_delta = Vec2::ZERO;
@@ -270,6 +295,10 @@ impl Input {
     pub fn mouse_delta(&self) -> Vec2 {
         self.mouse_delta
     }
+
+    pub fn pointer_events(&self) -> &[PointerEvent] {
+        &self.pointer_events
+    }
     // --- synthetic injection (headless scripting/tests) -------------------
 
     pub fn inject_key(&mut self, code: KeyCode, down: bool) {
@@ -283,6 +312,11 @@ impl Input {
     }
 
     pub fn inject_mouse_button(&mut self, button: MouseButton, down: bool) {
+        self.pointer_events.push(PointerEvent::Button {
+            position: self.cursor,
+            button,
+            down,
+        });
         let id = button_id(button);
         if down {
             if self.mouse_down.insert(id) {
@@ -300,6 +334,7 @@ impl Input {
     /// Place the cursor at a window-pixel position (scripted picking).
     pub fn inject_cursor(&mut self, x: f32, y: f32) {
         self.cursor = Some(Vec2::new(x, y));
+        self.pointer_events.push(PointerEvent::Move(self.cursor));
     }
 
     /// Append a text-editing keystroke (scripted typing).
@@ -321,6 +356,24 @@ impl Input {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pointer_stream_keeps_fast_clicks_and_cancels_held_input() {
+        let mut input = Input::default();
+        input.inject_cursor(12.0, 34.0);
+        input.inject_mouse_button(MouseButton::Left, true);
+        input.inject_mouse_button(MouseButton::Left, false);
+        assert_eq!(input.pointer_events().len(), 3);
+        assert!(!input.mouse_button_down(MouseButton::Left));
+        input.end_frame();
+        assert!(input.pointer_events().is_empty());
+        input.inject_key(KeyCode::KeyW, true);
+        input.inject_mouse_delta(20.0, 10.0);
+        input.clear();
+        assert_eq!(input.pointer_events(), &[PointerEvent::Cancel]);
+        assert!(!input.key_down(KeyCode::KeyW));
+        assert_eq!(input.mouse_delta(), Vec2::ZERO);
+    }
 
     #[test]
     fn end_frame_consumes_edges_but_preserves_held_state() {
@@ -347,9 +400,7 @@ mod tests {
         });
         input.on_window_event(&WindowEvent::MouseWheel {
             device_id: winit::event::DeviceId::dummy(),
-            delta: MouseScrollDelta::PixelDelta(
-                winit::dpi::PhysicalPosition::new(3.25, -7.5),
-            ),
+            delta: MouseScrollDelta::PixelDelta(winit::dpi::PhysicalPosition::new(3.25, -7.5)),
             phase: winit::event::TouchPhase::Moved,
         });
         assert_eq!(input.scroll(), Vec2::new(33.25, -47.5));

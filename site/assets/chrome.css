@@ -3,55 +3,74 @@
    page, so the chrome is one implementation rather than two. */
 
 /* shared text helpers */
-.hud{font-family:var(--mono);font-size:.7rem;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
-.metal{background:var(--metal);-webkit-background-clip:text;background-clip:text;color:transparent}
-.metal.lit{background:var(--metal-ph);-webkit-background-clip:text;background-clip:text}
+.hud{font-family:var(--sans);font-weight:600;font-size:.72rem;letter-spacing:.06em;color:var(--muted)}
+.spectrum{background:var(--spectrum);-webkit-background-clip:text;background-clip:text;color:transparent}
+.spectrum.lit{background:var(--spectrum-lit);-webkit-background-clip:text;background-clip:text}
 .wrap{max-width:1160px;margin:0 auto;padding:0 clamp(1.25rem,4vw,2.5rem)}
 
 /* nav */
-.nav{position:sticky;top:0;z-index:50;border-bottom:1px solid var(--line);background:rgba(5,7,13,.88);backdrop-filter:blur(9px)}
+.nav{position:sticky;top:0;z-index:50;border-bottom:1px solid var(--line);background:rgba(var(--shade-rgb),.88);backdrop-filter:blur(9px)}
 .nav .wrap{display:flex;align-items:center;justify-content:space-between;height:3.6rem}
 .mark{display:flex;align-items:center;gap:.55rem}
 .mark .nm{font-weight:700;font-size:1.05rem;letter-spacing:-.01em}
-.nav-links{display:flex;align-items:center;gap:1.5rem;font-family:var(--mono);font-size:.74rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2)}
-.nav-links a:hover{color:var(--ph)}
+.nav-links{display:flex;align-items:center;gap:1.5rem;font-family:var(--sans);font-weight:500;font-size:.85rem;letter-spacing:.02em;color:var(--ink-2)}
+.nav-links a:hover{color:var(--accent)}
 .nav-links .ico{display:flex;align-items:center;color:var(--ink-2)}
 .nav-links .ico svg{width:1.05rem;height:1.05rem;display:block}
-.nav-links .ico:hover{color:var(--ph)}
+.nav-links .ico:hover{color:var(--accent)}
+@media(max-width:600px){
+  .nav-links{gap:1rem;font-size:.8rem}
+  .nav-links .ico{display:none}
+  .nav .wrap{padding-inline:1rem}
+  .mark{gap:.4rem}
+  .mark .nm{font-size:.95rem}
+}
 .menu{position:relative}
 .menu-btn{appearance:none;background:none;border:none;cursor:pointer;color:var(--ink-2);
-  font:inherit;text-transform:uppercase;letter-spacing:.1em;display:flex;align-items:center;gap:.35rem;padding:0}
+  font:inherit;letter-spacing:.02em;display:flex;align-items:center;gap:.35rem;padding:0}
 .menu-btn svg{transition:transform .15s}
-.menu:hover .menu-btn,.menu:focus-within .menu-btn{color:var(--ph)}
+.menu:hover .menu-btn,.menu:focus-within .menu-btn{color:var(--accent)}
 .menu:hover .menu-btn svg,.menu:focus-within .menu-btn svg{transform:rotate(180deg)}
 .menu-list{position:absolute;top:calc(100% + .75rem);left:50%;transform:translateX(-50%) translateY(-.35rem);
-  min-width:9.5rem;border:1px solid var(--line-2);background:rgba(8,11,19,.97);backdrop-filter:blur(9px);
+  min-width:9.5rem;border-radius:12px;overflow:hidden;border:1px solid var(--line-2);background:rgba(var(--shade-rgb),.97);backdrop-filter:blur(9px);
   display:flex;flex-direction:column;opacity:0;visibility:hidden;transition:opacity .14s,transform .14s,visibility .14s;
-  box-shadow:0 18px 44px rgba(0,0,0,.55)}
+  box-shadow:0 18px 44px rgba(var(--shade-rgb),.55)}
 .menu:hover .menu-list,.menu:focus-within .menu-list{opacity:1;visibility:visible;transform:translateX(-50%) translateY(0)}
 .menu-list::before{content:"";position:absolute;left:0;right:0;top:-.75rem;height:.75rem}
 .menu-list a{padding:.6rem .9rem;border-bottom:1px solid var(--line)}
 .menu-list a:last-child{border-bottom:none}
-.menu-list a:hover{background:var(--panel);color:var(--ph)}
+.menu-list a:hover{background:var(--panel);color:var(--accent)}
+@media(max-width:600px){
+  .nav-links .menu-list{left:auto;right:0;transform:translateY(-.35rem)}
+  .nav-links .menu:hover .menu-list,.nav-links .menu:focus-within .menu-list{transform:translateY(0)}
+}
 
 
 /* buttons */
-.btn{display:inline-flex;align-items:center;gap:.4rem;font-family:var(--mono);font-size:.78rem;letter-spacing:.1em;
-  text-transform:uppercase;padding:.72rem 1.25rem;border:1px solid var(--line-2);color:var(--ink-2);cursor:pointer;
+.btn{display:inline-flex;align-items:center;gap:.4rem;font-family:var(--sans);font-weight:600;font-size:.85rem;letter-spacing:.01em;
+  padding:.72rem 1.35rem;border-radius:999px;border:1px solid var(--line-2);color:var(--ink-2);cursor:pointer;
   background:transparent;transition:color .12s,border-color .12s,filter .12s}
-.btn:hover{color:var(--ph);border-color:rgba(78,240,138,.55)}
+.btn:hover{color:var(--accent);border-color:rgba(var(--accent-rgb),.55)}
 /* --pri/--sec on the homepage, -primary/-ghost in the docs markup: one look */
-.btn--pri,.btn-primary{background:linear-gradient(180deg,#f4f8ff,#c9d5e4);color:#0b1220;border-color:transparent;
-  font-weight:600;box-shadow:0 1px 0 rgba(255,255,255,.35) inset, 0 0 18px rgba(216,225,236,.16)}
-.btn--pri:hover,.btn-primary:hover{filter:brightness(1.05);color:#0b1220}
+.btn--pri,.btn-primary{background:linear-gradient(180deg,var(--btn-a),var(--btn-b));color:var(--btn-ink);border-color:transparent;
+  font-weight:600;box-shadow:0 1px 0 rgba(255,255,255,.4) inset, 0 10px 26px -12px rgba(var(--accent-rgb),.75)}
+.btn--pri:hover,.btn-primary:hover{filter:brightness(1.06);color:var(--btn-ink)}
 .btn--sec,.btn-ghost{background:transparent}
 
 
 /* footer */
 .foot{border-top:1px solid var(--line);padding:2.2rem 0 3rem;background:var(--bg-2)}
 .foot .wrap{display:flex;flex-wrap:wrap;gap:1.4rem;justify-content:space-between;align-items:center}
-.foot .cols2{display:flex;gap:1.8rem;flex-wrap:wrap;font-family:var(--mono);font-size:.72rem;color:var(--ink-2)}
-.foot .cols2 a:hover{color:var(--ph)}
+.foot .cols2{display:flex;gap:1.3rem;flex-wrap:wrap;font-family:var(--mono);font-size:.72rem;color:var(--ink-2)}
+.foot .cols2 a:hover{color:var(--accent)}
+/* The row carries two groups: this site, then the accounts. A muted dot marks
+   the boundary, so the footer stays one line of links instead of growing
+   headings. The dot is the first child of the group it opens, so wrapping can
+   never leave one stranded at the end of a line. */
+.foot .cols2 .fgrp{display:flex;gap:1.3rem;flex-wrap:wrap;align-items:baseline}
+.foot .cols2 .fdot{color:var(--muted);opacity:.6}
+.foot .hud a{color:var(--ink-2);text-decoration:underline;text-decoration-color:rgba(var(--ink-2-rgb),.35);text-underline-offset:3px}
+.foot .hud a:hover{color:var(--accent);text-decoration-color:currentColor}
 
 
 /* the interactive 3D stage: one implementation for the playground and the homepage */
@@ -65,7 +84,7 @@
     linear-gradient(160deg, color-mix(in oklab, var(--color-surface-2) 90%, #fff 4%), var(--color-ink-2));
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.05) inset,
-    0 30px 60px -30px rgba(0, 0, 0, 0.7),
+    0 30px 60px -30px rgba(var(--shade-rgb), 0.7),
     0 0 0 1px rgba(56, 189, 248, 0.05);
 }
 .pocket-screen {
@@ -73,8 +92,8 @@
   border-radius: 12px;
   overflow: hidden;
   background: #000;
-  border: 1px solid #05070d;
-  box-shadow: 0 0 0 6px #05070d, 0 0 18px -8px rgba(56, 189, 248, 0.22) inset;
+  border: 1px solid var(--bg);
+  box-shadow: 0 0 0 6px var(--bg), 0 0 18px -8px rgba(56, 189, 248, 0.22) inset;
   aspect-ratio: 480 / 272;
 }
 .pocket-loading {
@@ -134,8 +153,8 @@
   height: 6px;
   flex: none;
   border-radius: 50%;
-  background: #9de5c7;
-  box-shadow: 0 0 10px rgba(157, 229, 199, 0.82);
+  background: var(--accent-2);
+  box-shadow: 0 0 10px rgba(var(--accent-2-rgb), 0.82);
   animation: pg-stage-pulse 1.1s ease-in-out infinite alternate;
 }
 .pg-stage__credit {

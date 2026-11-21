@@ -29,13 +29,23 @@
   --color-fg-2: var(--ink-2);
   --color-muted: var(--muted);
 
-  --color-steel: var(--steel-2);
-  --color-steel-1: var(--steel-1);
-  --color-phosphor: var(--ph);
-  --color-phosphor-2: var(--ph-2);
-  --color-brand: var(--sky);
-  --color-brand-2: var(--ph);
-  --color-brand-3: var(--sky);
+  --color-tint: var(--tint-2);
+  --color-tint-1: var(--tint-1);
+  --color-accent: var(--accent);
+  --color-accent-2: var(--accent-2);
+  --color-brand: var(--accent-3);
+  --color-brand-2: var(--accent);
+  --color-brand-3: var(--accent-3);
+
+  /* Docs chrome reaches for slate by name in a dozen places. The ground is
+     plum, so the scale is redefined here as the matching lavender ramp rather
+     than left as Tailwind's cool grey, which reads dirty over this bg. */
+  --color-slate-100: #fcf6ff;
+  --color-slate-200: #ded2f2;
+  --color-slate-300: var(--ink-2);
+  --color-slate-400: #ab9ccb;
+  --color-slate-500: var(--muted);
+  --color-slate-600: #6f6389;
 }
 
 /* ---- base: chrome.css sets the ground; this adds prose-only defaults ------ */
@@ -44,37 +54,37 @@
   body {
     background: var(--bg);
     background-image:
-      radial-gradient(ellipse 55% 34% at 50% -6%, rgba(78, 240, 138, 0.1), transparent),
-      radial-gradient(ellipse 58% 40% at 50% -4%, rgba(216, 225, 236, 0.06), transparent),
-      radial-gradient(ellipse 40% 30% at 90% 14%, rgba(78, 240, 138, 0.05), transparent);
+      radial-gradient(ellipse 55% 34% at 50% -6%, rgba(var(--accent-rgb), 0.1), transparent),
+      radial-gradient(ellipse 58% 40% at 50% -4%, rgba(var(--accent-2-rgb), 0.06), transparent),
+      radial-gradient(ellipse 40% 30% at 90% 14%, rgba(var(--accent-3-rgb), 0.05), transparent);
     color: var(--ink-2);
     font-family: var(--sans);
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
   }
-  /* the same tube glass the homepage sits behind */
+  /* the same fine horizontal grain the homepage sits behind */
   body::before {
     content: "";
     position: fixed;
     inset: 0;
     pointer-events: none;
     z-index: 100;
-    background: repeating-linear-gradient(0deg, rgba(3, 18, 11, 0.16) 0 1px, transparent 1px 3px);
+    background: repeating-linear-gradient(0deg, rgba(var(--shade-rgb), 0.10) 0 1px, transparent 1px 4px);
   }
   a { color: inherit; text-decoration: none; }
-  ::selection { background: color-mix(in oklab, var(--ph) 32%, transparent); color: #04170c; }
+  ::selection { background: color-mix(in oklab, var(--accent) 82%, transparent); color: #2a1b10; }
 }
 
 /* prose links carry the accent the rest of the system uses for references */
 @layer components {
-  .prose a { color: var(--sky); font-weight: 500; }
-  .prose a:hover { color: var(--ph); }
-  .prose :where(code):not(:where(pre *)) { color: var(--ph-2); }
+  .prose a { color: var(--accent-3); font-weight: 500; }
+  .prose a:hover { color: var(--accent); }
+  .prose :where(code):not(:where(pre *)) { color: var(--accent-2); }
 }
 
 /* ---- reusable brand bits -------------------------------------------------- */
 @utility text-gradient {
-  background: linear-gradient(120deg, #f3f7fd 0%, #d6e0ec 36%, #8d9bb0 67%, #c5d4e6 100%);
+  background: var(--spectrum);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -278,6 +288,27 @@
     position: sticky; top: 3.5rem; align-self: start; max-height: calc(100vh - 3.5rem); overflow-y: auto;
   }
   @media (min-width: 1000px) { .doc-nav { display: block; } }
+  /* Native disclosure keeps the full directory usable without JavaScript. */
+  .doc-mobile-nav {
+    position: sticky; top: 3.6rem; z-index: 40; background: var(--bg);
+    border-bottom: 1px solid var(--color-line-2); min-width: 0;
+  }
+  .doc-mobile-nav summary {
+    display: flex; align-items: center; gap: 0.75rem; min-height: 3.25rem;
+    padding: 0.7rem 1.25rem; cursor: pointer; font-size: 0.85rem;
+    color: var(--ink); font-weight: 600; list-style: none;
+  }
+  .doc-mobile-nav summary::-webkit-details-marker { display: none; }
+  .doc-mobile-nav summary::after { content: "+"; font-size: 1.25rem; margin-left: auto; }
+  .doc-mobile-nav[open] summary::after { content: "−"; }
+  .doc-mobile-nav summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -4px; }
+  .doc-current { color: var(--ink-2); font-size: 0.75rem; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .doc-mobile-links { max-height: calc(100vh - 8rem); max-height: calc(100dvh - 8rem); overflow-y: auto; overscroll-behavior: contain; padding: 1rem 1.25rem; border-top: 1px solid var(--line); }
+  .doc-mobile-links a { display: block; padding: 0.7rem 0.6rem; min-height: 44px; border-radius: 0.4rem; font-size: 0.9rem; color: var(--ink-2); }
+  .doc-mobile-links a:hover { background: var(--panel); color: var(--ink); }
+  .doc-mobile-links a[aria-current="page"] { background: var(--panel); color: var(--accent); font-weight: 600; }
+  .doc-mobile-links a:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  @media (min-width: 1000px) { .doc-mobile-nav { display: none; } }
   .doc-sec { margin-bottom: 1.4rem; }
   .doc-sec-t { font-size: 0.78rem; font-weight: 600; color: var(--color-slate-500); margin-bottom: 0.5rem; }
   .doc-nav a { display: block; padding: 0.3rem 0.6rem; border-radius: 0.4rem; font-size: 0.88rem; color: var(--color-slate-400); }
@@ -291,6 +322,67 @@
   .doc-pager a:hover { border-color: var(--color-brand); }
   .doc-pager a.next { text-align: right; margin-left: auto; }
   .doc-pager span { font-size: 0.72rem; font-weight: 600; color: var(--color-slate-500); }
+  /* ---- live docs demo (`:::demo <app>`, site/playground/embed.js) --------- */
+  .doc-demo {
+    margin: 1.75rem 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.7rem;
+  }
+  .doc-demo__stage {
+    position: relative;
+    width: min(100%, var(--doc-demo-w, 320px));
+    aspect-ratio: var(--doc-demo-ratio, 3 / 4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border: 1px solid var(--color-line-2);
+    border-radius: 0.9rem;
+    background:
+      radial-gradient(80% 60% at 50% 0%, color-mix(in oklab, var(--color-brand) 10%, transparent), transparent 70%),
+      var(--color-ink-2);
+    box-shadow: 0 18px 40px -28px rgb(0 0 0 / 0.9);
+  }
+  .doc-demo__screen {
+    display: block;
+    width: 100%;
+    height: 100%;
+    /* The demo owns every contact: without this the browser takes a drag for
+       page scrolling and the pan recognizer never sees the move. */
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+    image-rendering: pixelated;
+    opacity: 0;
+    transition: opacity 220ms ease;
+  }
+  .doc-demo[data-state="ready"] .doc-demo__screen { opacity: 1; }
+  .doc-demo[data-state="ready"] .doc-demo__stage { cursor: grab; }
+  .doc-demo[data-state="ready"] .doc-demo__stage:active { cursor: grabbing; }
+  .doc-demo__status {
+    position: absolute;
+    margin: 0;
+    padding: 0 1.25rem;
+    max-width: 100%;
+    text-align: center;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    line-height: 1.5;
+    color: var(--color-slate-500);
+  }
+  .doc-demo[data-state="loading"] .doc-demo__status { color: var(--color-brand-2); }
+  .doc-demo[data-state="error"] .doc-demo__status { color: #fecaca; }
+  .doc-demo[data-state="ready"] .doc-demo__status { display: none; }
+  .doc-demo__caption {
+    max-width: 34rem;
+    text-align: center;
+    font-size: 0.8rem;
+    line-height: 1.6;
+    color: var(--color-slate-400);
+  }
+  .doc-demo__caption code { font-family: var(--font-mono); color: var(--color-brand-2); }
   .doc-fw-code {
     margin: 1.25rem 0;
     max-width: 100%;

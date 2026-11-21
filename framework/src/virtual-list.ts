@@ -44,6 +44,7 @@ import { bindDpadScroll, createScroller, type Scroller } from "./kinetics.ts";
 import { onFrame } from "./frame.ts";
 import { View } from "./primitives.ts";
 import type { NodeMirror } from "./renderer.ts";
+import type { SurfaceId } from "./display.ts";
 
 export interface VirtualListHandle {
   scroller: Scroller;
@@ -60,6 +61,8 @@ export interface VirtualListHandle {
 }
 
 export interface VirtualListProps {
+  /** UI output whose contacts drive this list. Default: primary. */
+  surface?: SurfaceId;
   count: number;
   /** Fixed row height in logical px (uniform-row v1). */
   rowHeight: number;
@@ -75,6 +78,8 @@ export interface VirtualListProps {
    *  false: rows are plain views and the d-pad scrolls the im way. */
   focusRows?: boolean;
   onRowPress?: (index: number) => void;
+  /** A stationary hold claims the contact and suppresses its release tap. */
+  onRowLongPress?: (index: number) => void;
   /** Fired every frame while the offset is within nearStartPx of the top —
    *  guard with your own loading/hasMore flags (the im convention). */
   onNearStart?: () => void;
@@ -238,7 +243,7 @@ export function VirtualList(props: VirtualListProps): SolidJSX.Element {
     // contains it. Bounds semantics make this total for full-bleed rows; a
     // hit on the canvas/viewport itself is a row GAP — a separator tap, and
     // separators don't press (the UIKit convention).
-    const hit = resolveTouchHit(c.x, c.y, c.hit);
+    const hit = resolveTouchHit(c.x, c.y, c.hit, c.surface);
     if (hit) {
       for (const [i, n] of rowNodes) {
         if (isWithin(hit, n)) return { index: i, node: n };
@@ -248,6 +253,7 @@ export function VirtualList(props: VirtualListProps): SolidJSX.Element {
   };
 
   createGesture({
+    surface: props.surface,
     region: { node: () => viewportNode },
     axis: "y",
     onDown: (c) => {
@@ -282,6 +288,12 @@ export function VirtualList(props: VirtualListProps): SolidJSX.Element {
         props.onRowPress?.(row.index);
       }
     },
+    onLongPress: props.onRowLongPress ? (c) => {
+      if (!active()) return;
+      const row = rowFromContact(c);
+      setActiveNode(null);
+      if (row) { setFocusedIndex(row.index); props.onRowLongPress?.(row.index); }
+    } : undefined,
     onCancel: () => {
       setActiveNode(null);
       if (scroller.state() === "tracking") scroller.endDrag(0); // no fling out of a modal open

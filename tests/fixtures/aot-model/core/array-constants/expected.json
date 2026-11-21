@@ -1,0 +1,47 @@
+{
+  "state": {
+    "result": [
+      3,
+      4,
+      5,
+      2,
+      0,
+      31,
+      103,
+      -2
+    ]
+  },
+  "writes": [
+    {
+      "name": "result",
+      "value": [
+        3,
+        4,
+        5,
+        2,
+        0,
+        31,
+        103,
+        -2
+      ],
+      "changed": true
+    }
+  ],
+  "operations": [
+    {
+      "kind": "set",
+      "name": "result",
+      "value": [
+        3,
+        4,
+        5,
+        2,
+        0,
+        31,
+        103,
+        -2
+      ],
+      "changed": true
+    }
+  ]
+}

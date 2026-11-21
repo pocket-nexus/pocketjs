@@ -1,0 +1,53 @@
+# Device native builds
+
+**`pocket compile` produces an application bundle (`.pkb`); `pocket build` consumes that bundle or builds a reusable native runtime.** Phone, music-player, reader and console programs share the main repository. Each program selects its drivers and host contract.
+
+The native recipes live in `tools/build/programs/`. Their host configs live in `programs/<id>/pocket.host.config.ts`; native entry points and shell source live under `programs/`.
+
+| Program | Host contract | Native artifact | Application input |
+|---|---|---|---|
+| `pocketbook` | `pocketbook` | ARM Linux executable, payload directory and `.app` launcher | `--bundle` |
+| `nokia-e7` | `symbian-e7-dev` | `<output>.sis` | `--bundle` |
+| `ios-simulator` | `ios-dev` | `PocketJSHost.app` and `PocketApple.xcframework` | `--bundle` |
+| `ipodtouch6` | `ipodtouch-dev` | `PocketJSiPod.app` | `--bundle` |
+| `ipodtouch4` | `ipodtouch4-dev` | `runtime/PocketJSRuntime` and `runtime.json` | supplied to `pack` |
+
+## Programs that embed an application
+
+Compile the application for the host contract the program implements, then
+build the program with the bundle:
+
+```sh
+bun tools/pocket.ts compile --config apps/nexus-touch/pocket.host.config.ts \
+  --project-root . --target ipodtouch4-dev \
+  --output dist/ipodtouch4/application.pkb
+bun tools/pocket.ts build --config programs/ipodtouch4/pocket.host.config.ts \
+  --bundle dist/ipodtouch4/application.pkb --out dist/ipodtouch4
+```
+
+**The build executor checks the bundle's binding generation, host contract hash, the plan's checksum and the identity section against the plan before starting a native tool.** Native recipes use the admitted JavaScript and resource bytes. Application source files are not needed for this step. A missing bundle is an error; the recipe does not select a demo.
+
+The Nokia E7 recipe retains its native extension and presentation options. Pass those after `--`, for example `-- --frame-rate 60 --core-library /absolute/path/lib.a`. The iPod touch 4 command retains application-specific native cores and artwork selected by its descriptor; it takes `build --bundle <file>` and uses the same admission checks.
+
+## Reusable runtimes
+
+The default iPod touch 4 host config builds without application code. Packaging combines a runtime with an application:
+
+```sh
+bun tools/pocket.ts build --config programs/ipodtouch4/pocket.host.config.ts \
+  --out dist/ipod-runtime
+bun tools/pocket.ts compile --config apps/clear/pocket.host.config.ts \
+  --project-root . --target ipodtouch4-dev \
+  --output dist/clear-ipod.pkb
+bun tools/pocket.ts pack --config programs/ipodtouch4/pocket.host.config.ts \
+  --runtime dist/ipod-runtime/runtime --bundle dist/clear-ipod.pkb \
+  --out dist/clear-ipod.ipa
+```
+
+**The runtime directory records its host contract hash, its stamped `pocket.host.json` and hashes of the native files.** `pack` verifies those records and admits the bundle by the host contract's facts. iPod packaging preserves the runtime's native signature and adds the application payload.
+
+## Toolchains and deployment
+
+The existing host setup and doctor commands inspect pinned toolchains. Build recipes report missing SDKs, sysroots or compiler images and do not substitute a host executable. iOS simulator builds use `ns build ios --emulator`; they do not boot or launch a simulator.
+
+The existing deployment commands remain separate. Compatibility `build --bundle` commands write their established `dist/` directories; deployment consumes the built artifact and its native receipt. Apple bundle receipts remain inside their `.app` directories.

@@ -1,59 +1,380 @@
 # Native contract
 
-Everything in PocketJS — the framework adapters, styling, animation, and input
-— ultimately drives a native, retained-mode UI tree through one small,
-synchronous op surface: `ui.*`. This page documents that surface, the runtime
-model around it, and the constraints that let the same application contract run
-through PSP, PS Vita, web, desktop, and headless hosts.
+The guest build compiles TypeScript application sources into an engine bundle.
+Its framework adapters, styling, animation and input drive a native retained
+UI tree through the synchronous op surface `ui.*`. This page documents that
+guest-to-host surface and the host runtime around it. **TypeScript is the
+application source contract; JavaScript is an emitted execution format.**
+
+The [TypeScript support reference](/docs/typescript-support/) defines which
+source forms the build admits. This page describes the runtime boundary.
 
 If you only write app code you never call these ops directly — you write [`View` / `Text` / `Image`](/docs/components/) and the renderer emits ops for you. This page is for understanding *why* the surface looks the way it does, and for anyone writing a new host.
 
+## Native AOT and the guest op surface
+
+**Native AOT views call `microts::Ui` from generated Rust.** Their model
+boundary is the generated Rust view-model trait, implemented by a compiled
+TypeScript model or by application-owned Rust. This path has no guest mirror
+tree and does not call back into a TypeScript interpreter for model methods.
+The core's nodes, styles, layout and animation are reused.
+
+Compiled model tasks communicate through `Host::model_ready` and
+`Host::model_command`: the host supplies a frame-boundary `Ready` snapshot and
+executes queued `Cmd` values after the view and lifecycle updates. Service
+completion is deferred to a boundary even though individual UI ops are
+synchronous. A native service adapter must implement the request, cancellation
+and delivery contract; the `HostOps` UI table does not supply that adapter.
+
+See [TypeScript and native code](/docs/microts-boundaries/) for model
+selection, ownership and host responsibilities. The FFI, mirror and engine
+job-queue descriptions below concern guest execution.
+
 ## The shape of the contract
 
-Three rules define the whole model:
+Three rules constrain the surface:
 
 1. **Mutation-oriented.** Tree operations are immediate commands; returned node,
    texture, and animation handles are synchronous results. The few read-shaped
    diagnostics and `measureText` never expose or walk native tree structure.
-2. **Synchronous.** Each op is a single blocking FFI call. There is no command
-   buffer or async batching at this layer; framework reactivity avoids emitting
-   unchanged mutations one level up.
+2. **Synchronous.** Each op is one blocking FFI call that returns on the same
+   stack. The one batching path is `setPropBatch(records)`, an optional
+   `HostOps` method outside the numbered op table: `records` is a little-endian
+   `Float64Array` of `[nodeId, propId, value]` triples with the semantics of
+   repeated `setProp` calls. `framework/src/anim.ts` commits jump batches
+   through it and falls back to a `setProp` loop on hosts without it.
 3. **The reconciler never reads tree structure across FFI.** The renderer keeps
    a **JS mirror tree**. Parent/child/sibling and node-kind reads are plain JS
    object walks; structural writes update both mirrors.
 
-The op codes are pinned once, in `contracts/spec/spec.ts` (the `OP` table), and shared by every host and the Rust core. Codes are append-only: never renumbered, never reused. `0` is reserved as invalid/nop.
+The op codes are pinned once, in `contracts/spec/spec.ts` (the `OP` table), and shared by every host and the Rust core. Codes are append-only, and an op in use is never renumbered; the code of a removed op is free. `0` is reserved as invalid/nop.
+
+## Driver contract migration
+
+`contracts/spec/input.ts`, `driver-abi.ts`, and `runtime-abi.ts` define the
+device vocabulary, C records, callbacks, and runtime function declarations.
+`bun tools/driver-contracts.ts` generates `contracts/generated/pocket_drivers.h`,
+`contracts/generated/pocket_runtime.h`, and `engine/drivers/src/abi/generated.rs`.
+`--check` compares each output with its source. Rust and C compile-time
+assertions check field offsets, alignment, and record size using the target's
+primitive alignment rules.
+
+**`pocket_runtime::abi` implements the instance runtime functions.**
+`pocket-runtime` owns application state and driver registration; its `abi`
+module holds the instance handle and the function bodies, and
+`programs/sdk/archive` defines each exported symbol once over them.
+`pocket_drivers::abi` holds the C records, the pointer checks and the adapters
+between C vtables and the driver traits. The C and Rust
+guest adapters use signatures from `contracts/spec/ui-ops.ts`, whose generated
+dispatcher validates argument records before calling the core. Byte arguments
+remain borrowed for the call; byte results expire at the next call on the same
+instance, including a failed call.
+
+Existing QuickJS C, rquickjs `UiSurface`, and Wasm entry paths remain
+available. **Applications are bundles, format 1,
+of binding generation 12.** Host contract identity (`profileHash`), binding
+generation, C record prefixes and DrawList versions are checked as separate
+contracts.
+
+**`pocket sdk export --triple <rust-target> --out <directory>` downloads a verified
+release C SDK.** Its no_std archive disables legacy features and uses
+`panic=abort`. The export includes canonical headers, C guest source, a
+relocatable CMake package with `Pocket::runtime` and `Pocket::guest_quickjs`,
+and a manifest of source identity, build flags, and file hashes. The program
+provides the six host hooks and its QuickJS dependency. `pocket sdk verify
+--dir <directory>` checks the exported file list and hashes. Exporting does
+not publish a release or freeze the ABI. `pocket sdk build` compiles a local
+candidate from a source checkout. See `docs/SDK.md` for release and Cargo exports.
+
+**Renderer 0 (`POCKET_RENDERER_SOFTWARE`) is the software rasterizer of archives
+built with the `pocket-archive` feature `software-renderer`.** The C SDK, the
+ESP-IDF and the SiFli archives enable it: `pocket_runtime_create` registers the
+rasterizer there, a CPU-visible display binds it without registering a
+renderer, and the rasterizer is rebuilt at the integer scale boot and each
+resize select. `pocket_raster_draw_op` draws in those archives. The 3DS product
+archive and the program archives do not enable it: no renderer has id 0,
+`pocket_runtime_add_display` with it fails, and `pocket_raster_draw_op` returns
+`POCKET_STATUS_UNSUPPORTED` without writing the surface. Registered renderers
+take ids from 1 in every archive. Rust programs register the rasterizer with
+`Runtime::set_software_renderer` before a display binds renderer 0.
+
+`DisplayOutput` owns acquired targets and display transfers. `Renderer`
+consumes the core's DrawList and borrowed resource views. The Rust render
+method takes `&mut FrameInput` because a CPU surface grants exclusive write
+access to its pixels. A renderer with a CPU-visible target uses the
+`Immediate` synchronization model; a device-owned target may use either
+model.
+
+**A device-owned target's handle comes from the renderer that renders into
+it.** `pocket_drivers::target` states the registration contract. The
+composition creates the renderer and keeps it in a `RendererCell`; the runtime
+receives a `Registration` of that cell, and each display receives a
+`TargetPort`, a weak link that reaches the renderer's `TargetRenderer` methods
+and never keeps the renderer alive. The composition or display creates a
+target's backing and registers it through the port; the renderer validates the
+configuration and issues the handle. **A handle belongs to one renderer
+instance**: installing a new renderer in the cell, as recovery from GL context
+loss does, makes every earlier handle stale. A target's region is fixed at
+registration, so a resize registers a new target and unregisters the old one.
+Each renderer declares what unregistering does while a pending submission
+renders into the target: GLES refuses until that submission retires, wgpu
+removes the registration while the encoded submission keeps its own view of
+the attachment, and the Vita GXM renderer owns one fixed target that cannot be
+unregistered. **The runtime drops renderer registrations before displays.**
+Dropping a `Registration` stops the work submitted through it; a display
+dropped afterwards makes no device call once the renderer is gone.
+
+**The required order is acquire, render, renderer wait, display flush,
+display wait, retire.** An `Immediate` renderer's frame runs the whole
+sequence inside one `present` call. **A `Deferred` renderer's frame completes
+at the start of the next `present`**, or at `complete_presentation`, a display
+refresh or runtime destruction, so the device draws frame N while the guest
+runs turn N+1. The completion runs renderer wait, display flush, display wait
+and retire before the display is acquired again. A display that declares
+`POCKET_DISPLAY_QUEUED_FLUSH` (`DisplayDescriptor::queued_flush`) receives its
+flush after render and before renderer wait: the device starts that
+transfer when the rendering completes, as a queued buffer swap does. Its
+completion runs renderer wait, display wait and retire.
+
+Both wait methods end device access on success and failure. A driver must stop
+or reset a hung device before returning an error. A render or flush error also
+means that the work started by that call has stopped. Retirement releases a
+submission's resources after display transfer ends. Shared textures remain
+alive until the last submission using that version retires. Destruction
+completes deferred frames and waits for outstanding work before releasing
+memory. A failed frame invalidates the buffer's damage history. **A failed
+deferred completion is returned by the call that runs it and invalidates only
+that display's history**; that call submits no new frame.
+
+The safe render method cannot retain a borrow from the frame after return.
+Deferred hardware work uses driver-owned vertex, texture, and glyph storage.
+`render_zero_copy` is an unsafe exception. An `Immediate` renderer may read
+every referenced resource until renderer wait returns. **A `Deferred`
+zero-copy submission may retain only the pixel and palette storage that
+`RenderResources::texture` returned, until the submission retires.** DrawList
+words, damage rectangles, the resource object and font atlases are borrowed
+for the render call and must be copied. The coordinator selects
+`render_zero_copy` for a `Deferred` renderer only after the unsafe
+`enable_deferred_zero_copy`, the caller's promise to keep that storage;
+otherwise it calls the copying `render`. It records the texture handles those
+renderers look up (`Coordinator::borrowed_textures`). `pocket-runtime` makes
+the promise and pins the handles in the core: `freeTexture`,
+`update_texture_t8` and glyph-page replacement of a pinned texture move its
+old storage to a retention list, and `release_textures` drops it when
+`retired_frame` reaches the submission's frame. Software fallback requires a
+CPU-visible target, completion of earlier hardware writes, and cache
+visibility before the CPU writes that region.
+
+The migration keeps four compatibility rules separate:
+
+| Contract | Evolution rule |
+| --- | --- |
+| Rust API | Cargo SemVer; new trait methods need defaults, and extensible descriptors use constructors with `non_exhaustive`. Existing core view types retain their construction syntax. |
+| C ABI | Records begin with `struct_size`. A consumer reads fields within the supplied prefix; missing callbacks mean unsupported. A producer cannot assume a consumer reads appended fields. |
+| DrawList | The operation set has no unknown-operation skip encoding. Drivers and the runtime archive use the same DrawList version. |
+| Guest bindings | `hostAbi` equals `POCKET_BINDING_GENERATION`, generated from `contracts/spec/binding-generation.ts`. Every host contract uses generation 12; legacy target-specific values 1–11 are rejected. |
+
+`contracts/spec/profile.ts` defines the host contract projection that
+`profileHash` covers: `id`, `platform`, `form`, `cadences`, `display` and
+`capabilities`. SHA-256 hashes the canonical JSON's UTF-8 bytes with no
+newline. Keys use UTF-16 code-unit order; capabilities and cadences sort as
+sets; other arrays keep their order; absent optional
+fields stay absent. The canonicalizer rejects non-JSON data and unpaired
+surrogates. **`panel`, `worker`, `limits`, `input`, `hostExtension` and the
+`hostAbi` stamp are excluded from the hash.** The bundle header carries this
+hash as 32 bytes; it names the host contract the bundle was compiled against.
+
+### Bundle format
+
+**A bundle (`.pkb`) is one compiled application for one host contract.**
+`contracts/spec/bundle.ts` defines it; `engine/package/src/bundle.rs` reads it
+on devices and `platforms/esp-idf/pocket_runtime/tools/embed_bundle.py` reads
+it in ESP-IDF builds. All integers are little-endian.
+
+| Offset | Size | Field |
+| --- | --- | --- |
+| 0 | 4 | magic `PKBD` (`0x44424B50`) |
+| 4 | 4 | format version, 1 |
+| 8 | 4 | binding generation (`hostAbi`) |
+| 12 | 4 | section count |
+| 16 | 8 | FNV-1a64 over the section payloads in table order |
+| 24 | 32 | host contract hash (`profileHash`) |
+| 56 | 8 | two reserved words, zero |
+| 64 | 16 × count | section table: kind, reserved zero word, payload offset, payload length |
+| table end, aligned to 16 | | payloads in table order, each padded to 16 |
+| length − 8 | 8 | FNV-1a64 over every preceding byte |
+
+| Kind | Section |
+| --- | --- |
+| 1 | identity: output, id and title as u16-length-prefixed UTF-8 |
+| 2 | plan: the ResolvedBuildPlan JSON |
+| 3 | js: the UI bundle, NUL-terminated |
+| 4 | pak: the asset pack |
+| 5 | icon: the square PNG `app.icon` names; a device packager stamps it |
+| 6 | bytecode: the UI bundle as a QJBC envelope |
+| 7 | hostInputs: the fixed-width ESP-IDF admission record |
+| 8 | workerJs: the worker bundle, NUL-terminated |
+| 9 | workerBytecode: the worker bundle as a QJBC envelope |
+
+Kinds increase through the table and are append-only; a reader keeps unknown
+kinds as data. Readers reject truncation, overlapping or out-of-range offsets,
+duplicate or decreasing kinds, nonzero reserved words, trailing data, and
+footer or payload hash mismatches. **A host that keeps applications in a
+container of its own, such as pocket-shell's `.pocket`, states the plan, js,
+pak, bytecode, workerJs and workerBytecode sections of the program it boots
+through its package source**; the kind numbers map one to one.
+
+### Bundle and driver compatibility
+
+**The program supplies its host contract facts, `profileHash` and binding
+generation before reading an application.** The host contract reaches the
+runtime as `pocket_profile_facts`: the host id, cadences, panel sizes,
+logical viewports, presentations, raster density, animation class, capability names
+and the input classes its capabilities require. Records follow the
+`struct_size` prefix rule: a record without cadences has the one cadence
+`tick_hz`, and one without presentations or an animation class is not compared
+on them. `pocket host export` writes the record as `pocket_profile.h` for C
+programs and `pocket_profile.rs` for Rust programs, beside the hash; the
+runtime reads no JSON. The C package-open entry points take the same record. `Runtime::new` rejects a configuration whose
+`host_abi` differs from the generated constant. Guest adapters reject an
+unsupported generation before mounting `ui` or evaluating application code.
+
+| Application | Runtime | Result |
+| --- | --- | --- |
+| `.pocket` file, format 1 or 2 | Bundle runtime, generation 12 | Reject the magic before guest initialization |
+| Bundle, legacy generation 1–11 | Generation 12 | Reject the binding generation |
+| Bundle, generation 12, plan the facts satisfy | Generation 12 | Admit if format, assets and driver checks pass, with any host id or `profileHash` |
+| Bundle, generation 12, plan the facts do not satisfy | Generation 12 | Reject and name the first failing [admission item](/docs/platform-contracts/#admission) |
+| Bundle, generation 12 | `.pocket` runtime | Reject the magic |
+| Bundle, generation 12 | Bundle runtime built with a legacy generation | Reject the binding generation |
+
+Rebuild the program and application together when changing binding generation.
+The compiler, host contract exporter and repacker require the current generation;
+they do not convert a legacy plan, runtime or bundle. The bundle codec reads
+any generation value for inspection and compatibility tests.
+
+**`hostAbi` does not version a C driver.** A driver and runtime must agree on
+the closed DrawList version. Their C records follow prefix compatibility:
+
+| Driver or caller | Archive and headers | Supported use |
+| --- | --- | --- |
+| An older canonical `struct_size` prefix | Current archive, same DrawList version | Known fields and supplied callbacks; absent callbacks remain unsupported |
+| Current canonical prefix | Older archive, same DrawList version | Common exported symbols and the prefix understood by both; new symbols require a newer archive |
+| Either prefix | A different DrawList version | Unsupported; rebuild the driver with the matching headers |
+| Pre-contract private driver layout | Canonical runtime ABI | Unsupported; implement the generated driver contract |
+
+A record's `struct_size` describes readable bytes; output capacities bound
+writes. Prefix compatibility cannot make a missing function symbol link, or
+make an old renderer understand a new DrawList operation. The runtime lifecycle
+tests cover the rejection of another format version and of a `.pocket` file
+before guest initialization and replacement with a current bundle. Before a release, `bun tools/test-runtime-cabi-compat.ts`
+compiles and links old/new C prefixes in both directions against the archive of
+the first main-line revision with `pocket_profile_facts`, and
+`bun tools/test-native-program-compat.ts` does the same for
+`pocket_native_program.h` against that revision's program archive, built under
+its own crate name and features. **Both tools fail when the two archives come
+from one source revision or are byte-identical.** CI does not run them.
+
+## Native programs
+
+**`pocket_native_program.h` composes one runtime instance for a C host.**
+`programs/native/runtime` creates the instance from one of four constructors:
+raw JavaScript and PAK (`pocket_native_program_create`, `_create_profile`), a
+complete bundle (`_create_package`), or a host `pocket_package_source_v1`
+(`_create_source`). The first three copy the bytes into a memory source and
+turn native asset loading off; the source form reads the bundle or the stated
+sections at boot and keeps native asset loading on. Admission against the host profile runs before
+the guest initializes in every form.
+
+**A source with the optional `sections` callback states the byte ranges of one
+program in a container of the host's own.** The runtime reads the plan, the
+bundles and the pak at those ranges, admits the plan against the host profile
+and parses no container; the integrity of the host's container is the host's
+to check. Without the callback the bytes are a bundle.
+
+**`pocket_native_package_open` admits a bundle in caller bytes before boot;
+`pocket_native_package_open_source` admits what a package source holds through
+the path boot takes.** Both fill `PocketNativePackage` with the plan's viewport,
+raster density and feature bits. The source form calls `length`, `sections`
+and `all` or `range`, never `take`, so the same source boots the program
+afterwards; its `javascript`, `pak` and `plan` pointers borrow the bytes
+`all` returned until the next call on the source, and are null for a
+range-only source. `package_hash` is zero for stated sections.
+
+The archive's features select the outputs `create` registers:
+
+| Features | Outputs registered at create | Hooks |
+| --- | --- | --- |
+| `std` or `software-only` | CPU ARGB buffer and its renderer | `std`: archive; otherwise `src/host_hooks.rs` |
+| none | GLES 2 renderer and display | `src/host_hooks.rs` |
+| `gles1` | GLES 1.1 renderer and display | `src/host_hooks.rs` |
+| `host-backend` | None: the host registers renderers and displays through `pocket_native_program_runtime()` before boot | `host-hooks`: the C host links the six `pocket_host_*` hooks |
+
+A build with a built-in output has one primary surface: `_create_package`
+rejects a plan with an auxiliary surface, and the built-in outputs enable
+embedded viewport changes. A `host-backend` build leaves them off, as
+`pocket_runtime_create` does, and admits auxiliary plans;
+boot then requires a registered auxiliary display when the profile has one.
+
+**`programs/native/quickjs` is the handle-based QuickJS facade over that
+program.** `pocket_qjs_program_create_host` accepts the host's profile facts,
+a `pocket_guest_v1` table with its own context, a `compose` hook that
+registers drivers and starts host services after the guest is attached, and a
+`release` hook that runs before the facade destroys the program. Without a
+host guest the facade creates its own `JSRuntime`, `JSContext` and canonical
+guest. `programs/3ds` composes the facade with a QuickJS context `main.c`
+creates, the PICA renderer, both screens and a file package source over a
+`host-backend,host-hooks` archive; the ipodtouch4 host uses the facade's own
+guest and GLES 1.1 output.
 
 ## The op table
+
+**C programs register non-core UI operations before boot** with
+`pocket_runtime_add_op_provider`. The runtime copies the operation list and
+vtable, rejects unknown operations and duplicate providers, validates argument
+types, and copies returned bytes before handing them to the guest. Providers
+cannot replace core or package operations. The program retains the provider
+context through runtime destruction; provider callbacks cannot reenter the
+runtime.
 
 Signatures are authoritative from `framework/src/host.ts` (`HostOps`) and `contracts/spec/spec.ts`.
 Node ids are generation-tagged positive `i32` values and reserve `0` for
 "none"; texture handles use their own 0-based or generation-tagged contracts.
 
-| # | op | signature | notes |
-|---|---|---|---|
-| 1 | `createNode` | `(type: i32) → id` | `type` is a `NODE_TYPE`: `0` view, `1` text, `2` image. Returns a fresh node id. |
-| 2 | `destroyNode` | `(id) → void` | Destroys the **whole subtree**; frees its anim tracks; clears focus if the focused node was inside. |
-| 3 | `insertBefore` | `(parent, child, anchorOr0) → void` | DOM move semantics: if `child` is already attached anywhere it is unlinked first (core tree + taffy + mirror). `anchor = 0` appends. Silently no-ops past `MAX_TREE_DEPTH` (64). |
-| 4 | `removeChild` | `(parent, child) → void` | Detaches but **keeps the node alive** — Solid may re-insert it this frame. The renderer sweep destroys it at frame end if still detached. |
-| 5 | `setStyle` | `(id, styleId) → void` | `styleId` indexes the compiled style table. `STYLE_ID_NONE` (`-1`) clears back to default. Triggers transitions (old→new animatable diff). |
-| 6 | `setProp` | `(id, propId: i32, value: f64) → void` | One dynamic prop. `propId` is a `PROP` id; colors/enums pass their `u32` bits as the number. |
-| 7 | `setText` | `(id, str) → void` | UTF-8; text nodes only. Used at node creation. |
-| 8 | `replaceText` | `(id, str) → void` | UTF-8; text nodes only. Solid universal calls this on reactive text updates. |
-| 9 | `uploadTexture` | `(buf, w, h, psm) → handle` | Dimensions power-of-two and `≤ 512`; `psm` is a `PSM` code. Bytes are copied and 16-byte aligned. Returns a **0-based** texture handle. |
-| 10 | `setImage` | `(id, texHandle) → void` | Binds a texture to an image node. `texHandle < 0` clears (handles are 0-based, so `0` is a real handle). |
-| 11 | `animate` | `(id, propId, to: f64, durMs, easing, delayMs) → animId` | `from` is the current value. `easing` is an `ENUMS.Easing` ordinal. Returns an anim id. |
-| 12 | `cancelAnim` | `(animId) → void` | Stops the track. |
-| 13 | `setFocus` | `(idOr0) → void` | Applies the `focus:` style variant natively. `0` clears focus. |
-| 14 | `loadStyles` | `(buf) → void` | **web/test hosts only.** Optional. Feeds the compiled `styles.bin`. On PSP the native binary feeds core from the pak. |
-| 15 | `loadFontAtlas` | `(buf) → void` | **web/test hosts only.** Optional. One call per baked font atlas blob. |
-| 16 | `measureText` | `(str, fontSlot) → width` | JS-side convenience returning width in px. Layout still measures natively. |
-| 17 | `setSprite` | `(id, atlas, frames, cols, step) → void` | Binds a native-ticked sprite atlas; non-positive `frames` clears it. |
-| 18–22 | `debugInspect`, `debugRectXY`, `debugRectWH`, `debugPause`, `debugStep` | debug-only | Optional DevTools inspection and pause/step surface. Hosts may omit it. |
-| 23 | `loadTileTexture` | `(pakKey, tileIndex) → handle \| -1` | Optional host extension: decode and upload one TILESET tile without moving its bytes through JS. |
-| 24 | `freeTexture` | `(handle) → void` | Optional host extension: release a generation-tagged texture handle; stale handles draw nothing. |
-| 25 | `uploadImgEntry` | `(blob) → handle \| -1` | Optional host extension: upload a complete IMG entry, including CLUT8 palette/RLE metadata. |
-| 26 | `setActive` | `(id, activeInt) → void` | Applies or clears the native `active:` style variant. Optional for legacy hosts. |
+Codes 1–56 are shipped. A host installs the required core first; every other
+family is optional, gated on a capability, and feature-detected by the
+framework (`ops.hitTest?.(…)`) rather than assumed. `contracts/spec/spec.ts`
+carries a comment per op and is the only authority on argument order and edge
+cases.
+
+### Required core
+
+| codes | ops | contract |
+|---|---|---|
+| 1–4 | `createNode`, `destroyNode`, `insertBefore`, `removeChild` | `createNode(type)` takes a `NODE_TYPE`: `0` view, `1` text, `2` image, `3` surface. `destroyNode` takes the whole subtree, frees its anim tracks, and clears focus if the focused node was inside. `insertBefore` has DOM move semantics (an attached child is unlinked first; anchor `0` appends) and no-ops past `MAX_TREE_DEPTH` (64). `removeChild` detaches but **keeps the node alive** for the end-of-frame sweep. |
+| 5–8 | `setStyle`, `setProp`, `setText`, `replaceText` | `styleId` indexes the compiled style table and `STYLE_ID_NONE` (`-1`) clears to default; a swap diffs old against new to start transitions. `setProp` writes one `PROP` id as an `f64`. The two text ops are UTF-8, text nodes only; Solid universal calls `replaceText` on reactive text updates. |
+| 9–10 | `uploadTexture`, `setImage` | Dimensions power-of-two and `≤ 512`, `psm` a `PSM` code, bytes copied 16-byte aligned. Texture handles are **0-based**, so `setImage` clears on `texHandle < 0`. |
+| 11–13 | `animate`, `cancelAnim`, `setFocus` | `animate(id, propId, to, durMs, easing, delayMs)` tweens from the current value and returns an anim id; `easing` is an `ENUMS.Easing` ordinal. `setFocus(0)` clears focus, a live id applies the `focus:` variant natively. |
+| 16–17 | `measureText`, `setSprite` | `measureText(str, fontSlot)` is the JS-side width query — layout measures natively. `setSprite` binds a native-ticked sprite atlas to an image node; non-positive `frames` clears it. |
+
+### Optional families
+
+| codes | family | condition |
+|---|---|---|
+| 14–15 | `loadStyles`, `loadFontAtlas` — feed the compiled `styles.bin` and one baked atlas blob per call | Installed by the QuickJS hosts (`programs/psp/src/service_bindings.rs`, `programs/vita/src/service_bindings.rs`, `programs/native/quickjs/pocket_qjs_program.c`) and by web/test hosts. `render()` calls them only when the host publishes no native texture table, so a console host that parses the pak natively never receives the call. |
+| 18–22 | `debugInspect`, `debugRectXY`, `debugRectWH`, `debugPause`, `debugStep` — inspect one node's world AABB, freeze the world, arm one tick | Debug-only and default-off. See [DevTools](/docs/devtools/). |
+| 23–25 | `loadTileTexture`, `freeTexture`, `uploadImgEntry` — decode one TILESET tile host-side, release a generation-tagged texture, upload a self-contained IMG entry with its CLUT8 palette and RLE flags | Native hosts implement these so tile bytes never transit the JS heap; without them `framework/src/tiles.ts` falls back to `__pak` + `uploadTexture`. |
+| 26 | `setActive` — apply or clear the native `active:` pressed variant | Hosts that predate the op lack it and pressed visuals degrade. |
+| 27–29, 42 | `hitTest`, `setCursor`, `setCursorPos`, `hitTestBounds` — hit testing plus the cursor sprite | `input.cursor` and `input.touch`. `hitTest` claims painted nodes in paint order, so pure layout containers pass through; `hitTestBounds` claims layout boxes, so a finger in a list's row gap hits the list. A host with `input.touch` resolves the bounds hit once per contact at the down edge and delivers it as `frame()` argument 4 — the guest calls the op only when that fact channel is absent. |
+| 30–33 | `svcOpen`, `svcPoll`, `svcSend`, `loadImgFile` — the companion channel: JSON lines through a tethered mailbox directory, plus side-file IMG entries read into textures without JS-heap transit | Native hosts with a tethered companion process. Apps feature-detect: a missing `svcOpen`, or one returning false, means "not tethered". |
+| 34–37 | `videoOpen`, `videoTick`, `videoTexture`, `videoClose` — a host-decoded `.pkst` pixel + PCM feed presented as one core texture and one audio channel | The same tethered hosts. `videoTick` is a bounded per-frame IO pump returning the presented source frame index. |
+| 38 | `debugStats` — one JSON snapshot of the device's diagnostic counters plus build identity: the app output name and the FNV-1a64 hash of the embedded js+pak | Hosts without counters omit it and the DevTools `stats` reply carries `null`. |
+| 39–41 | `appTable`, `appLaunch`, `appShot` — reserved for a product host that switches between applications | No program in this repository implements them; [pocket-shell](https://github.com/pocket-nexus/pocket-shell) does and defines their semantics. A guest tests for each operation before it calls it. |
+| 43 | `wrapText` — greedy soft-wrap break columns for one line under `maxW`, as ascending UTF-16 code-unit indices | Breaks come from the same provider that measures and paints the slot; a native-text backend may install the host wrapper and its positions win. Without the op, apps run matching greedy rules over `measureText`. |
+| 45–46 | `hitTestAuxiliary`, `hitTestBoundsAuxiliary` — the twins of 27 and 42 in the auxiliary output's logical coordinates, never searching primary | `display.auxiliary`. |
+| 47–50 | `fontStreamConfigure`, `fontStreamRequests`, `fontStreamCommit`, `fontStreamStats` — a bounded external glyph cache fed by CPU handoff | `text.glyphs.streamed`. |
+| 51 | `appClose` — reserved with 39–41 | The same product hosts. |
+| 52–56 | `physicsCreate`, `physicsApply`, `physicsDestroy`, `physicsEvents`, `physicsQuery` — worlds, bodies, colliders, zones and emitters stepped inside `tick()`; parameters, commands and events are little-endian f64 records (`contracts/spec/physics.ts`). `physicsApply` takes any number of `[handle, cmd, argc, arg*]` records in one crossing. `physicsEvents` drains every world's records once per frame and returns `undefined` when there are none; the framework calls it only while a world has handlers, which is also when the world records. `physicsQuery` is a cold-path read, one crossing per value | `ui.physics`. See [Physics](/docs/physics/). |
 
 For the meaning of `PROP` ids, `ENUMS`, and how a `class` string becomes a `styleId`, see [Styling](/docs/styling/) and the [API reference](/docs/api/). For `animate`/`easing` semantics see [Animation](/docs/animation/).
 
@@ -78,7 +399,7 @@ id = (generation << ID_SLOT_BITS) | slot; // ID_SLOT_BITS = 20, mask 0xFFFFF
 - **slot** — index into the core's node arena (`Vec<Node>` + free list).
 - **generation** — a counter that increments every time a slot is reused.
 
-When a node is destroyed its slot returns to the free list and its generation bumps. A stale id held by JS — say a handler that fires after its node was swept — decodes to a slot whose live generation no longer matches, so the core recognizes it and the op becomes a **safe no-op** instead of corrupting a reused node. This is the same class of guard as a generational index in an ECS.
+When a node is destroyed its slot returns to the free list and its generation bumps. A stale id held by JS — say a handler that fires after its node was swept — decodes to a slot whose live generation no longer matches, so the core recognizes it and the op becomes a **safe no-op** instead of corrupting a reused node.
 
 Fixed invariants:
 
@@ -89,7 +410,7 @@ Fixed invariants:
 
 ## The JS mirror tree
 
-The renderer (`framework/src/renderer.ts`) implements Solid's universal `createRenderer` over a `NodeMirror`:
+`framework/src/renderer.ts` re-exports `renderer-solid.ts`, which implements Solid's universal `createRenderer`. The mirror tree itself — the `NodeMirror` shape, the structural mutations, and the sweep set — lives in `framework/src/native-tree.ts` and is shared with the Vue Vapor and Octane renderers:
 
 ```ts
 interface NodeMirror {
@@ -102,6 +423,9 @@ interface NodeMirror {
   onPress?: (() => void) | undefined;
 }
 ```
+
+Vue Vapor's DOM-shaped helpers add `domNodeType` / `domTag` / `domAttrs` /
+`domData` to the same object, and DevTools adds `debugName`.
 
 Every reconciler *read* resolves against this object graph:
 
@@ -131,19 +455,36 @@ misses (`missCounters.unknownClass` / `unknownTexture`) and render on. Web,
 wasm, and headless-Bun hosts are development and CI surfaces, where a silent
 wrong-color pixel is worse than a stack trace.
 
-Resolution order: an injected `HostOps` wins; otherwise `globalThis.ui`; if
-neither exists, `render()` throws. Native namespaces identify themselves with
-`__host` and `__hostAbi`. A manifest-built bundle embeds its expected target
-and ABI and refuses to mount on a mismatched or pre-contract native host.
-`__textures` remains a legacy native marker so old, non-manifest bundles keep
-working, but it cannot satisfy an embedded target contract.
+Resolution order: an injected `HostOps` wins — unless it is the same object as
+`globalThis.ui` and that namespace marks itself native, in which case the host
+stays native and non-strict. Otherwise `globalThis.ui` is taken; one that
+carries neither marker, as the web and wasm adapters publish, resolves as
+strict-injected. If neither exists, `render()` throws.
+
+A namespace marks itself native with `__host` plus `__hostAbi`, or with the
+legacy `__textures` marker. **Every native mount requires the current binding
+generation**, including raw bundles with no target restriction. A namespace
+with only `__textures` is rejected because it lacks `__hostAbi`; rebuild its
+guest adapter. A bundle built from a build plan also checks its expected
+target.
+`assertNativeHostContract` compares the bundle's baked tick rate against
+the host's `ui.__tickHz` on every native mount. Injected `HostOps` adapters
+have no native metadata requirement.
+
+On ESP-IDF the generated QuickJS guest mounts the namespace and dispatches
+operations into the registered runtime instance; see
+[ESP-IDF](/docs/esp-idf/).
 
 Every host drives frames through
-`globalThis.frame(buttons, analog?, touches?)`. Buttons use the shared PSP
-bitmask, analog is `(x << 8) | y` with centered bytes on stickless hosts, and
-touch contacts are packed snapshots in logical coordinates. The runtime latches
-all three before app hooks, then performs input edge detection and the
-end-of-frame sweep. See [Input & focus](/docs/input-focus/) and
+`globalThis.frame(buttons, analog?, touches?, hits?, touchSurfaces?, rightAnalog?, axisDeltas?, motion?)`.
+Buttons use the shared PSP bitmask, analog is `(x << 8) | y` with centered
+bytes on stickless hosts, and touch contacts are packed snapshots in logical
+coordinates. `hits` carries parallel down-edge hit facts; `touchSurfaces` uses
+`0` for primary and `1` for auxiliary, with omitted entries defaulting to
+primary. `rightAnalog` packs the right stick like `analog`, `axisDeltas` lists
+relative-axis millidegrees, and `motion` is the motion driver's newest fused
+`MotionState`. The runtime latches these inputs before app hooks, then performs
+input edge detection and the end-of-frame sweep. See [Input & focus](/docs/input-focus/) and
 [Platform contracts](/docs/platform-contracts/).
 
 ## Frame order
@@ -155,56 +496,69 @@ hosts perform the same logical steps under a fixed-step
 ```
 read host input                     buttons + optional analog/touch snapshot
   ↓
-frame(buttons, analog?, touches?)
-                 ── JS ──►          advance virtual time, latch input, deliver
-                                    queued effects, run app hooks + focus,
+frame(buttons, analog?, touches?, hits?, touchSurfaces?)
+                 ── JS ──►          advance virtual time, latch input, run
+                                    service pumps, deliver queued effects,
+                                    resolve contact lifecycles (gestures),
+                                    run app hooks + focus,
                                     then runSweep() (node reclamation) last
   ↓
 drain jobs                          while JS_ExecutePendingJob(rt, &ctx) > 0
                                     (promise microtasks — polyfilled queueMicrotask)
   ↓
-core.tick(N × 1/60)                 advance exact ticks for this virtual frame
+core.tick(N × 1/hz)                 advance exact ticks for this virtual frame
   ↓
 layout (if dirty)                   taffy re-run + text re-measure, only if a
                                     layout-dirtying prop changed
   ↓
-DrawList                            tree walk → flat Vec<u32> ops, CPU-clipped
+DrawList(s)                         one tree walk per resolved UI output →
+                                    flat Vec<u32> ops, CPU-clipped
   ↓
 backend acquire/render/present      DrawList → GE, GXM, WGPU, or software
 ```
 
-That final backend phase is intentionally schematic. PSP pipelines the GE: it
-presents the previous list, starts the next list, and lets the GPU overlap the
-following frame's JS/core work. Vita and software hosts own different acquire
-and presentation order without changing the logical frame transaction above.
+The final phase is schematic. PSP pipelines the GE — it presents the previous
+list, starts the next, and lets the GPU overlap the following frame's JS/core
+work — while Vita and software hosts order acquire and presentation their own
+way, without changing the frame transaction above.
 
 Key properties:
 
 - **The sweep runs inside `frame()`**, as the last thing user code does — so a remove-then-reinsert within one frame (a `<For>` reorder, a `<Show>` toggle) never destroys a live node.
-- **Virtual time, fixed core ticks.** `core.tick` advances an exact number of
-  `1/60 s` ticks selected by the host simulation rate, never wall-clock time.
-  Commands from the outside world are delivered only at frame boundaries.
+- **Virtual time, fixed core ticks.** A realm declares its rate before the
+  first tick (`Ui::set_tick_rate`; `DEFAULT_TICK_HZ` is 60, `MAX_TICK_HZ` is
+  240) and keeps it for the whole run, so one tick is `1/hz s` and never
+  wall-clock time. A bundle bakes the same rate (`--hz=N`, 1 through 240) and
+  refuses to mount on a host that declares another. `core.tick` advances an
+  exact number of those ticks per virtual frame; commands from the outside
+  world are delivered only at frame boundaries.
 - **Layout is conditional.** Only a change to a layout-dirtying prop (`LAYOUT_DIRTYING` in the spec — sizes, padding, flex props, `fontSlot`/`tracking`/`lineHeight`) re-runs taffy. Transform and color changes are paint-only. Prefer transforms in animation for this reason.
-- **Backends never define UI semantics.** The Rust core produces one DrawList
-  in 480×272 logical coordinates. The PSP GE consumes it at density 1; Vita
-  GXM consumes it at density 2 after the compiler has baked native-density
-  fonts, vectors, masks, and target-selected images.
+- **Backends consume DrawLists.** The Rust core produces one DrawList per
+  resolved UI output, in that output's logical coordinates. Single-screen hosts
+  consume the primary list; a host with an auxiliary display consumes a second
+  after both roots have shared the same state update and resource generation.
+  The one semantic a backend can change is text: an app that lists
+  `text.layout.native` in its `features` gets a host measurer installed before
+  mount on a host that provides it, and taffy
+  leaf sizes come from it ([Render backends](https://github.com/pocket-nexus/pocketjs/blob/main/docs/BACKENDS.md)).
 
 In steady state — no reactive values changed — `frame()` emits **no** mutation
 ops, the sweep set is empty, and the only JS boundary crossing is the single
-`frame(buttons, analog?, touches?)` call itself. Everything downstream (tick,
-layout, draw) is Rust.
+`frame(buttons, analog?, touches?, hits?, touchSurfaces?)` call itself.
+Everything downstream (tick, layout, draw) is Rust.
 
 ## Node reclamation
 
-Solid's reconciler calls `removeChild` for nodes that might be re-inserted the same frame (rows moving across a `<For>`, arms swapping in a `<Show>`). So `removeChild` deliberately does **not** destroy — it detaches and remembers the node in a sweep set:
+Solid's reconciler calls `removeChild` for nodes that might be re-inserted the same frame (rows moving across a `<For>`, arms swapping in a `<Show>`). So `removeChild` does **not** destroy — `removeNode` in `framework/src/native-tree.ts` detaches and remembers the node in a sweep set:
 
 ```ts
-function removeNodeImpl(parent, node) {
+export function removeNode(parent: NodeMirror, node: NodeMirror): void {
+  if (!node) return;
   notifyDetached(node);              // focus repair, before the unlink
   getOps().removeChild(parent.id, node.id);
-  unlink(node);                      // drop from mirror parent
+  unlink(node);                      // drop from the mirror parent
   sweepSet.add(node);                // reclaim at frame end unless re-attached
+  treeMutated();                     // DevTools hook + the cursor hover cache
 }
 ```
 
@@ -235,19 +589,17 @@ On hardware the whole stack lives in **one arena**, and getting there required f
 
 The fix, at a high level:
 
-1. The exact-revision `pocket-stack/rust-psp` dependency exposes an **`external-global-alloc`** feature that cfg-gates out its `#[global_allocator]`.
-2. `hosts/psp/src/alloc.rs` installs the PocketJS global allocator, backed by `arena::alloc`/`dealloc` — the **same single kernel block** QuickJS uses. Core, QuickJS, and newlib all draw from one arena.
+1. The exact-revision `pocket-nexus/rust-psp` dependency exposes an **`external-global-alloc`** feature that cfg-gates out its `#[global_allocator]`.
+2. `platforms/psp/alloc/src/lib.rs` installs the PocketJS global allocator, backed by `arena::alloc`/`dealloc` — the **same single kernel block** QuickJS uses. Core, QuickJS, and newlib all draw from one arena.
 3. `arena.rs`'s `ensure_init` calls `sceKernelAllocPartitionMemory` / `sceKernelGetBlockHeadAddr` **directly** — no recursion back through `alloc::alloc`, now that the arena *is* the global allocator.
 4. Texture uploads and retained core buffers live in that same arena. A **2 MB margin** is reserved for the GE display list and stack safety.
 
 Other inherited hard rules worth knowing when you touch the native side:
 
-- JS runs on the 2 MB `USER | VFPU` worker; the main stack is 256 KB. `MAX_TREE_DEPTH = 64` exists to keep recursive walks inside it.
+- JS runs on a **1 MB `USER | VFPU` worker** created in `programs/psp/src/host.rs`; the `psp::module!` main thread has only a 256 KB stack, which QuickJS overflows while compiling a bundle. `MAX_TREE_DEPTH = 64` keeps recursive walks inside the worker stack.
 - GE buffers are 16-byte aligned with a dcache writeback per batch.
 - 2D vertex coords are `i16`; the core's CPU clip stage guarantees in-range values so the GE never wraps a coordinate.
 - Textures are power-of-two, `≤ 512` per side, sampled from main RAM.
-
-None of this is visible from app code — it is the cost of making a JSX runtime fit on the device.
 
 ## Perf budget
 
@@ -255,7 +607,7 @@ The whole design converges on a small steady-state cost:
 
 | budget | target |
 |---|---|
-| FFI crossings per steady frame | **one** (`frame(buttons, analog?, touches?)`; no mutation ops when nothing changed) |
+| FFI crossings per steady frame | **one** (`frame(buttons, analog?, touches?, hits?, touchSurfaces?)`; no mutation ops when nothing changed) |
 | DrawList draw calls | **≤ ~40** `sceGuDrawArray` calls |
 | DrawList quads | **≤ ~2000** |
 | per-frame vertex bytes | **≈ 48 KB** from a per-frame bump pool (reset after `sceGuSync`) |

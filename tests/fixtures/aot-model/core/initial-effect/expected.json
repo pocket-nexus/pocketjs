@@ -1,0 +1,37 @@
+{
+  "state": {
+    "count": 2,
+    "result": 2
+  },
+  "writes": [
+    {
+      "name": "count",
+      "value": 2,
+      "changed": true
+    },
+    {
+      "name": "result",
+      "value": 2,
+      "changed": true
+    }
+  ],
+  "operations": [
+    {
+      "kind": "set",
+      "name": "count",
+      "value": 2,
+      "changed": true
+    },
+    {
+      "kind": "effect",
+      "effect": 0,
+      "initial": false
+    },
+    {
+      "kind": "set",
+      "name": "result",
+      "value": 2,
+      "changed": true
+    }
+  ]
+}

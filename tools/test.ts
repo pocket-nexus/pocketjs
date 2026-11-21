@@ -4,14 +4,16 @@
 //
 //   bun tools/test.ts                 # the full suite (what CI runs)
 //   bun tools/test.ts --stage=sim     # only stages whose name contains "sim"
+//   bun tools/test.ts --skip=AOT      # every stage but those containing "AOT"
 //   bun tools/test.ts --list          # print the stage table and exit
 //
 // Stage anatomy: `prep` commands build the artifacts a stage needs (stdout
 // captured, replayed only on failure); `script` runs a self-reporting bun
 // script as-is (tests/contract.ts prints its own ok-lines); `tests` run as
 // ONE `bun test` invocation, with `browser: true` adding
-// `--conditions=browser` (stages that eval wasm-host bundles). On failure
-// the exact repro command is printed before exiting 1.
+// `--conditions=browser` (stages that eval wasm-host bundles); `env` is
+// added to every process of the stage. On failure the exact repro command
+// is printed before exiting 1.
 
 interface Stage {
   readonly name: string;
@@ -23,6 +25,8 @@ interface Stage {
   readonly tests?: readonly string[];
   /** Run `tests` under --conditions=browser (wasm-host module resolution). */
   readonly browser?: boolean;
+  /** Environment added to every prep, script and test process of the stage. */
+  readonly env?: Readonly<Record<string, string>>;
 }
 
 const SUITE: readonly Stage[] = [
@@ -31,56 +35,158 @@ const SUITE: readonly Stage[] = [
     prep: [["bun", "tools/build.ts", "hero"]],
   },
   {
-    name: "contracts drift guard",
+    name: "contract codec",
     script: ["bun", "tests/contract.ts"],
   },
   {
+    // Native program and guest composition tests share this unit-test stage.
     name: "unit",
+    // wasm-auxiliary.test.ts, wasm-premultiplied.test.ts, pocket3d-web.test.ts and runtime-glyphs.test.ts load platforms/web/pocketjs.wasm.
+    prep: [["bun", "tools/wasm.ts"]],
     tests: [
+      "tests/device-lease.test.ts",
+      "tests/device-evidence.test.ts",
+      "tests/doctor.test.ts",
       "tests/release-check.test.ts",
       "tests/release-notes.test.ts",
       "tests/platform-contracts.test.ts",
-      "tests/pocket-package.test.ts",
+      "tests/profile-contract.test.ts",
+      "tests/app-config.test.ts",
+      "tests/source-app.test.ts",
+      "tests/driver-contracts.test.ts",
+      "tests/generated-contracts.test.ts",
+      "tests/driver-kit-c.test.ts",
+      "tests/driver-kit.test.ts",
+      "tests/guest-web-bindings.test.ts",
+      "tests/embedded-package.test.ts",
+      "tests/quickjs-bytecode.test.ts",
+      "tests/runtime-cabi.test.ts",
+      "tests/sdk.test.ts",
+      "tests/release-artifacts.test.ts",
+      "tests/release-inputs.test.ts",
+      "tests/vita-toolchain.test.ts",
+      "tests/e2e-build.test.ts",
+      "tests/cargo-workspace.test.ts",
+      "tests/idf-input.test.ts",
+      "tests/zephyr-contract.test.ts",
+      "tests/linux-platforms.test.ts",
+      "tests/buildroot.test.ts",
+      "tests/sdk-idf.test.ts",
+      "tests/out-of-tree-rust.test.ts",
+      "tests/bundle.test.ts",
+      "tests/package-admission.test.ts",
+      "tests/idf-host-profile.test.ts",
+      "tests/idf-embed.test.ts",
+      "tests/idf-incremental.test.ts",
+      "tests/idf-release.test.ts",
+      "tests/idf-bundle-corpus.test.ts",
       "tests/widget-args.test.ts",
-      "tests/ipod-nano.test.ts",
       "tests/note.test.ts",
-      "tests/desk98.test.ts",
-      "tests/site-stage.test.ts",
+
+      "tests/site-arcade.test.ts",
+      "tests/site-showcase.test.ts",
+      "tests/motions-attribution.test.ts",
       "tests/host-build-inputs.test.ts",
-      "tests/iphone2g-profile.test.ts",
-      "tests/iphone4s-profile.test.ts",
-      "tests/ipodtouch-profile.test.ts",
-      "tests/meizu-m8-profile.test.ts",
-      "tests/blackberry-classic.test.ts",
-      "tests/pocket-input.test.ts",
-      "tests/ios-profile.test.ts",
-      "tests/iphone2g-device-contract.test.ts",
-      "tests/iphone2g-toolchain.test.ts",
-      "tests/iphone2g-device-transaction.test.ts",
+      "tests/quickjs-c-harness.test.ts",
+      "tests/native-program.test.ts",
+      "tests/native-source.test.ts",
+      "tests/3ds-minimal.test.ts",
+      "tests/pica-kernel.test.ts",
+      "tests/pica-driver.test.ts",
+      "tests/ge-driver.test.ts",
+      "tests/psp-runtime.test.ts",
+      "tests/pocket3d-title.test.ts",
+      "tests/pocket3d-packs.test.ts",
+      "tests/pocket3d-web.test.ts",
+      "tests/runtime-glyphs.test.ts",
+      "tests/media-service.test.ts",
+      "tests/service-client.test.ts",
+      "tests/modality.test.ts",
+      "tests/actions.test.ts",
+      "tests/repack-3ds.test.ts",
+      "tests/repack-shared.test.ts",
+      "tests/repack-sfo.test.ts",
+      "tests/repack-psp.test.ts",
+      "tests/repack-palette.test.ts",
+      "tests/repack-vita.test.ts",
+      "tests/worker.test.ts",
+      "tests/worker-native.test.ts",
+      "tests/contact-latch.test.ts",
+      "tests/compiler-portability.test.ts",
       "tests/platform-runtime.test.ts",
       "tests/app-check.test.ts",
+      "tests/runtime-packages.test.ts",
+      "tests/build-writes.test.ts",
+      "tests/targets-catalog.test.ts",
+      "tests/toolchain-definitions.test.ts",
+      "tests/runtime-build.test.ts",
+      "tests/runtime-programs.test.ts",
+      "tests/targets-project.test.ts",
+      "tests/targets-install.test.ts",
+      "tests/class-diagnostics.test.ts",
       "tests/vue-sfc.test.ts",
       "tests/font-bake.test.ts",
+      "tests/build-font-flags.test.ts",
+      "tests/indexed-image.test.ts",
+      "tests/svg-texture-size.test.ts",
       "tests/touch.test.ts",
+      "tests/desktop-pointer.test.ts",
+      "tests/keyboard-touch.test.ts",
+      "tests/caret-blink.test.ts",
       "tests/gesture.test.ts",
       "tests/kinetics.test.ts",
       "tests/osk-controller.test.ts",
+      "tests/clear-keyboard-touch.test.ts",
       "tests/audio.test.ts",
-      "tests/db.test.ts",
       "tests/fs.test.ts",
-      "tests/net.test.ts",
-      "tests/net-web.test.js",
-      "tests/vita-package.test.ts",
-      "tests/psp-toolchain.test.ts",
+      "tests/bytes.test.ts",
+      "tests/offload.test.ts",
+      "tests/offload-posix.test.ts",
+      "tests/ime.test.ts",
+      "tests/ime-supervisor.test.ts",
+      "tests/ime-text-tile.test.ts",
+      "tests/text.test.ts",
+      "tests/text-layout-client.test.ts",
+      "tests/clear-candidate-panel.test.ts",
+      "tests/device-program-build.test.ts",
+      "tests/device-source-inputs.test.ts",
+      "tests/ios-profile.test.ts",
+      "tests/ipodtouch-profile.test.ts",
+      "tests/ipodtouch4-installation.test.ts",
+      "tests/ipodtouch4-profile.test.ts",
+      "tests/ipodtouch4-resources.test.ts",
+      "tests/ipodtouch4-native.test.ts",
+      "tests/ipodtouch4-svcwire.test.ts",
+      "tests/nativescript-bridge.test.ts",
+      "tests/repack-ipod.test.ts",
       "tests/symbian-data.test.ts",
-      "tests/symbian-toolchain.test.ts",
       "tests/symbian-device.test.ts",
+      "tests/symbian-package.test.ts",
       "tests/symbian-runtime.test.ts",
+      "tests/symbian-toolchain.test.ts",
+      "tests/repack-worker.test.ts",
+      "tests/offload-provider.test.ts",
+      "tests/companion-session.test.ts",
+      "tests/resource-cache.test.ts",
+      "tests/font-config.test.ts",
+      "tests/font-archive.test.ts",
+      "tests/net-web.test.js",
+
+      "tests/wasm-auxiliary.test.ts",
+      "tests/wasm-runtime.test.ts",
+      "tests/wasm-premultiplied.test.ts",
+      "tests/physics.test.ts",
+      "tests/vita-package.test.ts",
+      "tests/vita-runtime.test.ts",
+      "tests/targets-psp.test.ts",
+      "tests/psp-prx.test.ts",
+      "tests/psplink-cache.test.ts",
+      "tests/psp-arena.test.ts",
+      "tests/psp-qjs-allocator.test.ts",
       "tests/cli.test.ts",
       "tests/npm-package.test.ts",
       "tests/video-outro.test.ts",
       "tests/osk-layout.test.ts",
-      "tests/test-suite.test.ts",
     ],
   },
   {
@@ -89,6 +195,8 @@ const SUITE: readonly Stage[] = [
     tests: [
       "tests/tailwind.test.ts",
       "tests/renderer.test.ts",
+      "tests/resource.test.ts",
+      "tests/resource-view.test.ts",
       "tests/virtual-list.test.ts",
       "tests/touch-activation.test.ts",
       "tests/portal-hit.test.ts",
@@ -97,39 +205,100 @@ const SUITE: readonly Stage[] = [
       "tests/vue-vapor-dom.test.ts",
       "tests/vue-vapor-pak.test.ts",
       "tests/svg-bake.test.ts",
-      "tests/wrap-op.test.ts",
       "tests/devtools.test.ts",
+      "tests/devtools-bridge.test.ts",
       "tests/hot.test.ts",
       "tests/clock.test.ts",
       "tests/tiles.test.ts",
     ],
   },
   {
+    name: "handheld models and dual output",
+    prep: [["bun", "tools/wasm.ts"]],
+    tests: ["tests/handheld-models.test.ts", "tests/text-batch.test.ts", "tests/text-cjk.test.ts"],
+  },
+  {
+    name: "AOT frontends and execution parity",
+    prep: [["bun", "tools/build.ts", "solid-aot-lab-main"]],
+    browser: true,
+    tests: [
+      "tests/aot-admission.test.ts",
+      "tests/aot-types.test.ts",
+      "tests/aot-vue-frontend.test.ts",
+      "tests/aot-solid-frontend.test.ts",
+      "tests/aot-solid-browser.test.ts",
+      "tests/aot-constant-contracts.test.ts",
+      "tests/aot-codegen.test.ts",
+      "tests/aot-differential.test.ts",
+      "tests/microts-layout-baked.test.ts",
+      "tests/solid-for.test.ts",
+      "tests/solid-viewport.test.ts",
+      "tests/solid-aot-lab.test.ts",
+      "tests/vue-vapor-frame-flush.test.ts",
+    ],
+  },
+  {
+    name: "Model AOT semantics and resources",
+    // Generated-program fuzz checks remain opt-in through `bun run test:fuzz`.
+    prep: [
+      ["bun", "tools/wasm.ts"],
+      // The view oracles import the generated default styles on a clean checkout.
+      ["bun", "tools/build.ts", "solid-aot-lab-main"],
+    ],
+    tests: [
+      "tests/aot-model-animation.test.ts",
+      "tests/aot-model-async-view.test.ts",
+      "tests/aot-model-await-order.test.ts",
+      "tests/aot-model-build-plan.test.ts",
+      "tests/aot-compile.test.ts",
+      "tests/aot-model-capacity.test.ts",
+      "tests/aot-model-codegen.test.ts",
+      "tests/aot-model-differential.test.ts",
+      "tests/aot-model-factory.test.ts",
+      "tests/aot-model-focus.test.ts",
+      "tests/aot-model-frontend.test.ts",
+      "tests/aot-model-interp.test.ts",
+      "tests/aot-model-js.test.ts",
+      "tests/aot-model-metamorphic.test.ts",
+      "tests/aot-model-private-fields.test.ts",
+      "tests/aot-model-resources.test.ts",
+      "tests/aot-model-scalars.test.ts",
+      "tests/aot-model-startup.test.ts",
+      "tests/aot-model-tape.test.ts",
+      "tests/aot-model-tasks.test.ts",
+      "tests/aot-model-view-numbers.test.ts",
+      "tests/aot-model-view.test.ts",
+      "tests/aot-model-watch.test.ts",
+    ],
+  },
+  {
     name: "vue-sfc journeys",
     prep: [
-      ["bun", "tools/build.ts", "hero-vue-sfc-main", "--framework=vue-vapor"],
       ["bun", "tools/build.ts", "vue-sfc-lab-main", "--framework=vue-vapor"],
     ],
     browser: true,
     tests: ["tests/vue-sfc-lab.test.ts"],
   },
   {
+    name: "clear journeys",
+    prep: [["bun", "tools/build.ts", "clear-main", "--framework=vue-vapor"]],
+    browser: true,
+    tests: ["tests/clear.test.ts", "tests/clear-ime-loading.test.ts", "tests/clear-text.test.ts"],
+  },
+  {
     name: "octane smoke",
     prep: [["bun", "tools/build.ts", "hero-main", "--framework=octane"]],
     browser: true,
-    tests: ["tests/octane-smoke.test.ts"],
-  },
-  {
-    name: "desk98 sim",
-    prep: [["bun", "tools/build.ts", "desk98-main", "--framework=vue-vapor"]],
-    browser: true,
-    tests: ["tests/desk98-sim.test.ts"],
+    tests: [
+      "tests/octane-smoke.test.ts",
+      "tests/octane-auxiliary-input.test.ts",
+    ],
   },
   {
     name: "cafe sim (determinism)",
     prep: [["bun", "tools/build.ts", "cafe-main"]],
     browser: true,
-    tests: ["tests/sim.test.ts"],
+    tests: ["tests/sim.test.ts", "tests/sim-bundle.test.ts"],
   },
   {
     name: "deepzoom sim",
@@ -150,10 +319,13 @@ const SUITE: readonly Stage[] = [
     tests: ["tests/audio-sim.test.ts"],
   },
   {
-    name: "launcher sim",
-    prep: [["bun", "tools/launcher.ts", "covers"]],
+    // apps/nexus-touch on the wasm core at the iPod touch 4's 320x480 @2x,
+    // driven by a touch tape. The test builds its own guest from the
+    // ipodtouch4-dev plan.
+    name: "nexus-touch sim",
+    prep: [["bun", "tools/wasm.ts"]],
     browser: true,
-    tests: ["tests/launcher-sim.test.ts"],
+    tests: ["tests/nexus-touch.test.ts"],
   },
 ];
 
@@ -163,8 +335,13 @@ const args = process.argv.slice(2);
 const stageFilter = args
   .find((a) => a.startsWith("--stage="))
   ?.slice("--stage=".length);
+const skipFilter = args
+  .find((a) => a.startsWith("--skip="))
+  ?.slice("--skip=".length);
 const selected = SUITE.filter(
-  (s) => !stageFilter || s.name.includes(stageFilter),
+  (s) =>
+    (!stageFilter || s.name.includes(stageFilter)) &&
+    (!skipFilter || !s.name.includes(skipFilter)),
 );
 
 if (args.includes("--list")) {
@@ -186,6 +363,10 @@ if (stageFilter && selected.length === 0) {
   console.error(`test: no stage matches "${stageFilter}" (see --list)`);
   process.exit(1);
 }
+if (skipFilter && !SUITE.some((s) => s.name.includes(skipFilter))) {
+  console.error(`test: no stage matches --skip="${skipFilter}" (see --list)`);
+  process.exit(1);
+}
 
 const ROOT = new URL("..", import.meta.url).pathname;
 
@@ -203,20 +384,22 @@ for (const stage of selected) {
   for (const cmd of stage.prep ?? []) {
     const p = Bun.spawnSync(cmd as string[], {
       cwd: ROOT,
+      env: { ...process.env, ...stage.env },
       stdout: "pipe",
       stderr: "pipe",
     });
-    if (p.exitCode !== 0) {
+    if (!p.success) {
       fail(stage.name, cmd, p.stdout.toString() + p.stderr.toString());
     }
   }
   if (stage.script) {
     const p = Bun.spawnSync(stage.script as string[], {
       cwd: ROOT,
+      env: { ...process.env, ...stage.env },
       stdout: "inherit",
       stderr: "inherit",
     });
-    if (p.exitCode !== 0) fail(stage.name, stage.script);
+    if (!p.success) fail(stage.name, stage.script);
   }
   if (stage.tests) {
     const cmd = [
@@ -227,10 +410,11 @@ for (const stage of selected) {
     ];
     const p = Bun.spawnSync(cmd, {
       cwd: ROOT,
+      env: { ...process.env, ...stage.env },
       stdout: "inherit",
       stderr: "inherit",
     });
-    if (p.exitCode !== 0) fail(stage.name, cmd);
+    if (!p.success) fail(stage.name, cmd);
   }
   console.log(
     `   ${stage.name}: ok (${((Date.now() - started) / 1000).toFixed(1)}s)`,

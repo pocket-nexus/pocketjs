@@ -1,6 +1,0 @@
-ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-// PocketApple.xcframework ships ios-arm64 and ios-arm64-simulator slices only
-// (engine/apple/build-xcframework.sh), and @nativescript/ios-quickjs likewise
-// has no x86_64 simulator slice, so simulator builds are arm64-only.
-EXCLUDED_ARCHS[sdk=iphonesimulator*] = i386 armv6 armv7 armv7s armv8 x86_64

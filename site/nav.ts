@@ -15,10 +15,8 @@ export const DOC_NAV: DocSection[] = [
     items: [
       { slug: "overview", title: "Overview" },
       { slug: "getting-started", title: "Getting started" },
-      { slug: "concepts", title: "Core concepts" },
       { slug: "frameworks", title: "Frameworks" },
       { slug: "architecture", title: "Architecture" },
-      { slug: "platform-contracts", title: "Platform contracts" },
     ],
   },
   {
@@ -28,19 +26,36 @@ export const DOC_NAV: DocSection[] = [
       { slug: "styling", title: "Styling" },
       { slug: "reactivity", title: "Reactivity" },
       { slug: "animation", title: "Animation" },
+      { slug: "physics", title: "Physics" },
       { slug: "input-focus", title: "Input & focus" },
+      { slug: "touch-gestures", title: "Touch & gestures" },
       { slug: "app-shell", title: "App shell & overlays" },
       { slug: "devtools", title: "DevTools" },
-      { slug: "net", title: "Networking" },
+    ],
+  },
+  {
+    title: "MicroTS",
+    items: [
+      { slug: "microts", title: "Build a native Vue app" },
+      { slug: "microts-components", title: "Components and state" },
+      { slug: "microts-pages", title: "Pages and focus" },
+      { slug: "microts-reference", title: "API and commands" },
+      { slug: "microts-solid", title: "Solid TSX to Rust" },
+      { slug: "microts-model", title: "TypeScript models to Rust" },
+      { slug: "microts-boundaries", title: "TypeScript and native code" },
     ],
   },
   {
     title: "Reference",
     items: [
+      { slug: "typescript-support", title: "TypeScript support" },
       { slug: "api", title: "API reference" },
-      { slug: "tailwind", title: "Tailwind utilities" },
+      { slug: "cli", title: "CLI" },
+      { slug: "app-config", title: "Application config" },
       { slug: "build-pipeline", title: "Build pipeline" },
       { slug: "native-contract", title: "Native contract" },
+      { slug: "platform-contracts", title: "Platform contracts" },
+      { slug: "esp-idf", title: "ESP-IDF" },
     ],
   },
 ];
@@ -57,11 +72,20 @@ export interface BlogPost {
 
 export const BLOG_POSTS: BlogPost[] = [
   {
+    slug: "introducing-pocket3d",
+    title: "Introducing Pocket3D",
+    date: "2026-10-07",
+    description:
+      "A hardware-native 3D stack for portable interactive software. How a city becomes different programs for the PSP, Nintendo 3DS and PS Vita, why each experience owns its compiler and renderer, and how Pocket Studio brings the games to the people who play and create them.",
+    author: { name: 'Yifeng "Evan" Wang', url: "https://github.com/doodlewind" },
+  },
+  {
     slug: "blackberry-classic",
-    title: "One Square Screen, Two Native Stacks: PocketJS on the BlackBerry Classic",
+    title:
+      "A Square Screen and a Dead Signing Server: PocketJS on the BlackBerry Classic",
     date: "2026-08-19",
     description:
-      "The same PocketJS guest, two native stacks on one phone: a BlackBerry 10 Core Native BAR over libscreen/EGL/GLES2 on a rooted Classic, and an Android 4.3 (API 18) APK through the BB10 Android runtime on a stock one — diverging only below the QuickJS bridge. Inside: QNX's microkernel and Screen compositor, the dead signing servers a community root project reopened, BlackBerry's two-protocol PC link (HTTPS+CGI+XML to manage, SMB/CIFS to mount files), why MSC only ever exposed the SD card, and the optical trackpad mapped as just another relative axis.",
+      "A 2014 square-screen BlackBerry, and the only thing standing between it and a freshly written frame: signing servers that went dark in January 2022. The port itself is one 547-line BB10 Core Native host over libscreen, EGL and GLES2. Around it: QNX's microkernel, where even the compositor is a user-space service; the community root project that reopened the door; a phone that appears on your desk as a network host, managed over HTTPS+CGI+XML and mounted over SMB; and an optical trackpad treated as just another relative axis.",
     author: { name: "HalfSweet", url: "https://github.com/HalfSweet" },
   },
   {
@@ -129,14 +153,6 @@ export const BLOG_POSTS: BlogPost[] = [
     author: { name: 'Yifeng "Evan" Wang', url: "https://github.com/doodlewind" },
   },
   {
-    slug: "pocket-vapor",
-    title: "Pocket Vapor: Vue, Compiled All the Way Down",
-    date: "2026-07-23",
-    description:
-      "A real Vue component (ref, computed, filter/map/slice, JSX, Tailwind classes) compiled to a 9.1 KB Game Boy Advance ROM, a 32 KB Game Boy cartridge, and a 40 KB NES cartridge. No JS engine, no GC, no malloc. The trick is one observation: a reactive UI program is far more static than the machinery we run it on. Refs become dirty bits, dependency edges become ROM bitmasks, filter/slice become index views over a struct pool, and Vue's own runtime becomes the test oracle that keeps every claim honest, cell by cell, 7,264 assertions per commit. First public writeup of an experiment; includes the part where the differential suite found a bug in Vue's release candidate.",
-    author: { name: 'Yifeng "Evan" Wang', url: "https://github.com/doodlewind" },
-  },
-  {
     slug: "pocket-character",
     title: "Pocket Character: a Desktop Digital Human in One Native Process",
     date: "2026-07-19",
@@ -157,7 +173,7 @@ export const BLOG_POSTS: BlogPost[] = [
     title: "Twice the Pixels, Zero Forks: PocketJS on PS Vita",
     date: "2026-07-13",
     description:
-      "PocketJS 0.4.0's headline: the same apps, unchanged, as native PS Vita bubbles. The Vita port is now verified on real hardware: the 480×272 logical world renders at a true 960×544 through a target-owned raster density, while a pocket.json contract system makes ad hoc platform hacks fail the build. Plus front touch as deterministic input, 44 byte-exact Vita goldens, and release VPKs installed and run on a physical Vita.",
+      "PocketJS 0.4.0's headline: the same apps, unchanged, as native PS Vita bubbles. The Vita port is now verified on real hardware: the 480×272 logical world renders at a true 960×544 through a target-owned raster density, while a pocket.app.json contract system makes ad hoc platform hacks fail the build. Plus front touch as deterministic input, 44 byte-exact Vita goldens, and release VPKs installed and run on a physical Vita.",
     author: { name: 'Yifeng "Evan" Wang', url: "https://github.com/doodlewind" },
   },
   {

@@ -1,56 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="PocketJS avatar">
-  <defs>
-    <radialGradient id="bg" cx="50%" cy="44%" r="72%">
-      <stop offset="0" stop-color="#ffffff"/>
-      <stop offset="0.72" stop-color="#ffffff"/>
-      <stop offset="1" stop-color="#f8fafc"/>
-    </radialGradient>
-    <linearGradient id="edge" x1="120" y1="220" x2="904" y2="804" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#ffffff"/>
-      <stop offset="0.16" stop-color="#e8edf3"/>
-      <stop offset="0.36" stop-color="#8a96a6"/>
-      <stop offset="0.52" stop-color="#4f5d6e"/>
-      <stop offset="0.68" stop-color="#a7b2c0"/>
-      <stop offset="0.84" stop-color="#f8fafc"/>
-      <stop offset="1" stop-color="#c4ccd6"/>
-    </linearGradient>
-    <linearGradient id="inner" x1="230" y1="390" x2="430" y2="610" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#f8fafc"/>
-      <stop offset="0.5" stop-color="#b3bdc9"/>
-      <stop offset="1" stop-color="#64748b"/>
-    </linearGradient>
-    <linearGradient id="bar" x1="510" y1="400" x2="820" y2="620" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#edf2f7"/>
-      <stop offset="0.45" stop-color="#aeb8c5"/>
-      <stop offset="1" stop-color="#6f7e91"/>
-    </linearGradient>
-    <linearGradient id="shine" x1="230" y1="260" x2="730" y2="700" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#ffffff" stop-opacity="0"/>
-      <stop offset="0.38" stop-color="#ffffff" stop-opacity="0.52"/>
-      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0"/>
-    </linearGradient>
-    <filter id="shadow" x="-16%" y="-18%" width="132%" height="140%" color-interpolation-filters="sRGB">
-      <feDropShadow dx="0" dy="24" stdDeviation="28" flood-color="#0f172a" flood-opacity="0.18"/>
-      <feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#334155" flood-opacity="0.16"/>
-    </filter>
-    <filter id="soft" x="-24%" y="-24%" width="148%" height="148%" color-interpolation-filters="sRGB">
-      <feGaussianBlur stdDeviation="18"/>
-    </filter>
-    <clipPath id="mark">
-      <rect x="103" y="244" width="818" height="536" rx="165"/>
-    </clipPath>
-  </defs>
-
-  <rect width="1024" height="1024" fill="url(#bg)"/>
-  <ellipse cx="512" cy="795" rx="360" ry="54" fill="#cbd5e1" opacity="0.22" filter="url(#soft)"/>
-  <g filter="url(#shadow)">
-    <rect x="104" y="246" width="816" height="532" rx="164" fill="none" stroke="url(#edge)" stroke-width="76" stroke-linejoin="round"/>
-    <circle cx="330" cy="512" r="92" fill="url(#inner)"/>
-    <rect x="512" y="410" width="300" height="68" rx="34" fill="url(#bar)"/>
-    <rect x="512" y="550" width="204" height="68" rx="34" fill="url(#bar)"/>
-    <g clip-path="url(#mark)">
-      <rect x="210" y="210" width="430" height="650" transform="rotate(34 425 535)" fill="url(#shine)" opacity="0.8"/>
-    </g>
-    <rect x="143" y="284" width="738" height="455" rx="128" fill="none" stroke="#ffffff" stroke-width="9" opacity="0.42"/>
+  <rect width="1024" height="1024" fill="#ffffff"/>
+  <g transform="translate(178 178) scale(20.875)">
+  <rect x="2" y="6" width="28" height="20" rx="6" fill="#171226" stroke="#ffd23f" stroke-width="2.6" stroke-linejoin="round"/>
+  <circle cx="10" cy="16" r="3.1" fill="#ff5f9e"/>
+  <rect x="16" y="12.6" width="10" height="2.2" rx="1.1" fill="#3fd0e8"/>
+  <rect x="16" y="17.2" width="6.5" height="2.2" rx="1.1" fill="#ff5f9e"/>
   </g>
 </svg>

@@ -78,7 +78,7 @@ const probe = `(async () => {
     invalidTextWrites,
     invalidInserts,
     wasmLoads: resources.filter((path) => path.endsWith("/pg/pocketjs.wasm")).length,
-    launcherLoads: resources.filter((path) => path.startsWith("/stage/apps/")),
+    stageAppLoads: resources.filter((path) => path.startsWith("/stage/handheld-apps/")),
     modelResources: resourceEntries
       .filter((entry) => new URL(entry.name).pathname === "/stage/psp_lod3_eco.glb")
       .map((entry) => ({ decodedBodySize: entry.decodedBodySize })),
@@ -127,7 +127,7 @@ const checks = {
     && result.receipt?.modelUrl === "/stage/psp_lod3_eco.glb"
     && result.receipt?.screenCanvasId === "pg-canvas"
     && modelLoaded,
-  onePlaygroundRuntime: result.wasmLoads === 1 && result.launcherLoads.length === 0,
+  onePlaygroundRuntime: result.wasmLoads === 1 && result.stageAppLoads.length === 0,
   nativeTextNodes:
     result.sawBusy
     && result.invalidTextWrites.length === 0

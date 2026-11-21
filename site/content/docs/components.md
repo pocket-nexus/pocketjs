@@ -20,19 +20,25 @@ import { View, Text, Image } from "@pocketjs/framework/components";
 ```
 :::
 
-There are exactly **three host primitives** — `View`, `Text`, and `Image`.
+`View`, `Text`, and `Image` play the roles their React Native namesakes do, and
+this page covers those three. `@pocketjs/framework/components` exports one more
+host primitive: `Sprite`, which draws an animation from a baked atlas the Rust
+core cycles per vblank. Its signature is in the
+[API reference](/docs/api/#primitives).
+
 Solid apps import control-flow helpers (`Show`, `For`, `Index`, `Switch`,
 `Match`) from `solid-js`; Vue Vapor apps use Vue's own JSX and Composition API
 from `vue`; Octane apps use hooks from `octane` with plain JSX ternaries and
-keyed `array.map`. Higher-level app-shell primitives (`Screen`, `Focusable`, `Modal`,
-and friends) build on `View` and are covered on the [App shell](/docs/app-shell/)
-page.
+keyed `array.map`. Higher-level app-shell primitives (`Screen`, `Focusable`,
+`Modal`, and friends) build on `View` and are covered on the
+[App shell](/docs/app-shell/) page.
 
-The three primitives play the same roles as React Native's `View`, `Text`,
-and `Image`. The capitalized names are the public API. Under the hood the renderer targets lowercase `view` / `text` /
-`image` host tags, but those are an internal detail — they are deliberately not
-declared as JSX intrinsics, so `<view>` in app code fails typecheck. Always use
-the capitalized components.
+The capitalized names are the public API. Under them the renderer targets **three
+lowercase host tags — `view`, `text`, and `image`** (`NODE_TYPE` in
+`contracts/spec/spec.ts`): `Sprite` renders on an `image` node. `createElement`
+throws `unknown element <tag> - only view/text/image exist` for any other
+tag, and the tags are not declared as JSX intrinsics, so `<view>` in app code
+fails typecheck. Use the capitalized components.
 
 ## View
 
@@ -40,41 +46,19 @@ the capitalized components.
 (via [taffy](/docs/architecture/)), carries styling, and can take focus and
 input.
 
-:::framework-code
-```tsx solid
+```tsx
 <View class="flex-row items-center gap-3 p-5 bg-slate-50">
   <Image class="w-10 h-10 rounded-lg" src="logo.png" />
   <View class="flex-col">
     <Text class="text-base text-slate-950 font-bold">PocketJS</Text>
-    <Text class="text-xs text-slate-500">SOLID + RUST + SCEGU</Text>
+    <Text class="text-xs text-slate-500">RUST + SCEGU</Text>
   </View>
 </View>
 ```
-
-```tsx vue-vapor
-<View class="flex-row items-center gap-3 p-5 bg-slate-50">
-  <Image class="w-10 h-10 rounded-lg" src="logo.png" />
-  <View class="flex-col">
-    <Text class="text-base text-slate-950 font-bold">PocketJS</Text>
-    <Text class="text-xs text-slate-500">VUE VAPOR + RUST + SCEGU</Text>
-  </View>
-</View>
-```
-
-```tsx octane
-<View class="flex-row items-center gap-3 p-5 bg-slate-50">
-  <Image class="w-10 h-10 rounded-lg" src="logo.png" />
-  <View class="flex-col">
-    <Text class="text-base text-slate-950 font-bold">PocketJS</Text>
-    <Text class="text-xs text-slate-500">OCTANE + RUST + SCEGU</Text>
-  </View>
-</View>
-```
-:::
 
 A `View` becomes interactive by adding `focusable` and an `onPress` handler.
-`onPress` fires when the node is focused and the user presses the confirm
-button (Circle):
+`onPress` fires when the node is activated: CIRCLE while it is focused, a tap
+on a touch host, or a cursor click (see [App shell](/docs/app-shell/)):
 
 :::framework-code
 ```tsx solid
@@ -110,8 +94,11 @@ button (Circle):
 ```
 :::
 
-Pair `onPress` with `focusable` — an unfocusable node never receives input. See
-[Input & focus](/docs/input-focus/) for how focus moves between nodes.
+A node needs `focusable` to take focus, but not to hold the handler: CIRCLE
+fires the focused node's `onPress` and, when the focused node has none, walks up
+to **the nearest ancestor with a handler** (`firePressFrom` in
+`framework/src/input.ts`). Touch taps and cursor clicks enter through the same
+walk. See [Input & focus](/docs/input-focus/) for how focus moves between nodes.
 
 ## Text
 
@@ -146,23 +133,12 @@ alignment — from the nearest ancestor that sets text props. In practice this
 means you put text utilities (`text-*`, `font-bold`, `tracking-wide`, …) on the
 `<Text>` element itself:
 
-:::framework-code
-```tsx solid
+```tsx
 <Text class="text-4xl text-slate-950 font-bold">JSX at 60 FPS.</Text>
 ```
-
-```tsx vue-vapor
-<Text class="text-4xl text-slate-950 font-bold">JSX at 60 FPS.</Text>
-```
-
-```tsx octane
-<Text class="text-4xl text-slate-950 font-bold">JSX at 60 FPS.</Text>
-```
-:::
 
 The available text sizes, weights, colors and alignment utilities are baked at
-build time — see [Styling](/docs/styling/) and [Tailwind subset](/docs/tailwind/)
-for the exact set. Sizes map to baked font-atlas slots (12 / 14 / 16 / 18 / 20 /
+build time — see [Styling](/docs/styling/) for the set. Sizes map to baked font-atlas slots (12 / 14 / 16 / 18 / 20 /
 24 / 36 px), so only the sizes you actually use are packed into the app.
 
 ### Empty text and layout
@@ -180,19 +156,9 @@ build time the pipeline scans your `src` strings, packs the referenced images
 into the app's `.pak`, and the renderer resolves the name to the uploaded
 texture at runtime.
 
-:::framework-code
-```tsx solid
+```tsx
 <Image class="w-10 h-10 rounded-lg shadow" src="logo.png" />
 ```
-
-```tsx vue-vapor
-<Image class="w-10 h-10 rounded-lg shadow" src="logo.png" />
-```
-
-```tsx octane
-<Image class="w-10 h-10 rounded-lg shadow" src="logo.png" />
-```
-:::
 
 Set the drawn size with box utilities (`w-10 h-10` above); the class controls
 layout, `src` controls pixels. `src` is reactive — assigning a new name swaps
@@ -246,14 +212,15 @@ own wrapper components.
 
 | Prop        | `View` | `Text` | `Image` | Type                                       | Notes |
 |-------------|:------:|:------:|:-------:|--------------------------------------------|-------|
-| `class`     |   ✓    |   ✓    |   ✓     | `string`                                   | Compiled Tailwind-subset class string. |
+| `class`     |   ✓    |   ✓    |   ✓     | `string`                                   | Compiled Tailwind-subset class string. Vue Vapor and Octane also accept `className`. |
 | `style`     |   ✓    |   ✓    |   ✓     | `Record<string, number \| string>`         | Dynamic per-key style object (see below). |
 | `children`  |   ✓    |   ✓    |         | `JSX.Element`                              | `Image` has none. |
 | `focusable` |   ✓    |        |         | `boolean`                                  | Registers the node with the focus manager. |
-| `onPress`   |   ✓    |        |         | `() => void`                               | Fires when focused and confirmed. |
-| `ref`       |   ✓    |   ✓    |   ✓     | `(node: NodeMirror) => void \| NodeMirror` | Handle to the mirror node. |
+| `onPress`   |   ✓    |        |         | `() => void`                               | Fires on activation, bubbling to the nearest ancestor handler. |
+| `nodeRef`   |   ✓    |   ✓    |   ✓     | `(node) => void \| { current: NodeMirror \| null }` | Handle to the mirror node. All three frameworks; the only ref prop under Vue Vapor and Octane. |
+| `ref`       |   ✓    |   ✓    |   ✓     | `(node: NodeMirror) => void \| NodeMirror` | **Solid only** — the target of Solid's `ref={variable}` binding. |
 | `src`       |        |        |   ✓     | `string`                                   | Baked texture name. |
-| `debugName` |   ✓    |   ✓    |   ✓     | `string`                                   | Semantic name in the [DevTools](/docs/devtools/) component tree. Mirror-only: zero pixel/native cost. |
+| `debugName` |   ✓    |   ✓    |   ✓     | `string`                                   | Semantic name in the [DevTools](/docs/devtools/) component tree; mirror-only, no pixel or native cost. **Solid and Octane** — Vue Vapor's prop types do not declare it. |
 
 ### `style` vs `class`
 
@@ -288,11 +255,11 @@ Prefer transform keys (`translateX`, `translateY`, `scale`, `rotate`) for motion
 where you can — they animate without triggering relayout. Full details are on
 the [Styling](/docs/styling/) page.
 
-### `ref`
+### `ref` and `nodeRef`
 
-`ref` hands you the underlying `NodeMirror`, which you can pass to imperative
-APIs like [`animate()`](/docs/animation/). Both Solid ref forms work — a plain
-variable (Solid assigns it) or a callback:
+Both hand you the underlying `NodeMirror` to pass to imperative APIs like
+[`animate()`](/docs/animation/). Solid takes either form — a plain variable it
+assigns, or a callback. Vue Vapor and Octane declare `nodeRef` alone:
 
 :::framework-code
 ```tsx solid
@@ -496,23 +463,67 @@ Pick one of several branches — the JSX form of a `switch` statement:
 The first `Match` whose `when` is truthy renders; if none match, `fallback`
 renders.
 
+## Classic controls
+
+The Solid module `@pocketjs/framework/classic` shares a shaded bezel and color
+palette across buttons, keyboard faces, panels and selection indicators.
+
+```tsx
+import { ClassicButton, ClassicPanel, ClassicSheet } from "@pocketjs/framework/classic";
+
+<ClassicButton label="Save" tone="primary" surface="auxiliary"
+  style={{ posType: 1, insetL: 240, insetT: 4, width: 72, height: 24 }}
+  disabled={saving()} onPress={save} />
+```
+
+**A touch activates a button on release inside its bounds.** Sliding outside,
+gesture cancellation, a touch block or becoming disabled cancels the press.
+The shared depressed palette provides feedback before release. `selected`
+retains the blue state independently of a transient press; `tone` accepts
+`neutral`, `primary`, `danger` and `key`. `edge="left"` or `edge="right"`
+squares the joining edge of adjacent toolbar actions. Place them with one
+shared border pixel. Labels use the small bold font; layout remains the caller's.
+
+`ClassicFace` supplies the same appearance for controls with their own input
+model, such as a space key that also recognizes a long press. Bind its
+`pressed`, `selected` and `disabled` properties to that model. `classicPalette`
+returns matching gradient, border and label colors for other UI elements.
+
+`ClassicPanel` paints its header and body inside a complete rounded rim.
+**Rounded background painting does not imply rounded child clipping** on the
+small native hosts. Insets preserve its corners without requiring an image
+mask. Its `active` property uses the blue header palette, and `headerHeight`
+defaults to 27 logical pixels.
+
+`ClassicSheet` accepts `open`, `title`, `message`, up to four `actions`,
+`cancelLabel` and `onCancel`. Each action supplies a label, tone and callback.
+**The host animates the panel translation and backdrop opacity.** The component
+keeps its fixed action subtree mounted and blocks other touch gestures until
+the closing transition ends. `onModalChange` includes that closing interval so
+applications can also gate hardware buttons. Buttons keep a 4px gap and the final button sits 4px above the panel bottom.
+Reopening cancels the old closing
+deadline; unmounting cancels animations, the deadline and the touch block.
+
+```tsx
+<ClassicSheet open={confirmDiscard()} surface="auxiliary"
+  title="Discard unsaved changes?"
+  actions={[{ label: "Discard Changes", tone: "danger", onPress: discard }]}
+  cancelLabel="Keep Editing" onCancel={() => setConfirmDiscard(false)}
+  onModalChange={setInputBlocked} />
+```
+
+
 ## App-shell primitives
 
-`@pocketjs/framework/components` also exports a layer of higher-level primitives that
-compose `View` with focus and overlay behavior:
+`@pocketjs/framework/components` also exports a layer of higher-level primitives
+that compose `View` with focus and overlay behavior. Their focus semantics and
+worked examples are on the [App shell](/docs/app-shell/) and
+[Input & focus](/docs/input-focus/) pages; the typed signatures, with defaults,
+are in the [API reference](/docs/api/#pocketjsframeworkcomponents).
 
-| Primitive        | Purpose                                                  |
-|------------------|----------------------------------------------------------|
-| `Screen`         | Full-screen root container with sensible defaults.       |
-| `Focusable`      | A `View` that is `focusable` by default.                 |
-| `FocusScope`     | Traps and restores focus within a subtree.               |
-| `FocusGrid`      | 2-D grid focus navigation (`columns`, `wrap`).           |
-| `ActionHandler`  | Binds a button to a handler without rendering a node.    |
-| `Portal`         | Renders children into the overlay root.                  |
-| `Modal`          | Backdrop + focus-trapped panel over the overlay.         |
-| `ActionBar`      | Docked bottom bar in the overlay layer.                  |
-| `Named`          | Tags its subtree with a [DevTools](/docs/devtools/) name (`<Named name="MessageCard">…`); renders no node. |
-
-These are documented in full — with focus semantics and examples — on the
-[App shell](/docs/app-shell/) and [Input & focus](/docs/input-focus/) pages.
-The complete typed signatures live in the [API reference](/docs/api/).
+Two of them reach a second display. `AuxiliarySurface` requires a resolved
+`display.auxiliary` capability and a matching `app.surfaces.auxiliary.fixed`
+declaration; **its children lay out against the auxiliary display's logical size
+and do not affect primary layout**, and state is shared with the primary tree
+because both run in one application instance. `AuxiliaryPortal` targets the
+auxiliary overlay root; ordinary `Portal` targets the primary overlay.

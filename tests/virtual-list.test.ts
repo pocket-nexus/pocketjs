@@ -18,6 +18,8 @@ import { resetRendererState, rootMirror, type NodeMirror } from "../framework/sr
 import { resetStyles } from "../framework/src/styles.ts";
 import { resetInput, getFocused } from "../framework/src/input.ts";
 import { resetPack } from "../framework/src/pak.ts";
+import { AuxiliarySurface, View } from "../framework/src/components.ts";
+import { getAuxiliarySurfaceRoots, type SurfaceId } from "../framework/src/display.ts";
 import { Text } from "../framework/src/primitives.ts";
 import { VirtualList, type VirtualListHandle } from "../framework/src/virtual-list.ts";
 import { __packTouch } from "../framework/src/touch.ts";
@@ -54,12 +56,24 @@ let dispose: (() => void) | null = null;
 
 const g = globalThis as Record<string, unknown>;
 
-function frame(buttons = 0, touches?: readonly number[], hits?: readonly number[]): void {
-  (g.frame as (b: number, a?: number, t?: readonly number[], h?: readonly number[]) => void)(
+function frame(
+  buttons = 0,
+  touches?: readonly number[],
+  hits?: readonly number[],
+  surfaces?: readonly number[],
+): void {
+  (g.frame as (
+    b: number,
+    a?: number,
+    t?: readonly number[],
+    h?: readonly number[],
+    s?: readonly number[],
+  ) => void)(
     buttons,
     undefined,
     touches,
     hits,
+    surfaces,
   );
 }
 
@@ -87,6 +101,15 @@ function viewportNode(): NodeMirror {
   return rootMirror.children[0].children[0];
 }
 
+/** auxiliary native root -> app layer -> portal host -> viewport -> canvas */
+function auxiliaryCanvasNode(): NodeMirror {
+  return getAuxiliarySurfaceRoots().app.children[0].children[0].children[0];
+}
+
+function auxiliaryViewportNode(): NodeMirror {
+  return getAuxiliarySurfaceRoots().app.children[0].children[0];
+}
+
 /** The hit FACT for a contact inside the viewport (frame() arg 4): tests are
  *  hosts too, and this host resolves hits by construction. */
 function vpHit(): number[] {
@@ -99,28 +122,34 @@ interface MountOpts {
   focusRows?: boolean;
   stickToBottom?: boolean;
   onNearEnd?: () => void;
+  surface?: SurfaceId;
 }
 
 function mountList(opts: MountOpts = {}): VirtualListHandle {
   let handle: VirtualListHandle | undefined;
+  const list = () =>
+    VirtualList({
+      get count() {
+        return opts.count ? opts.count() : 100;
+      },
+      rowHeight: 10,
+      height: 50,
+      overscan: 20,
+      focusRows: opts.focusRows,
+      onRowPress: opts.onRowPress,
+      stickToBottom: opts.stickToBottom,
+      onNearEnd: opts.onNearEnd,
+      surface: opts.surface,
+      renderRow: (i) => Text({ children: `ROW ${i}` }),
+      ref: (h) => {
+        handle = h;
+      },
+    });
   dispose = publicRender(
     () =>
-      VirtualList({
-        get count() {
-          return opts.count ? opts.count() : 100;
-        },
-        rowHeight: 10,
-        height: 50,
-        overscan: 20,
-        focusRows: opts.focusRows,
-        onRowPress: opts.onRowPress,
-        stickToBottom: opts.stickToBottom,
-        onNearEnd: opts.onNearEnd,
-        renderRow: (i) => Text({ children: `ROW ${i}` }),
-        ref: (h) => {
-          handle = h;
-        },
-      }),
+      opts.surface === "auxiliary"
+        ? (View({ children: AuxiliarySurface({ children: list }) }) as unknown as NodeMirror)
+        : list(),
     { ops: host.ops, styles: {} },
   );
   if (!handle) throw new Error("VirtualList ref not called");
@@ -244,6 +273,21 @@ describe("touch", () => {
     expect(h.scroller.state()).toBe("fling");
     frame(0, [__packTouch(2, 100, 25)], vpHit()); // catch
     expect(h.scroller.state()).not.toBe("fling");
+  });
+
+  test("auxiliary surface drag scrolls its own virtual window", () => {
+    host.ops.__auxiliarySurface = { root: 90, w: 320, h: 240 };
+    const h = mountList({ surface: "auxiliary", focusRows: false });
+    const viewport = auxiliaryViewportNode();
+
+    frame(0, [__packTouch(1, 100, 45)], [viewport.id], [1]);
+    frame(0, [__packTouch(1, 100, 25)], [viewport.id], [1]);
+    frame(0, [__packTouch(1, 100, 5)], [viewport.id], [1]);
+    expect(h.scroller.offset()).toBeGreaterThan(20);
+    expect(auxiliaryCanvasNode().children.length).toBeLessThan(20);
+
+    frame(0); // auxiliary contact release -> fling
+    expect(h.scroller.state()).toBe("fling");
   });
 
   test("no fact channel: the gesture layer queries ops.hitTestBounds instead", () => {

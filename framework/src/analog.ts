@@ -9,14 +9,15 @@ import { ANALOG_CENTER } from "../../contracts/spec/spec.ts";
 /** Fraction of half-range ignored around the stick center (PSP nubs drift). */
 const ANALOG_DEADZONE = 0.12;
 
-let analogPacked = ANALOG_CENTER;
+let analogPacked = ANALOG_CENTER, rightPacked = ANALOG_CENTER;
 
-export function __setAnalog(packed: number | undefined): void {
+export function __setAnalog(packed: number | undefined, right: number | undefined = undefined): void {
   analogPacked = packed === undefined ? ANALOG_CENTER : packed & 0xffff;
+  rightPacked = right === undefined ? ANALOG_CENTER : right & 0xffff;
 }
 
 export function __resetAnalog(): void {
-  analogPacked = ANALOG_CENTER;
+  analogPacked = rightPacked = ANALOG_CENTER;
 }
 
 /** Raw packed left-stick value ((x << 8) | y) delivered by the host. */
@@ -44,3 +45,8 @@ export function analogX(): number {
 export function analogY(): number {
   return axis(analogPacked & 0xff);
 }
+
+/** Right stick, with the same center/deadzone as the left; absent hosts read zero. */
+export function rightAnalogRaw(): number { return rightPacked; }
+export function rightAnalogX(): number { return axis((rightPacked >> 8) & 0xff); }
+export function rightAnalogY(): number { return axis(rightPacked & 0xff); }

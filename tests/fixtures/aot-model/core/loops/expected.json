@@ -1,0 +1,5 @@
+{
+  "state": { "result": [111, 19, 44, 30, 4, 15, 16, 505, 8] },
+  "writes": [{ "name": "result", "value": [111, 19, 44, 30, 4, 15, 16, 505, 8], "changed": true }],
+  "operations": [{ "kind": "set", "name": "result", "value": [111, 19, 44, 30, 4, 15, 16, 505, 8], "changed": true }]
+}

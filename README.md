@@ -1,90 +1,80 @@
 <h1><img src="./site/assets/favicon.svg" width="40" height="40" alt="" align="absmiddle" /> PocketJS</h1>
 
+**Create UI on every screen you love.** Build apps for your favorite devices,
+from a PSP to your desktop, with familiar JavaScript components and a compact
+native runtime.
+
 [![@pocketjs/framework](https://img.shields.io/npm/v/%40pocketjs%2Fframework?label=%40pocketjs%2Fframework)](https://www.npmjs.com/package/@pocketjs/framework)
 [![@pocketjs/cli](https://img.shields.io/npm/v/%40pocketjs%2Fcli?label=%40pocketjs%2Fcli)](https://www.npmjs.com/package/@pocketjs/cli)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/cTce4eXzSK)
 
-[Website](https://pocketjs.dev) ·
-[Playground](https://pocketjs.dev/playground/) ·
-[Documentation](https://pocketjs.dev/docs/overview/) ·
-[Blog](https://pocketjs.dev/blog/) ·
-[Changelog](https://pocketjs.dev/changelog/)
+[Website](https://pocketjs.pocket.nexus) ·
+[Playground](https://pocketjs.pocket.nexus/playground/) ·
+[Documentation](https://pocketjs.pocket.nexus/docs/overview/) ·
+[Blog](https://pocketjs.pocket.nexus/blog/) ·
+[Changelog](https://pocketjs.pocket.nexus/changelog/) ·
+[Discord](https://discord.gg/cTce4eXzSK) ·
+[X](https://x.com/pocket_js)
 
-## Rich interactive JavaScript where no browser fits.
+Applications are written in TypeScript with Solid, Vue Vapor or Octane
+components, which all render to **one native tree**. A QuickJS guest runs the
+application, and a Rust core performs flexbox layout and draws every pixel **in
+one thread inside one process**. There is **no DOM, no CSS engine and no
+WebView**. PocketJS is a [Pocket Nexus](https://pocket.nexus) project.
 
-PocketJS is a compact runtime family for building **user interfaces, games,
-3D experiences, and AI-native applications** across radically different
-devices. Write familiar JavaScript and TypeScript components; native cores and
-host modules own layout, rendering, simulation, audio, and other per-frame work.
-
-Where a machine can host JavaScript, a small guest runs Solid, Vue Vapor, or
-Octane against those native cores. Where even a JavaScript engine is too much,
-[Pocket Vapor](./vapor/README.md) compiles a strict Vue Vapor program into
-native code. Neither path ships a browser DOM, browser layout engine, or
-runtime CSS engine.
-
-<a href="https://pocketjs.dev">
-  <img src="./site/assets/pocketjs-demo-wall.jpg" alt="A wall of PocketJS software: music, deep-zoom graphics, messaging, a digital character, galleries, DevTools, dashboards, media, and a café app, alongside OpenStrike, Pocket Voxel and Pocket Figma on PSP, including Motion Lab studies credited to yui540" />
+<a href="https://studio.pocket.nexus">
+  <img src="./assets/screenshots/pocket-studio-wall.jpg" alt="Twelve screens from Pocket Studio. Pocket Shell's home screen, and applets: Tokyo Weather, GitHub, Hacker News, Discord, X and YouTube. Games: Pocket Duty, Pocket Tokyo, Pocket Requiem, Pocket Atlas and Pocket Maneuver." />
 </a>
 
-## What it carries
+Applets built with PocketJS and games built with Pocket3D, from
+[Pocket Studio](https://studio.pocket.nexus). Its agent makes a Pocket Applet
+from a request: Tokyo Weather, top left, came from one sentence.
 
-PocketJS is broader than a UI renderer. The PocketJS runtime family now carries
-four kinds of software, each backed by shipped open-source work.
+## In this repository
 
-| Software | What PocketJS provides | Proof |
+Beside the PocketJS runtime, this repository holds the technology that Pocket
+projects build on:
+
+| | What it is | Entry point |
 | --- | --- | --- |
-| **User interfaces** | Solid, Vue Vapor, and Octane over one native tree, with flexbox, compile-time Tailwind, baked motion, touch, focus, and text input | [Three frameworks, one core](https://pocketjs.dev/blog/octane-on-psp/) |
-| **Games** | Scriptable native simulation and rendering cores composed with a full JSX HUD | [OpenStrike at 60 FPS on a real PSP](https://pocketjs.dev/blog/shipping-openstrike/) · [A creature-RPG as a voxel diorama](https://pocketjs.dev/blog/pocket-voxel/) |
-| **3D experiences** | Portable BSP worlds, native 3D backends, and VRM digital humans with one-process desktop surfaces | [Pocket Character](https://pocketjs.dev/blog/pocket-character/) |
-| **AI-native apps** | When time, randomness, and effects enter through the virtual clock, seeded state, and recorded contracts, fixed-step sessions can be replayed, forked, and diffed byte-for-byte; small enough to host an agent in the guest | [The runtime agents want](https://pocketjs.dev/blog/ui-runtime-that-cant-flake/) · [Pocket Pi](https://github.com/pocket-stack/pocket-pi) |
+| **PocketJS** | The application runtime: TypeScript components, a QuickJS guest and a Rust core that lays out and draws every pixel | This README · [pocketjs.pocket.nexus](https://pocketjs.pocket.nexus) |
+| **Pocket3D** | A hardware-native 3D stack: device kernels for GXM, GE and PICA200, and the mechanisms that purpose-built 3D engines share | [`engine/pocket3d/`](./engine/pocket3d/README.md) · [3d.pocket.nexus](https://3d.pocket.nexus) |
+| **MicroTS** | An ahead-of-time compiler from TypeScript views and models to Rust, in development | [`microts/`](./microts/README.md) · [microts.pocket.nexus](https://microts.pocket.nexus) |
 
-## Run JavaScript where it fits. Compile it away where it doesn't.
+## Contents
 
-PocketJS has two execution paths. They share component-oriented authoring,
-explicit target demands, and verification tools; they do not pretend that one
-runtime or one binary fits every device.
+- [In this repository](#in-this-repository)
+- [Familiar tools](#familiar-tools)
+- [Smooth motion](#smooth-motion)
+- [Small footprint](#small-footprint)
+- [Replay every frame](#replay-every-frame)
+- [Apps and games](#apps-and-games)
+- [Choose your screen](#choose-your-screen)
+- [Made with PocketJS](#made-with-pocketjs)
+- [Get started](#get-started)
+- [Ahead-of-time compilation](#ahead-of-time-compilation)
+- [Working on PocketJS](#working-on-pocketjs)
+- [Documentation](#documentation)
+- [Sponsors and Pocket Nexus](#sponsors-and-pocket-nexus)
 
-```text
-Solid / Vue Vapor / Octane
-        │
-        └─ Guest build ──> JavaScript guest ──> declared native APIs ──> Rust cores and renderers
+## Familiar tools
 
-strict Vue Vapor subset
-        │
-        └─ Pocket Vapor ──> target-native C ──> ROM, firmware, or PDX
-```
+Three TypeScript framework adapters target the same native tree and run on the
+same QuickJS guest. The choice changes application code and nothing below it.
 
-| | Guest runtime | Pocket Vapor AOT |
+| Framework | State primitives | Source forms |
 | --- | --- | --- |
-| **Authoring** | Solid JSX, Vue Vapor JSX, Vue SFC, or Octane JSX | Strict TypeScript/Vue Vapor JSX subset |
-| **Execution** | JavaScript guest plus native cores and host modules | Native target program; no JS engine, GC, or allocator |
-| **Admission** | `pocket.json` requirements resolved against a target profile | Compiler-derived demands checked against a target or board profile |
-| **Outputs** | Target-specific bundles, assets, `.pocket` variants, EBOOTs, VPKs, and host packages | `.gba`, `.gb`, `.nes`, firmware, and `.pdx` artifacts |
-| **Current examples** | PSP, PS Vita, PocketBook, and macOS widget registered Guest profiles | Game Boy Advance, Game Boy, NES, ESP32 MeowBit, and Playdate compiler targets |
+| **Solid** | `solid-js` | TSX |
+| **Vue Vapor** | `vue` | TSX and `<script setup lang="ts">` single-file components |
+| **Octane** | `octane` | Compiled hooks and TSX, with no virtual DOM |
 
-Pocket Vapor is not a low-memory mode for arbitrary PocketJS apps. It is a
-deliberately strict Vue Vapor subset with its own compiler and target
-contracts. The current [`.pocket` format](./docs/PLATFORM.md) packages Guest
-target variants; AOT programs are built separately today.
-
-## Familiar code, native machinery
-
-Guest apps choose one of three framework adapters over the same native UI tree:
-
-| Framework | State and lifecycle | Source forms |
-| --- | --- | --- |
-| **Solid** | `solid-js` | JSX |
-| **Vue Vapor** | `vue` | JSX and `<script setup>` single-file components |
-| **Octane** | `octane` | Compiled hooks and JSX, with no virtual DOM |
-
-Framework primitives come directly from `solid-js`, `vue`, or `octane`.
-PocketJS owns the runtime, host components, lifecycle wiring, input, animation,
-assets, and native boundary.
+Framework primitives are imported from `solid-js`, `vue` or `octane`. PocketJS
+owns the runtime, host components, lifecycle wiring, input, animation, assets
+and the native boundary.
 
 ```tsx
-import { createSignal } from "solid-js";
+import { createSignal, Show } from "solid-js";
 import { mount } from "@pocketjs/framework/solid";
 import { Text, View } from "@pocketjs/framework/solid/components";
 
@@ -93,14 +83,17 @@ function Counter() {
 
   return (
     <View class="w-full h-full flex-col items-center gap-4 p-4 bg-slate-50">
-      <Text class="text-xl font-bold text-slate-950">Count: {count()}</Text>
+      <Text class="text-xl text-slate-950 font-bold">Count: {count()}</Text>
       <View
-        class="px-4 py-2 rounded-xl bg-blue-600 focus:bg-blue-500 active:bg-blue-700"
+        class="px-4 py-2 rounded-xl shadow-md bg-blue-600 focus:bg-blue-500"
         focusable
         onPress={() => setCount(count() + 1)}
       >
-        <Text class="text-base font-bold text-white">Press Circle</Text>
+        <Text class="text-base text-white font-bold">Press Circle</Text>
       </View>
+      <Show when={count() > 3}>
+        <Text class="text-sm text-emerald-600">Reactive on real hardware.</Text>
+      </Show>
     </View>
   );
 }
@@ -108,144 +101,315 @@ function Counter() {
 mount(() => <Counter />);
 ```
 
-Class literals compile into compact style records. The Rust core performs
-flexbox layout and emits the draw list; target backends render it through GE,
-GXM, wgpu, software rasterization, e-ink updates, or another declared host.
-There is no runtime CSS parser, cascade, or browser layout engine.
+### Styling
 
-See [Frameworks](https://pocketjs.dev/docs/frameworks/),
-[Architecture](https://pocketjs.dev/docs/architecture/), and
-[Styling](https://pocketjs.dev/docs/styling/) for the supported forms and
-compile-time rules.
+Class literals are compiled into a baked style table at build time. The runtime
+resolves a class attribute by lookup, so there is no CSS parser, cascade,
+specificity resolution or reflow on the device. The accepted vocabulary is a
+fixed Tailwind subset, enumerated in
+[Styling](https://pocketjs.pocket.nexus/docs/styling/).
 
-## Try it
+### One bundle, many screens
 
-The fastest zero-install path is the online
-[Playground](https://pocketjs.dev/playground/). Local browser development needs
-[Bun](https://bun.sh/) and [Rust via rustup](https://rustup.rs/):
+One bundle serves machines of different densities. An application states the
+hosts it is built for, its viewport and the features it turns on in the `app`
+section of its `pocket.host.config.ts`, and each host contract must present
+that viewport before compilation and packaging proceed. With
+`hosts: ["psp", "vita"]`, run from the application directory:
 
 ```sh
-git clone https://github.com/pocket-stack/pocketjs
+pocket check --target psp     # ok  480x272 · text.glyphs.baked · input.buttons
+pocket check --target vita    # ok  same bundle, density 2, no component edited
+```
+
+### From your component to a pixel
+
+The guest emits tree mutations; the core owns layout, the style table and the
+draw list; a per-target backend submits that draw list through GE, GXM, Metal,
+wgpu, software rasterization, e-ink updates or another declared host.
+
+```text
+PocketJS · 1 thread, 1 process
+  your component                        guest
+  renderer adapter                      guest
+  native tree                           core
+  flexbox layout, baked style table     core
+  drawlist                              core
+  backend draw                          core
+  → pixels
+
+Browser or WebView · 4 threads, 2 processes
+  your component                        main
+  framework runtime, vdom diff          main
+  dom mutation                          main
+  cssom, cascade, specificity           main
+  style recalculation                   main
+  layout, reflow                        main
+  paint records                         main
+  commit the layer tree across threads
+  layer tree, tiling                    compositor
+  queue raster tasks, invalidations     compositor
+  rasterization                         raster pool
+  ipc to the gpu process, sync fences
+  draw quads                            gpu
+  present                               gpu
+  → pixels
+```
+
+See also: [Architecture](https://pocketjs.pocket.nexus/docs/architecture/) ·
+[Frameworks](https://pocketjs.pocket.nexus/docs/frameworks/)
+
+## Smooth motion
+
+Keyframe timelines and spring curves are baked into the same style table at
+build time and advanced by the Rust core on its own clock, so a screen animates
+**with no per-frame JavaScript**. Motion Lab runs the yui540 studies in
+WebAssembly on [the website](https://pocketjs.pocket.nexus/#motion), inside an
+interactive PSP model, and on the handheld they were written for.
+
+| Baked keyframe timelines · (yui540) | 3D motion pipeline · (yui540) |
+| --- | --- |
+| ![Motion studies by yui540: menu, d-pad, share, hover, reload and keypad animations](./assets/screenshots/motions-53.gif) | ![3D motion studies by yui540: door, cubes, page flips and room transition](./assets/screenshots/motions-3d.gif) |
+
+## Small footprint
+
+With no browser engine in the pipeline, the cost of a screen stays close to what
+the hardware can do. A complete application drawing an animated interface
+**occupies 8 MB on a single 333 MHz core**: a quarter of the PSP's 32 MB, one
+part in 1536 of a 12 GB iPhone 17 Pro Max, on a core clocked 13 times slower
+than an A19 Pro performance core at 4.26 GHz.
+
+### On a Sony PSP
+
+One MIPS core at 333 MHz, 32 MB of RAM, measured against the 16.67 ms budget for
+60 fps:
+
+| Measurement | Result |
+| --- | --- |
+| OpenStrike frame budget | **2.2 ms** of JavaScript, 8.4 ms of total CPU work, worst observed frame 9.7 ms |
+| Hero demo, cost of a virtual DOM | Solid 15.15 ms · Vue Vapor 16.74 ms · **Vue with a virtual DOM 90.75 ms** |
+| Hero demo, the three shipped frameworks | Solid 3.66 ms · Vue Vapor 3.61 ms · Octane 6.53 ms |
+
+Seven samples per application. The two hero-demo rows come from separate runs
+with different toolchain versions, so each row is comparable internally but not
+against the other.
+
+See also: [Shipping OpenStrike](https://pocketjs.pocket.nexus/blog/shipping-openstrike/) ·
+[Pocket Character](https://pocketjs.pocket.nexus/blog/pocket-character/) ·
+[Twice the pixels, zero forks](https://pocketjs.pocket.nexus/blog/pocketjs-on-ps-vita/) ·
+[The first iPhone](https://pocketjs.pocket.nexus/blog/pocketjs-on-the-first-iphone/)
+
+## Replay every frame
+
+PocketJS advances an application one `frame(buttons)` call at a time, and time
+is the frame counter. A frame is a transaction that nothing outside it can
+interrupt, and nothing waits on a wall clock, so tests replay the same sequence
+as fast as the CPU allows without changing the timing they measure: a journey
+that takes six seconds in front of a user is a few dozen frames in CI.
+
+```text
+state n+1 = F(state n, input n)
+pixels n  = G(state n)
+```
+
+- **Effects land on frame boundaries.** A network reply that arrives partway
+  through frame +3 is queued, not applied. It is delivered at the start of
+  frame +4, in FIFO order, before any application hook runs. There are no
+  microtask races and no mid-frame callbacks, and `after()` replaces
+  `setTimeout` with a deadline measured in frames.
+- **An async task lands on the same frame every run.** Driven by
+  `requestAnimationFrame` against a wall clock, one awaited confirmation lands
+  on **22 different frames** across 60 runs, and its timing assertion passes
+  **9 times out of 60**. On the frame clock it lands on **frame 144 in every
+  run**, 60 out of 60.
+- **History is a data structure.** Tapes replay byte for byte, a session
+  subsampled to 2 Hz is byte-identical to its 60 Hz counterpart, and forking a
+  tape at frame 9 to splice in a different press produces the other outcome in
+  **22 ms**.
+- **Chaos mode checks the guarantee**, injecting sleeps, allocation churn and
+  forced GC between frames without moving the trace by one bit.
+
+See also: [The runtime that can't flake](https://pocketjs.pocket.nexus/blog/ui-runtime-that-cant-flake/) ·
+[Time-travel DevTools](https://pocketjs.pocket.nexus/blog/time-travel-devtools/) ·
+[Determinism](./docs/DETERMINISM.md)
+
+## Apps and games
+
+Apps and games share the same runtime. Cores are **independent native modules,
+loaded the way a kernel loads drivers**: an application takes the ones its
+content needs, such as networking, audio or 3D, and the rest never enters the
+build. The JavaScript uses them beside the same UI and input APIs.
+
+The full 3D stack is a project of its own in this repository.
+[Pocket3D](./engine/pocket3d/README.md) gives a game **a renderer for each console's
+GPU**, and its interface is a PocketJS app drawn over the scene:
+[3d.pocket.nexus](https://3d.pocket.nexus).
+
+```text
+TypeScript application → guest bundle, one frame at a time
+  ui       tree, layout, draw, input, focus
+  net      poll batches
+  audio    pcm mixer
+  strike   bsp, bots, hits
+  voxel    chunks, meshing
+```
+
+See also: [Architecture](https://pocketjs.pocket.nexus/docs/architecture/) ·
+[The runtime family](./docs/RUNTIMES.md) ·
+[Pocket3D](./engine/pocket3d/README.md)
+
+## Choose your screen
+
+PocketJS has booted on every operating system below, on the real machine. What
+changes between them is one native host, never the application, and each row
+links to the post or pull request that brought it up. Device programs, host
+contracts and build tools are maintained in this repository; see
+[Device native builds](./docs/DEVICE_BUILDS.md).
+
+| Operating system | Native host | Receipt |
+| --- | --- | --- |
+| PSP system software | MIPS, 32 MB | [Introducing PocketJS](https://pocketjs.pocket.nexus/blog/introducing-pocketjs/) |
+| PS Vita system software | ARM, GXM | [Twice the pixels, zero forks](https://pocketjs.pocket.nexus/blog/pocketjs-on-ps-vita/) |
+| iOS 12.5.8 | arm64 | [#278](https://github.com/pocket-nexus/pocketjs/pull/278) |
+| iOS, current | NativeScript host | [#256](https://github.com/pocket-nexus/pocketjs/pull/256) |
+| macOS | Metal widgets | [Pocket Character](https://pocketjs.pocket.nexus/blog/pocket-character/) |
+| Symbian Belle | Qt, GLES2 | [Symbian wanted a frame function](https://pocketjs.pocket.nexus/blog/pocketjs-on-symbian/) |
+| PocketBook e-ink | inkview, partial refresh | [#172](https://github.com/pocket-nexus/pocketjs/pull/172) |
+| ESP-IDF 6.0/6.1 | P4 PPA or S3 software RGB565 | [ESP-IDF components](https://pocketjs.pocket.nexus/docs/esp-idf/) |
+| The browser | WebAssembly core | [Playground](https://pocketjs.pocket.nexus/playground/) |
+
+Devices it has booted on: **Sony PSP** (2004), **PS Vita** (2011),
+**iPod touch 4** (2010), **iPod touch 6** (2015),
+**Nokia E7** (2011),
+**PocketBook reader** (e-ink), **ESP32-P4 devkit** (microcontroller) and
+**Mac** (Apple silicon). The Nintendo 3DS runs several of the applications in
+the next section.
+
+The authoritative host and target inventory is
+[`contracts/spec/platforms.ts`](./contracts/spec/platforms.ts); each entry
+records what has been verified and how. See
+[Platform contracts](https://pocketjs.pocket.nexus/docs/platform-contracts/) and
+the [Native contract](https://pocketjs.pocket.nexus/docs/native-contract/).
+
+## Made with PocketJS
+
+A music player for a PSP, a workspace on a 3DS, a game to take along. Each row
+links to the project, and most to the story of how it was built.
+
+| Project | Devices | What it is |
+| --- | --- | --- |
+| [**OpenStrike**](https://github.com/pocket-nexus/open-strike) | PSP, PS Vita | A Counter-Strike-shaped shooter on 2004 hardware: BSP maps, bots and a HUD written in Solid JSX, at 60 fps with 2.2 ms of JavaScript per frame. [Story](https://pocketjs.pocket.nexus/blog/shipping-openstrike/) |
+| [**Pocket Voxel**](https://github.com/pocket-nexus/pocket-voxel) | PSP, PS Vita, web | A creature-RPG town rebuilt as a walking voxel diorama. Game state lives in the JS guest; logic runs at 60 Hz while presentation holds a locked 30 fps beat. [Story](https://pocketjs.pocket.nexus/blog/pocket-voxel/) |
+| [**Pocket Figma**](https://github.com/pocket-nexus/pocket-figma) | PSP, PS Vita | A 14,430-node design file, cooked into streamed tile pyramids and panned with the analog nub at 60 fps on a handheld with 32 MB of RAM. [Story](https://pocketjs.pocket.nexus/blog/pocket-figma/) |
+| [**Pocket YouTube**](https://github.com/pocket-nexus/pocket-youtube) | 3DS, PSP, PS Vita | Watch on the upper screen while searching and browsing on the touch screen. A Mac companion streams video to the 3DS over Wi-Fi. [Story](https://pocketjs.pocket.nexus/blog/pocket-youtube/) |
+| [**Pocket Shell**](https://github.com/pocket-nexus/pocket-shell) | 3DS, M5Stack Tab5, PSP | A launcher for Pocket Applets: it pairs with Pocket Hub on a Mac, installs the applets Pocket Hub offers and switches between them |
+| [**Pocket Doc**](https://github.com/pocket-nexus/pocket-doc) | 3DS | A Markdown library on two screens: read above, edit and navigate below |
+| [**Pocket Map**](https://github.com/pocket-nexus/pocket-map) | 3DS, PSP | OpenStreetMap or Hyrule on a handheld: pan with the touchpad, zoom, search and save places through a paired Mac |
+| [**Pocket Term**](https://github.com/pocket-nexus/pocket-term) | 3DS | Mac shell sessions above a touch keyboard |
+| [**PSPMAN**](https://www.obsoletesony.com/pspman) | PSP | A Walkman-inspired music player by ObsoleteSony: local FLAC and MP3, album art and cassette mode |
+| [**Pocket Character**](https://github.com/pocket-nexus/pocket-character) | Mac | A rigged VRM companion in a transparent always-on-top window, rendering skinned 3D at 60 fps in one process and 118 MB, against 8 processes and 2184 MB for an Electron build of the same idea. [Story](https://pocketjs.pocket.nexus/blog/pocket-character/) |
+| [**Pocket DevTools**](https://pocketjs.pocket.nexus/blog/time-travel-devtools/) | every backend | Time-travel debugging over a USB cable at 2 bytes per frame. The inspector highlight is emitted by the core into the draw list, so it renders on the device |
+| [**Pocket Pi**](https://github.com/pocket-nexus/pocket-pi) | QuickJS guest | A coding agent running inside the QuickJS guest environment, with no Node underneath |
+
+<p align="center">
+  <a href="https://github.com/pocket-nexus/pocket-voxel"><img src="./site/assets/blog/voxel-psp-pallet-town.png" width="720" alt="Pocket Voxel on a real PSP: Pallet Town as a voxel diorama with gabled roofs, carved bushes, flowers, an NPC and the player on the path, in per-tile color." /></a>
+</p>
+
+<p align="center"><em>Pocket Voxel, captured on a PSP-2000: the flat Game Boy world standing up as geometry. <a href="https://pocketjs.pocket.nexus/blog/pocket-voxel/">The making-of story</a>.</em></p>
+
+## Get started
+
+The zero-install path is the online
+[Playground](https://pocketjs.pocket.nexus/playground/). Local browser
+development requires [Bun](https://bun.sh/) and
+[Rust via rustup](https://rustup.rs/):
+
+```sh
+git clone https://github.com/pocket-nexus/pocketjs
 cd pocketjs
 bun install
 rustup target add wasm32-unknown-unknown
 bun run dev                    # build WASM + the Hero app, then serve the browser host
 ```
 
-The CLI operates inside a PocketJS checkout:
+The `pocket` CLI runs on Bun. The
+[CLI reference](https://pocketjs.pocket.nexus/docs/cli/) lists its commands,
+scaffolding options and target toolchains:
 
 ```sh
-npm install -g @pocketjs/cli
-pocket doctor                  # report missing host and target tooling
-pocket setup                   # install the pinned web + PSP toolchain
-pocket create my-app
-pocket check --target psp --manifest apps/my-app/pocket.json
-pocket build --target psp --manifest apps/my-app/pocket.json -- --release
+bun add -g @pocketjs/cli       # or: npm install -g @pocketjs/cli
+pocket target add psp          # install the PSP toolchain the framework pins
+pocket create my-app           # a standalone project; `bun run check` and `bun run build` wrap the CLI
+cd my-app && bun install
+bun run build                  # pocket compile: the application's .pkb bundle
 ```
 
-Vita packaging additionally needs VitaSDK and the pinned Rust toolchain
-documented in [`hosts/vita/README.md`](./hosts/vita/README.md).
+**The native device program builds from a checkout:** `pocket build --target
+psp --bundle <application.pkb> --out dist/psp` embeds a compiled bundle
+in the PSP program; `pocket psp <app> --release` does the same for a demo
+under `apps/`. Vita packaging additionally requires VitaSDK and the pinned
+Rust toolchain documented in
+[`programs/vita/README.md`](./programs/vita/README.md). A guest build is one
+[bundle](./docs/PLATFORM.md) per host contract: a `.pkb` file holding the
+plan, the scripts and the asset pack. The
+[Getting started](https://pocketjs.pocket.nexus/docs/getting-started/) guide
+walks through a first application.
 
-To explore Pocket Vapor without a device:
+## Ahead-of-time compilation
+
+The [TypeScript support reference](./site/content/docs/typescript-support.md)
+compares ordinary application code, AOT views and compiled model bodies,
+including their restrictions and current implementation limits.
+
+[MicroTS](./microts/README.md) compiles
+Solid TSX and Vue SFC views to Rust through a shared typed View IR.
+**`app.model: "compiled"` also compiles the supported TypeScript model subset
+to Rust.** The default `"rust"` mode uses an application-provided Rust model
+implementing the same generated trait. Native AOT calls the retained UI core
+without a guest engine; the host still owns input, services and presentation.
 
 ```sh
-bun run vapor:dev             # run the component on the real Vue oracle in a browser
-bun run vapor:check           # show target admission and lossy lowering
-bun run vapor:test            # oracle + compiler + console parity suites
-bun vapor/compiler/cli.ts vapor/examples/todo/todo.tsx --target gb
+bun microts/compiler/cli.ts build solid-aot-lab --strict
+cargo check --locked --manifest-path apps/solid-aot-lab/Cargo.toml
 ```
 
-## The platform around the program
+The guest build lowers that compiled model's TypeScript source to a bundle
+with the same frame-synchronous reaction and task semantics. JavaScript is an
+execution format; the application source contract remains TypeScript. Rust
+AOT uses `alloc`, with capacity tags for bounded strings and arrays. Demo
+`gen/` directories are ignored and must be regenerated before Cargo builds.
 
-- **Capability contracts.** An app declares its viewport and required or
-  optional APIs. A target must satisfy that contract before compilation and
-  packaging continue.
-- **Deterministic packages.** Guest builds can become inspectable, verifiable,
-  and target-thinnable `.pocket` files instead of ad hoc port directories.
-- **System software.** The framework and supporting hosts provide a multi-app
-  launcher, focus and touch input, gesture physics, OSK and text editing,
-  credit-based PCM audio, and explicit host-service boundaries.
-- **Replayable time.** When time, randomness, and effects enter through the
-  virtual clock, seeded state, and recorded contracts, tapes and traces can
-  reproduce sessions byte-for-byte.
-- **Specialized native cores.** UI, 3D, and game systems expose small declared
-  APIs to the product guest while keeping hot state and per-frame work native.
+The earlier [C/cartridge experiment](https://github.com/pocket-nexus/pocket-vapor)
+lives in a separate repository with its own TypeScript subset, target profiles,
+examples and toolchains. Those sources and scripts are not part of this
+repository or the Rust AOT build.
 
-Start with [Platform contracts](https://pocketjs.dev/docs/platform-contracts/),
-[The `.pocket` platform](./docs/PLATFORM.md),
-[The runtime family](./docs/RUNTIMES.md), and
-[Determinism](./docs/DETERMINISM.md).
+## Working on PocketJS
 
-## The proof is what it can carry
-
-| Project | What it proves |
-| --- | --- |
-| [**Pocket Launcher**](./docs/LAUNCHER.md) | Whole-app lifecycle, target admission, frozen shots, and Guest switching on PSP and Vita |
-| [**OpenStrike**](https://github.com/pocket-stack/open-strike) | A scriptable FPS core, portable BSP worlds, and a Solid HUD at a locked 60 FPS on real PSP hardware |
-| [**Pocket Voxel**](https://github.com/pocket-stack/pocket-voxel) | A ROM-fed Game Boy creature-RPG as a walking voxel diorama: the whole game state lives in the TypeScript Guest over a Rust scene core, at a locked 30 FPS on real PSP hardware |
-| [**Pocket Figma**](https://github.com/pocket-stack/pocket-figma) | A 14,430-node Figma document baked into streamed tiles for pan and zoom on a PSP |
-| [**Pocket YouTube**](https://github.com/pocket-stack/pocket-youtube) | USB host services, search, video, audio, seeking, CJK text, and a system keyboard on a PSP |
-| [**Pocket Character**](https://github.com/pocket-stack/pocket-character) | A VRM digital human in one native transparent desktop process instead of an Electron stage |
-| [**Pocket Vapor Todo**](./vapor/README.md) | A strict Vue Vapor program lowered to console ROMs and firmware, checked step-by-step against a real Vue oracle |
-| [**Pocket Pi**](https://github.com/pocket-stack/pocket-pi) | A coding agent running inside the QuickJS Guest environment without Node underneath |
-
-<p align="center">
-  <a href="https://github.com/pocket-stack/pocket-voxel"><img src="./site/assets/blog/voxel-psp-pallet-town.png" width="720" alt="Pocket Voxel on a real PSP: Pallet Town as a voxel diorama with gabled roofs, carved bushes, flowers, an NPC and the player on the path, in per-tile color." /></a>
-</p>
-
-<p align="center"><em>Pocket Voxel, captured on a PSP-2000: the flat Game Boy world standing up as geometry. <a href="https://pocketjs.dev/blog/pocket-voxel/">The making-of story</a>.</em></p>
-
-## Platforms and evidence
-
-Target status is evidence-specific. A registry entry, an emulator parity suite,
-a hardware protocol receipt, and a manual screen check prove different things.
-
-| Platform or host | Path | Current evidence |
-| --- | --- | --- |
-| **Sony PSP** | Registered Guest profile | Real-hardware applications plus PPSSPP input journeys and frame goldens |
-| **PS Vita** | Registered Guest profile | Real-hardware install, boot, GXM presentation, controller, and interactive flows; Vita3K-driven 960×544 CPU pixel oracle plus GXM texture/font residency checks |
-| **PocketBook** | Registered Guest profile | Hardware boot, rendering, centering, and animated partial refresh; broader input and panel acceptance remains in progress |
-| **macOS widget** | Registered Guest profile | Dynamic native window, pointer, keyboard/IME, clipboard, and runtime glyph paths |
-| **Browser, desktop, headless Bun** | Guest development and verification hosts | WASM/native rendering, interactive development, deterministic simulation, and image goldens |
-| **Nokia E7 / Symbian** | Hardware-tested development Guest host | SIS install, launch, visible rendering, keys, and rotation on the reference device; not a production target profile |
-| **iOS (NativeScript host)** | Development Guest host | Simulator boot, rendering, touch, and the guest↔host service round trip in both guest modes (sidecar realm and the NativeScript runtime as guest engine); not a production target profile |
-| **GBA, Game Boy, NES** | Pocket Vapor AOT | Per-interaction emulator parity against the Vue oracle, including logical characters and styles |
-| **ESP32 MeowBit** | Pocket Vapor AOT | Optional physical-board UART replay verifies the logical grid and exercises LCD commits; it neither reads panel pixels nor actuates GPIO buttons |
-| **Playdate** | Pocket Vapor AOT | Native-boundary tests and Simulator/device package smoke; physical display and input acceptance remains manual |
-| **ESP32-P4** | Native renderer integration | Reusable RGB565/PPA backend and ESP-IDF component smoke; not a stock application target |
-
-The authoritative Guest inventory lives in
-[`contracts/spec/platforms.ts`](./contracts/spec/platforms.ts). Pocket Vapor
-uses compiler-side target and board contracts instead; see
-[`vapor/DESIGN.md`](./vapor/DESIGN.md). Recent machine-family work and its exact
-validation level are tracked in the [changelog](https://pocketjs.dev/changelog/).
-
-## Choose a path
-
-| Goal | Start here |
-| --- | --- |
-| Build a Guest application | [Getting started](https://pocketjs.dev/docs/getting-started/) |
-| Compare Solid, Vue Vapor, Vue SFC, and Octane | [Frameworks](https://pocketjs.dev/docs/frameworks/) |
-| Compile for machines without a JS engine | [Pocket Vapor](./vapor/README.md) |
-| Add or embed a native host | [Native contract](https://pocketjs.dev/docs/native-contract/) · [Platform contracts](https://pocketjs.dev/docs/platform-contracts/) |
-| Build a game or specialized runtime | [Runtime family](./docs/RUNTIMES.md) · [Pocket3D](./engine/pocket3d/README.md) |
-| Debug, replay, and verify | [DevTools](./docs/DEVTOOLS.md) · [Determinism](./docs/DETERMINISM.md) |
-| Browse complete examples | [`apps/`](./apps/) · [PocketJS blog](https://pocketjs.dev/blog/) |
-
-## Repository map
+### Repository layout
 
 | Path | Responsibility |
 | --- | --- |
-| [`framework/`](./framework/) | Public framework APIs, renderers, components, input, lifecycle, and build-time styling |
-| [`engine/`](./engine/) | `no_std` UI core, render backends, native modules, Pocket3D, and platform-native crates |
-| [`contracts/`](./contracts/) | Generated wire specs, capability registry, manifests, build plans, and package formats |
-| [`hosts/`](./hosts/) | PSP, Vita, web, desktop, e-reader, phone, and MCU host integrations |
-| [`vapor/`](./vapor/) | Pocket Vapor compiler, oracle, board contracts, target runtimes, and parity harnesses |
-| [`apps/`](./apps/) | Framework demos and system applications used by the launcher and acceptance suites |
-| [`tools/`](./tools/) | Build, package, launcher, device, DevTools, and release commands |
-| [`tests/`](./tests/) | Contract, compiler, simulation, emulator, package, and golden verification |
+| [`framework/`](./framework/) | Public framework APIs, renderers, components, input, lifecycle and build-time styling |
+| [`engine/`](./engine/) | `no_std` UI core, render backends, native modules, Pocket3D and platform-native crates |
+| [`devices/`](./devices/) | Pocket3D device kernels for GXM, GE and PICA200 |
+| [`engine/pocket3d/`](./engine/pocket3d/) | The Pocket3D entry point: its design and a map of where its code lives |
+| [`microts/`](./microts/) | The MicroTS ahead-of-time compiler |
+| [`contracts/`](./contracts/) | Generated wire specs, capability registry, app and host contract schemas, build plans and the bundle format |
+| [`programs/`](./programs/) | Runtime composition, entry points and native build recipes |
+| [`hosts/`](./hosts/) | Built-in host contracts (`hosts/<id>/pocket.host.json`) identified by content hashes |
+| [`platforms/`](./platforms/) | Operating-system, SDK and fixed-console drivers |
+| [`platforms/esp-idf/`](./platforms/esp-idf/) | Runtime, QuickJS, display, PPA, input and runner components |
+| [`platforms/sifli/`](./platforms/sifli/) | SiFli SF32LB5x hooks, EPIC/VG Lite executor and renderer, display, input, guest and runner |
+| [`apps/`](./apps/) | Framework demos and system applications used by the acceptance suites |
+| [`tools/`](./tools/) | Build, package, device, DevTools, benchmark and release commands |
+| [`tests/`](./tests/) | Contract, compiler, simulation, emulator, package and golden verification |
+| [`docs/`](./docs/) | Platform, runtime, determinism, DevTools, backend and benchmark records |
+| [`site/`](./site/) | This website ([`site/nexus/`](./site/nexus/) holds the [pocket.nexus](https://pocket.nexus) homepage, [`site/pocket3d/`](./site/pocket3d/) the [3d.pocket.nexus](https://3d.pocket.nexus) homepage, [`site/microts/`](./site/microts/) the [microts.pocket.nexus](https://microts.pocket.nexus) docs and playground) |
 
-Common repository checks (emulator journeys require their external toolchains):
+### Building and testing
+
+Emulator journeys require their external toolchains:
 
 ```sh
 bun run test                  # contracts, compiler, packages, sims, and host suites
@@ -253,22 +417,52 @@ bun run golden                # deterministic WASM/web frame goldens
 bun run e2e                   # PPSSPP journey
 bun run e2e:vita              # Vita3K native-density journey
 bun run site:build            # docs, playground, Stage, and landing build
+bun run site:preview          # build, then serve the site at http://127.0.0.1:4173/
 ```
 
-## Motion Lab attribution
+## Documentation
 
-| Baked keyframe timelines · (yui540) | 3D motion pipeline · (yui540) |
+| Topic | Reference |
 | --- | --- |
-| ![Motion studies by yui540: menu, d-pad, share, hover, reload and keypad animations](./assets/screenshots/motions-53.gif) | ![3D motion studies by yui540: door, cubes, page flips and room transition](./assets/screenshots/motions-3d.gif) |
+| First application | [Getting started](https://pocketjs.pocket.nexus/docs/getting-started/) |
+| Frameworks, components, styling | [Frameworks](https://pocketjs.pocket.nexus/docs/frameworks/) · [Components](https://pocketjs.pocket.nexus/docs/components/) · [Styling](https://pocketjs.pocket.nexus/docs/styling/) |
+| Runtime internals | [Architecture](https://pocketjs.pocket.nexus/docs/architecture/) · [Native contract](https://pocketjs.pocket.nexus/docs/native-contract/) |
+| Targets and packaging | [Platform contracts](https://pocketjs.pocket.nexus/docs/platform-contracts/) · [Bundles and the app platform](./docs/PLATFORM.md) |
+| Debugging and verification | [DevTools](./docs/DEVTOOLS.md) · [Determinism](./docs/DETERMINISM.md) |
+| Runtimes beyond 2D UI | [The runtime family](./docs/RUNTIMES.md) · [Pocket3D](./engine/pocket3d/README.md) |
+| Ahead-of-time compilation | [MicroTS](./microts/README.md) · [TypeScript support](./site/content/docs/typescript-support.md) |
+| Complete examples | [`apps/`](./apps/) · [Blog](https://pocketjs.pocket.nexus/blog/) |
+
+## Sponsors and Pocket Nexus
+
+PocketJS is developed full-time with the support of its
+[sponsors](https://github.com/sponsors/doodlewind), who are listed on
+[the website](https://pocketjs.pocket.nexus/#sponsors).
+
+PocketJS is built by [Pocket Nexus](https://pocket.nexus), an independent,
+non-VC-backed lab that starts from this runtime to explore new possibilities in
+computing, interaction and creation, so that the joy of creating belongs to
+everyone. Its other projects are listed on the
+[GitHub organization](https://github.com/pocket-nexus).
+
+## Attribution
 
 The original motion studies are by [yui540](https://yui540.com/). PocketJS
-accepts yui540's two stated conditions for continued use: Motion Lab carries
-the requested `(yui540)` on-screen credit, and any other yui540 animation
-requires separate permission before it is ported. The accepted scope and
+accepts yui540's two stated conditions for continued use: Motion Lab carries the
+requested `(yui540)` on-screen credit, and any other yui540 animation requires
+separate permission before it is ported. The accepted scope and
 capture-maintenance rules are recorded in
 [`apps/motions/ATTRIBUTION.md`](./apps/motions/ATTRIBUTION.md).
 
 ## License
 
-PocketJS is [MIT licensed](./LICENSE). Inter is vendored under the OFL in
-[`assets/fonts/`](./assets/fonts/).
+PocketJS and MicroTS are [MIT licensed](./LICENSE). Inter is vendored under the
+OFL in [`assets/fonts/`](./assets/fonts/).
+
+Pocket3D, the files under [`devices/`](./devices/) and
+[`engine/pocket3d/`](./engine/pocket3d/), is under the
+[Pocket3D License](./engine/pocket3d/LICENSE). It grants what the MIT License grants,
+with one more condition: **a distributed product that draws 3D scenes with
+Pocket3D shows the Pocket3D title card when it starts**. PocketJS's own hosts
+and the applications built on them are exempt. A separate written license
+removes the condition: write to support@pocket.nexus.

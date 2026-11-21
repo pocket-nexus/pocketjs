@@ -36,6 +36,7 @@ export {
   Grid,
   Lazy,
   Gallery,
+  useViewport,
 } from "../../framework/src/components.ts";
 export {
   animate,
@@ -60,9 +61,9 @@ export {
   touches,
 } from "../../framework/src/input-api.ts";
 export { createWavPlayer } from "../../framework/src/audio-api.ts";
+export { createMusicPlayer, createSfxBank } from "../../framework/src/game2d/music.ts";
 export { TICKS_PER_SECOND, ticksPerFrame } from "../../framework/src/clock.ts";
 export { getOps, hostViewport } from "../../framework/src/host.ts";
-export { appTable, frozenShot, launchApp } from "../../framework/src/launcher.ts";
 
 // ---- universal-renderer surface (what babel-preset-solid imports from the
 // `moduleName` specifier — must exist under this one module) ------------------

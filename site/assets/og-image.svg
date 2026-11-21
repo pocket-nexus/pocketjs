@@ -1,73 +1,58 @@
-<svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="PocketJS - Bare Metal Modern Web">
+<svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="PocketJS - Create UI on every screen you love">
   <defs>
     <radialGradient id="og-left" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(0 115) rotate(24) scale(520 680)">
-      <stop stop-color="#60a5fa" stop-opacity="0.22"/>
-      <stop offset="0.58" stop-color="#60a5fa" stop-opacity="0.05"/>
-      <stop offset="1" stop-color="#60a5fa" stop-opacity="0"/>
+      <stop stop-color="#ffd23f" stop-opacity="0.16"/>
+      <stop offset="0.58" stop-color="#ffd23f" stop-opacity="0.04"/>
+      <stop offset="1" stop-color="#ffd23f" stop-opacity="0"/>
     </radialGradient>
     <radialGradient id="og-right" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(1200 120) rotate(154) scale(460 660)">
-      <stop stop-color="#22d3ee" stop-opacity="0.16"/>
-      <stop offset="0.62" stop-color="#22d3ee" stop-opacity="0.04"/>
-      <stop offset="1" stop-color="#22d3ee" stop-opacity="0"/>
+      <stop stop-color="#ff5f9e" stop-opacity="0.16"/>
+      <stop offset="0.62" stop-color="#ff5f9e" stop-opacity="0.04"/>
+      <stop offset="1" stop-color="#ff5f9e" stop-opacity="0"/>
     </radialGradient>
-    <linearGradient id="og-title" x1="220" y1="200" x2="840" y2="410" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#f8fbff"/>
-      <stop offset="0.42" stop-color="#e1e8f2"/>
-      <stop offset="1" stop-color="#99a8bc"/>
-    </linearGradient>
-    <linearGradient id="pj-edge" x1="88" y1="78" x2="168" y2="158" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#eef6ff"/>
-      <stop offset="0.38" stop-color="#b7c8e2"/>
-      <stop offset="0.58" stop-color="#7487a0"/>
-      <stop offset="0.78" stop-color="#aec0d6"/>
-      <stop offset="1" stop-color="#dbe8f6"/>
-    </linearGradient>
-    <linearGradient id="pj-lens" x1="104" y1="108" x2="128" y2="132" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#e4edf8"/>
-      <stop offset="0.55" stop-color="#a7b8cf"/>
-      <stop offset="1" stop-color="#53677f"/>
-    </linearGradient>
-    <linearGradient id="pj-bar" x1="140" y1="106" x2="174" y2="140" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#d7e3f1"/>
-      <stop offset="1" stop-color="#71849d"/>
+    <linearGradient id="og-title" x1="76" y1="190" x2="900" y2="410" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffd23f"/>
+      <stop offset="0.52" stop-color="#ff5f9e"/>
+      <stop offset="1" stop-color="#3fd0e8"/>
     </linearGradient>
     <filter id="soft-shadow" x="-30%" y="-30%" width="160%" height="160%">
-      <feDropShadow dx="0" dy="20" stdDeviation="28" flood-color="#020617" flood-opacity="0.58"/>
+      <feDropShadow dx="0" dy="20" stdDeviation="28" flood-color="#0e0919" flood-opacity="0.58"/>
     </filter>
   </defs>
 
-  <rect width="1200" height="630" fill="#05070d"/>
+  <rect width="1200" height="630" fill="#171226"/>
   <rect width="1200" height="630" fill="url(#og-left)"/>
   <rect width="1200" height="630" fill="url(#og-right)"/>
-  <path d="M0 126H1200M0 252H1200M0 378H1200M0 504H1200M120 0V630M240 0V630M360 0V630M480 0V630M600 0V630M720 0V630M840 0V630M960 0V630M1080 0V630" stroke="#2b3a55" stroke-opacity="0.22" stroke-width="1"/>
+  <path d="M0 126H1200M0 252H1200M0 378H1200M0 504H1200M120 0V630M240 0V630M360 0V630M480 0V630M600 0V630M720 0V630M840 0V630M960 0V630M1080 0V630" stroke="#ffffff" stroke-opacity="0.06" stroke-width="1"/>
 
   <g filter="url(#soft-shadow)">
-    <rect x="68" y="58" width="210" height="92" rx="46" fill="#0b111d" stroke="#2b3a55" stroke-width="2"/>
+    <rect x="68" y="58" width="210" height="92" rx="46" fill="#231b3b" stroke="#ffffff" stroke-opacity="0.12" stroke-width="2"/>
+    <!-- the mark from site/assets/favicon.svg, same geometry, filled body -->
     <g transform="translate(74 50) scale(3.2)">
-      <rect x="2" y="6" width="28" height="20" rx="6" fill="none" stroke="url(#pj-edge)" stroke-width="2.6" stroke-linejoin="round"/>
-      <circle cx="10" cy="16" r="3.1" fill="url(#pj-lens)"/>
-      <rect x="16" y="12.6" width="10" height="2.2" rx="1.1" fill="url(#pj-bar)"/>
-      <rect x="16" y="17.2" width="6.5" height="2.2" rx="1.1" fill="url(#pj-bar)"/>
+      <rect x="2" y="6" width="28" height="20" rx="6" fill="none" stroke="#ffd23f" stroke-width="2.6" stroke-linejoin="round"/>
+      <circle cx="10" cy="16" r="3.1" fill="#ff5f9e"/>
+      <rect x="16" y="12.6" width="10" height="2.2" rx="1.1" fill="#3fd0e8"/>
+      <rect x="16" y="17.2" width="6.5" height="2.2" rx="1.1" fill="#ff5f9e"/>
     </g>
-    <text x="176" y="116" fill="#f3f7fd" font-family="Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="36" font-weight="700">PocketJS</text>
+    <text x="176" y="116" fill="#fcf6ff" font-family="Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="36" font-weight="700">PocketJS</text>
   </g>
 
-  <text x="76" y="266" fill="url(#og-title)" font-family="Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="86" font-weight="700" letter-spacing="0">
-    <tspan x="76" dy="0">Bare Metal</tspan>
-    <tspan x="76" dy="90">Modern Web</tspan>
+  <text x="76" y="266" fill="url(#og-title)" font-family="Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="76" font-weight="700" letter-spacing="0">
+    <tspan x="76" dy="0">Create UI on every</tspan>
+    <tspan x="76" dy="82">screen you love</tspan>
   </text>
-  <text x="82" y="466" fill="#b9c3d4" font-family="Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="34" font-weight="500" letter-spacing="0">
-    <tspan x="82" dy="0">High-performance JSX UI outside the browser:</tspan>
-    <tspan x="82" dy="46">native rendering, Vue Vapor and Solid,</tspan>
-    <tspan x="82" dy="46">Tailwind design system, 60 FPS under 8 MB.</tspan>
+  <text x="82" y="452" fill="#cbbde2" font-family="Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="32" font-weight="500" letter-spacing="0">
+    <tspan x="82" dy="0">Apps for your favorite devices.</tspan>
+    <tspan x="82" dy="44">Familiar JavaScript.</tspan>
+    <tspan x="82" dy="44">A compact native runtime.</tspan>
   </text>
 
   <g transform="translate(760 476)">
-    <rect x="0" y="0" width="118" height="44" rx="22" fill="#101827" stroke="#2b3a55"/>
-    <text x="59" y="29" text-anchor="middle" fill="#dbe8f6" font-family="Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="18" font-weight="700">8MB RAM</text>
-    <rect x="136" y="0" width="102" height="44" rx="22" fill="#101827" stroke="#2b3a55"/>
-    <text x="187" y="29" text-anchor="middle" fill="#dbe8f6" font-family="Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="18" font-weight="700">QuickJS</text>
-    <rect x="256" y="0" width="176" height="44" rx="22" fill="#101827" stroke="#2b3a55"/>
-    <text x="344" y="29" text-anchor="middle" fill="#dbe8f6" font-family="Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="18" font-weight="700">tiny native core</text>
+    <rect x="0" y="0" width="118" height="44" rx="22" fill="#231b3b" stroke="#ffffff" stroke-opacity="0.14"/>
+    <text x="59" y="29" text-anchor="middle" fill="#ffd23f" font-family="Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="18" font-weight="700">8MB RAM</text>
+    <rect x="136" y="0" width="102" height="44" rx="22" fill="#231b3b" stroke="#ffffff" stroke-opacity="0.14"/>
+    <text x="187" y="29" text-anchor="middle" fill="#ff7fb4" font-family="Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="18" font-weight="700">QuickJS</text>
+    <rect x="256" y="0" width="176" height="44" rx="22" fill="#231b3b" stroke="#ffffff" stroke-opacity="0.14"/>
+    <text x="344" y="29" text-anchor="middle" fill="#3fd0e8" font-family="Inter, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="18" font-weight="700">tiny native core</text>
   </g>
 </svg>

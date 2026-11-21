@@ -1,0 +1,45 @@
+{
+  "state": {
+    "result": 6
+  },
+  "writes": [
+    {
+      "name": "result",
+      "value": 1,
+      "changed": true
+    },
+    {
+      "name": "result",
+      "value": 3,
+      "changed": true
+    },
+    {
+      "name": "result",
+      "value": 6,
+      "changed": true
+    }
+  ],
+  "operations": [
+    {
+      "kind": "set",
+      "name": "result",
+      "value": 1,
+      "changed": true
+    },
+    {
+      "kind": "set",
+      "name": "result",
+      "value": 3,
+      "changed": true
+    },
+    {
+      "kind": "set",
+      "name": "result",
+      "value": 6,
+      "changed": true
+    }
+  ],
+  "work": {
+    "loopIterations": 3
+  }
+}

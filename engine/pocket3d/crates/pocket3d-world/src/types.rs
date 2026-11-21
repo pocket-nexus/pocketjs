@@ -269,6 +269,12 @@ pub struct Entity {
     pub body: Option<Body>,
     pub collider: Option<Collider>,
     pub surface: PhysicalSurface,
+    /// Optional transformed permeability volume for heat and liquid transport.
+    #[serde(default)]
+    pub transport_surface: Option<crate::TransportSurface>,
+    /// Optional fixed-step surface locomotion for a kinematic collider.
+    #[serde(default)]
+    pub locomotion: Option<crate::Locomotion>,
     pub attachment: Option<Attachment>,
     pub structure: Option<Structure>,
     pub reactive_material: Option<ReactiveMaterial>,
@@ -289,6 +295,12 @@ pub struct EntityBundle {
     pub body: Option<Body>,
     pub collider: Option<Collider>,
     pub surface: PhysicalSurface,
+    /// Optional transformed permeability volume for heat and liquid transport.
+    #[serde(default)]
+    pub transport_surface: Option<crate::TransportSurface>,
+    /// Optional fixed-step surface locomotion for a kinematic collider.
+    #[serde(default)]
+    pub locomotion: Option<crate::Locomotion>,
     pub attachment: Option<Attachment>,
     pub structure: Option<Structure>,
     pub reactive_material: Option<ReactiveMaterial>,
@@ -304,6 +316,8 @@ impl EntityBundle {
             body: None,
             collider: None,
             surface: PhysicalSurface::default(),
+            transport_surface: None,
+            locomotion: None,
             attachment: None,
             structure: None,
             reactive_material: None,
@@ -351,6 +365,19 @@ impl Default for EnvironmentSample {
 
 pub trait Environment {
     fn sample(&self, position: Vec3) -> EnvironmentSample;
+
+    /// Finite precipitation volume sampled on a deterministic horizontal grid.
+    fn rainfall(&self) -> Option<crate::Rainfall> {
+        None
+    }
+
+    /// Terrain contact coefficients; height and normal come from `sample`.
+    fn surface(&self, _position: Vec3) -> PhysicalSurface {
+        PhysicalSurface {
+            friction: 0.86,
+            restitution: 0.04,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -364,8 +391,9 @@ impl Environment for FlatEnvironment {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Interaction {
+    Water(crate::WaterEmission),
     Cut {
         target: EntityId,
         direction: Vec3,
@@ -430,6 +458,8 @@ pub enum WorldEvent {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct StepReport {
+    #[serde(default)]
+    pub transport: crate::TransportReport,
     pub tick: u64,
     pub events: Vec<WorldEvent>,
     pub state_hash: u64,
@@ -443,6 +473,13 @@ pub struct WorldConfig {
     pub reaction_radius: f32,
     pub ambient_exchange: f32,
     pub contact_heat_exchange: f32,
+    /// Surface gap treated as thermal contact, in metres.
+    pub thermal_contact_tolerance: f32,
+    /// Evaporation below boiling, limited by the configured cooling floor.
+    /// Zero retains the boiling-only model.
+    pub surface_evaporation_rate: f32,
+    /// Maximum evaporative cooling below ambient in dry air, in Celsius.
+    pub evaporative_cooling_range_c: f32,
     /// Temperature of liquid water introduced by [`Interaction::Douse`].
     pub water_inlet_temperature_c: f32,
     /// Sensible heat capacity per normalized unit of retained liquid water.
@@ -480,6 +517,9 @@ impl Default for WorldConfig {
             reaction_radius: 3.2,
             ambient_exchange: 0.018,
             contact_heat_exchange: 0.42,
+            thermal_contact_tolerance: 0.02,
+            surface_evaporation_rate: 0.0,
+            evaporative_cooling_range_c: 8.0,
             water_inlet_temperature_c: 18.0,
             water_specific_heat: 4.18,
             water_vaporization_heat: 2_256.0,

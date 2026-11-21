@@ -1,11 +1,17 @@
 {
-  "count": 12,
+  "count": 16,
   "sponsors": [
     {
       "login": "ZephyrCloudIO",
       "name": "Zephyr Cloud IO",
       "url": "https://github.com/ZephyrCloudIO",
       "avatar": "/assets/sponsors/ZephyrCloudIO.png"
+    },
+    {
+      "login": "Brooooooklyn",
+      "name": "LongYinan",
+      "url": "https://github.com/Brooooooklyn",
+      "avatar": "/assets/sponsors/Brooooooklyn.png"
     },
     {
       "login": "CoderSerio",
@@ -24,6 +30,12 @@
       "name": "hengyu",
       "url": "https://github.com/Hengyu",
       "avatar": "/assets/sponsors/Hengyu.png"
+    },
+    {
+      "login": "hyfdev",
+      "name": "Yunfei He",
+      "url": "https://github.com/hyfdev",
+      "avatar": "/assets/sponsors/hyfdev.png"
     },
     {
       "login": "jackeydou",
@@ -48,6 +60,18 @@
       "name": "Peng Xiao",
       "url": "https://github.com/pengx17",
       "avatar": "/assets/sponsors/pengx17.png"
+    },
+    {
+      "login": "Richeir",
+      "name": "Richeir",
+      "url": "https://github.com/Richeir",
+      "avatar": "/assets/sponsors/Richeir.png"
+    },
+    {
+      "login": "SitgesRun",
+      "name": "SitgesRun",
+      "url": "https://github.com/SitgesRun",
+      "avatar": "/assets/sponsors/SitgesRun.png"
     },
     {
       "login": "ThaddeusJiang",

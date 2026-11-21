@@ -6,22 +6,22 @@
 html{scroll-behavior:smooth}
 body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.6;
   background-image:
-    radial-gradient(ellipse 55% 34% at 50% -6%, rgba(78,240,138,.10), transparent),
-    radial-gradient(ellipse 58% 40% at 50% -4%, rgba(216,225,236,.06), transparent),
-    radial-gradient(ellipse 40% 30% at 90% 14%, rgba(78,240,138,.05), transparent)}
+    radial-gradient(ellipse 55% 34% at 50% -6%, rgba(var(--accent-rgb),.10), transparent),
+    radial-gradient(ellipse 58% 40% at 50% -4%, rgba(var(--tint-1-rgb),.06), transparent),
+    radial-gradient(ellipse 40% 30% at 90% 14%, rgba(var(--accent-rgb),.05), transparent)}
 body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:100;
-  background:repeating-linear-gradient(0deg, rgba(3,18,11,.16) 0 1px, transparent 1px 3px)}
+  background:repeating-linear-gradient(0deg, rgba(var(--shade-rgb),.10) 0 1px, transparent 1px 4px)}
 body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:99;
-  background:radial-gradient(ellipse 92% 86% at 50% 50%, transparent 68%, rgba(2,5,4,.30) 100%)}
+  background:radial-gradient(ellipse 94% 90% at 50% 50%, transparent 74%, rgba(var(--shade-rgb),.34) 100%)}
 .wrap{max-width:1160px;margin:0 auto;padding:0 clamp(1.25rem,4vw,2.5rem)}
 a{color:inherit;text-decoration:none}
 img,video{max-width:100%;display:block}
-.hud{font-family:var(--mono);font-size:.7rem;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
-.metal{background:var(--metal);-webkit-background-clip:text;background-clip:text;color:transparent}
-.metal.lit{background:var(--metal-ph);-webkit-background-clip:text;background-clip:text}
-.lit{filter:drop-shadow(0 0 14px rgba(78,240,138,.42)) drop-shadow(0 0 34px rgba(78,240,138,.20))}
-.cursor{display:inline-block;width:.5em;height:.95em;background:var(--ph);vertical-align:-.1em;margin-left:.15em;
-  box-shadow:0 0 8px rgba(78,240,138,.55);animation:blink 1.1s steps(1) infinite}
+.hud{font-family:var(--sans);font-weight:600;font-size:.72rem;letter-spacing:.06em;color:var(--muted)}
+.spectrum{background:var(--spectrum);-webkit-background-clip:text;background-clip:text;color:transparent}
+.spectrum.lit{background:var(--spectrum-lit);-webkit-background-clip:text;background-clip:text}
+.lit{filter:drop-shadow(0 0 16px rgba(var(--accent-2-rgb),.34))}
+.cursor{display:inline-block;width:.5em;height:.95em;background:var(--accent);vertical-align:-.1em;margin-left:.15em;
+  box-shadow:0 0 8px rgba(var(--accent-rgb),.55);animation:blink 1.1s steps(1) infinite}
 @keyframes blink{50%{opacity:0}}
 
 

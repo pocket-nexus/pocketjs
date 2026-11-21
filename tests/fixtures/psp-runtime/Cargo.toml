@@ -1,0 +1,18 @@
+[package]
+name = "pocket-psp-runtime-contract"
+version = "0.0.0"
+edition = "2021"
+publish = false
+[workspace]
+[dependencies]
+pocket-spec = { path = "../../../engine/spec" }
+libquickjs-sys = { git = "https://github.com/pocket-nexus/quickjs-rs.git", rev = "a5cac5d8631bdc068b43af93355b9f82d666949e" }
+pocket-drivers = { path = "../../../engine/drivers" }
+pocket-runtime = { path = "../../../engine/runtime" }
+pocket-archive = { path = "../../../programs/sdk/archive" }
+pocket-package = { path = "../../../engine/package" }
+pocketjs-core = { path = "../../../engine/core" }
+pocket-physics = { path = "../../../engine/physics" }
+[build-dependencies]
+pocket-profile-build = { path = "../../../engine/profile-build" }
+cc = "1"

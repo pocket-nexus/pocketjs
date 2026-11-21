@@ -1,0 +1,17 @@
+{
+  "format": "pocket-host/2",
+  "id": "product-linux-kms",
+  "platform": "linux",
+  "form": "embedded",
+  "cadences": [60],
+  "display": {
+    "logicalViewports": [[800, 600]],
+    "presentations": ["native"],
+    "rasterDensity": 1,
+    "animation": "composited"
+  },
+  "panel": {
+    "primary": [800, 600]
+  },
+  "capabilities": ["input.buttons", "text.glyphs.baked"]
+}

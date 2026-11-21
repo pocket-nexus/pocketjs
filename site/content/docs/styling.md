@@ -3,107 +3,142 @@
 PocketJS styling is a **build-time Tailwind subset**. The classes you write are
 not CSS: at build time the compiler parses each class literal, turns it into a
 binary style record, and packs the whole table into `styles.bin` inside your
-app's `.pak`. At runtime the renderer looks a class attribute up **verbatim**,
-gets back a numeric `styleId`, and hands that to the Rust core via `setStyle`.
+app's `.pak`. At runtime the renderer resolves a class attribute to a numeric
+`styleId` and hands that to the Rust core through `setStyle`.
 
-There is **zero runtime CSS**: no CSS parser, no cascade, no string matching on
-the device. A class is just an integer index into a table that was resolved and
+There is **zero runtime CSS**: no CSS parser, no cascade, no property strings on
+the device. A class is an integer index into a table that was resolved and
 frozen at build time.
 
-This page covers the model and the rules. The exhaustive list of supported
-utilities lives on [/docs/tailwind/](/docs/tailwind/); motion utilities
-(`transition-*`, `duration-*`, `ease-*`, `delay-*`) are covered on
+`animate()` and the timeline format behind `animate-*` are on
 [/docs/animation/](/docs/animation/).
 
 ## The pipeline
 
-The Tailwind compiler runs in pass 1 of `bun tools/build.ts <app>` (see
-[/docs/build-pipeline/](/docs/build-pipeline/)):
+`bun tools/build.ts <app>` is a two-pass build, and the class compiler runs
+**between the two passes** (see [/docs/build-pipeline/](/docs/build-pipeline/)):
 
-1. The babel pass collects **candidate class strings** from the AST — every
-   string literal, every template-literal quasi, and every chunk of JSX text.
-2. `framework/compiler/tailwind.ts` tries to parse each candidate. The ones that parse
-   become style records; identical records are deduplicated to a single
-   `styleId`.
-3. The records are encoded to `styles.bin` and a generated `styles.generated.ts`
-   module (`STYLE_IDS`: the class-literal → `styleId` map, plus the font-slot
-   metadata) that the renderer imports.
+1. Pass 1 (babel) walks every `.tsx`/`.ts` reachable from the app entry and
+   collects **candidate class strings** from the AST — every string literal,
+   every template-literal quasi, and every chunk of JSX text.
+2. `compileClasses` in `framework/compiler/tailwind.ts` parses each candidate.
+   The candidates that parse become style records; records that encode to the
+   same bytes collapse to one `styleId`.
+3. The table is encoded to `styles.bin` for the `.pak`, and the class-literal →
+   `styleId` map (`STYLE_IDS`) plus the font-slot metadata become a generated
+   module.
+4. Pass 2 (`Bun.build`) bundles the app, with the JSX plugin serving that
+   generated module **from memory** — two target builds running at once cannot
+   read each other's table. `tools/build.ts` writes
+   `<outdir>/<output>.styles.ts` as a copy for inspection; the bundle does not
+   read it, and nothing is written into the framework directory.
 
-`styles.bin` is shipped in the `.pak`. On PSP the native pak walker feeds it
-straight into the core; on the browser and headless Bun hosts it is loaded
-through the `loadStyles` op ([/docs/native-contract/](/docs/native-contract/)).
+`styles.bin` ships in the `.pak`. On PSP the native pak walker feeds it to the
+core; on the browser and headless Bun hosts it arrives through the `loadStyles`
+op ([/docs/native-contract/](/docs/native-contract/)).
 
 ## The all-or-nothing rule
 
-The compiler sees *every* string literal in your source, not just `class`
-attributes — so it needs a rule for deciding which strings are actually styles.
-That rule is strict:
+The compiler sees every string literal in your source, not only `class`
+attributes, so it needs a rule for deciding which strings are styles:
 
 > A class literal compiles to a style record **if and only if every
-> whitespace-separated token is a supported utility.** If any token is not a
-> utility, the whole literal is treated as ordinary text and ignored.
+> whitespace-separated token is a supported utility.** If one token is not a
+> utility, the whole literal is text and produces no record.
 
 ```tsx
 "flex-col items-center gap-4 p-4"   // every token is a utility -> style record
 "Ready to play"                     // no token is a utility   -> plain text
-"flex the muscles"                  // one bad token ("the")   -> ignored entirely
+"flex the muscles"                  // one bad token ("the")    -> no record
 ```
 
-This is why a label like `"flex the muscles"` never accidentally becomes a
-layout: a single unrecognized token disqualifies the whole literal. The flip
-side is that a class attribute must be a **literal the compiler can see** — the
-renderer resolves it by exact string match against `STYLE_IDS`.
+A label like `"flex the muscles"` never turns into a layout: one unrecognized
+token disqualifies the literal. Some literals that do parse fail the build
+instead — see [Loud errors](#loud-errors).
 
-## Utilities at a glance
+The build reports a literal it left out when the source says it was meant as a
+class string:
 
-Utilities use Tailwind's default value scales.
+- **In a `class` attribute** (the attribute's string, or a branch of the
+  ternaries and `&&` / `||` / `??` chains in its expression): every
+  unsupported token is reported with **file, line, column and the token**.
+  `bun tools/build.ts` prints it as a warning; **`--strict-classes` makes it an
+  error** and writes no bundle.
+- **Anywhere else** (a constant, a function that returns the class): reported
+  as a warning in both modes, and only when the literal has **at least two
+  tokens, every token has the shape of a utility, and more of them are
+  supported than not**. `"text-xl font-bold txt-center"` in a constant is
+  reported; `"Tap to start"` is not.
 
-| Group | Examples |
-|---|---|
-| Layout | `flex`, `flex-row`, `flex-col`, `justify-center`, `items-start`, `gap-4`, `grow`, `shrink-0`, `flex-1`, `flex-wrap` |
-| Box | `w-12`, `h-full`, `min-w-4`, `max-h-40`, `p-2`, `px-4`, `mt-2`, `absolute`, `inset-0`, `hidden`, `overflow-hidden`, `z-10` |
-| Visual | `bg-blue-600`, `bg-gradient-to-b`, `from-slate-800`, `to-slate-950`, `rounded-md`, `opacity-50`, `shadow-lg`, `border`, `border-slate-700` |
-| Text | `text-slate-50`, `text-xl`, `font-bold`, `text-center`, `leading-6`, `tracking-wide` |
-| Transform | `translate-x-2`, `scale-95`, `rotate-45`, `rotate-y-[35]`, `translate-z-[-40]`, `perspective-[800]` |
-| Arc | `arc-start-[45]`, `arc-sweep-[315]`, `arc-width-[5]` |
-| Motion | `transition-colors`, `duration-150`, `ease-out`, `animate-spin`, `animate-menu-pill`, `animate-loop-[4s]` |
+```
+error: app.tsx:42:17: class "flex-row items-centre gap-2" does not compile: unknown utility items-centre
+  warning: layout.ts:8:22: "text-xl font-bold txt-center" reads as a class string and does not compile: unknown utility txt-center
+```
 
-**Spacing scale.** Numeric spacing follows Tailwind: `N` means `N * 4` px, so
-`p-2` is 8px and `gap-4` is 16px.
+At run time a class string with no record throws on the browser and headless
+hosts (`unknown class "…" - not in the compiled style table`) and counts a miss
+on native hosts, where the node keeps no style from it.
 
-**Arbitrary pixels.** Size and spacing utilities also accept an arbitrary pixel
-value in brackets: `w-[123]`, `w-[123px]`, `p-[10px]`, `top-[6px]`,
-`min-w-[200px]`.
+## How a class attribute resolves
 
-**Colors.** The full Tailwind v3 default palette is available — families `slate`
-through `rose`, shades `50`–`950` (`bg-slate-900`, `text-blue-400`), plus
-`white`, `black`, and `transparent`.
+`framework/src/styles.ts` owns the runtime lookup, and it is not an exact-string
+match:
 
-See [/docs/tailwind/](/docs/tailwind/) for the complete, authoritative list.
+- Every registered key and every query is normalized first: trimmed, with runs
+  of whitespace collapsed to single spaces.
+- The compiler's literal, after normalization, is registered **verbatim**.
+- Each literal also registers a **token-sorted alias**, so `"a b"` resolves the
+  id registered for `"b a"` when only one of the two spellings appears in your
+  source. Verbatim registrations win over aliases.
+- When two literals share a token multiset but compile to different records
+  (`"p-2 px-4"` against `"px-4 p-2"`, which differ under last-wins), the alias
+  is poisoned with `ALIAS_AMBIGUOUS` and only the verbatim spellings resolve.
 
-## Text sizes bake fonts
+A class string the compiler never saw resolves to nothing: a host in strict mode
+throws ``unknown class "…"``, every other host counts it in
+`missCounters.unknownClass` and leaves the node's style alone. A `class` value
+that is not a string throws. `class={null}` and `class=""` clear the node with
+`setStyle(id, STYLE_ID_NONE)`.
 
-Text-size utilities do more than set a number — they select a **baked font
-atlas slot**. The supported sizes map to fixed baked pixel sizes:
+## Dedup
 
-| Utility | Baked px |
-|---|---|
-| `text-xs` | 12 |
-| `text-sm` | 14 |
-| `text-base` | 16 |
-| `text-lg` | 18 |
-| `text-xl` | 20 |
-| `text-2xl` | 24 |
-| `text-4xl` | 36 |
+Within a literal, declarations are deduplicated **last-wins** — a later token
+overrides an earlier one for the same property — and then sorted by property id,
+so `"p-2 bg-red-500"` and `"bg-red-500 p-2"` encode to identical records and
+share one `styleId`. Records are deduplicated across the whole app: one set of
+utilities at fifty call sites costs one entry in `styles.bin`.
 
-`font-bold` selects the bold weight of the same size. Text with no text-size or
-weight utility uses the default slot: **16px regular**. Because sizes are baked,
-the set of sizes is fixed — there is no arbitrary font size.
+## Variants: `focus:` and `active:`
+
+`focus:` and `active:` compile into the **same** record as separate blocks. A
+state change is one op — `setFocus(id)`, or `setActive(id, 0|1)` from the press
+latch in `framework/src/input.ts`, which the CIRCLE edge detector, the virtual
+cursor and touch all route through. The core re-resolves that node's style from
+the record it holds: no component re-runs, no tree reconciliation, no
+per-property writes from JS. `set_active` on a record with no `active:` block
+flips the flag without retargeting, so a press cannot restart an in-flight
+transition.
+
+```tsx
+<View class="p-2 bg-blue-600 focus:bg-blue-500 active:scale-95 transition-colors" focusable onPress={() => {}} />;
+```
+
+Under touch the `active:` variant is held from the contact's down edge and
+cleared once another recognizer claims that contact, which is why a row's
+pressed look drops away when the list starts scrolling
+([/docs/touch-gestures/](/docs/touch-gestures/) for the claim model,
+[/docs/input-focus/](/docs/input-focus/) for how focus moves).
+
+Any utility below can carry a variant prefix, with one exception: motion and
+`animate-*` tokens are recognized on the base variant only, so `focus:transition`
+drops **the whole literal** to plain text. A prefix that is not `focus:`,
+`active:` or `hover:` does the same. In a `class` attribute the build reports
+either one as an unknown utility.
 
 ## Dynamic styling
 
-Styles are frozen at build time, so you cannot build a class string at runtime.
-There are exactly three ways to make styling dynamic:
+Styles are frozen at build time, so a class string cannot be assembled at
+runtime. There are three escapes:
 
 **1. Ternaries of full class literals.** Both branches must be complete literals
 the compiler can see:
@@ -112,108 +147,263 @@ the compiler can see:
 import { View } from "@pocketjs/framework/components";
 import { createSignal } from "solid-js";
 
-const [armed, setArmed] = createSignal(false);
-
+const [armed] = createSignal(false);
 <View class={armed() ? "p-2 bg-red-500" : "p-2 bg-slate-700"} />;
 ```
 
-Each branch is compiled independently; the renderer swaps the resolved `styleId`
-when the signal changes (which also triggers any transitions on the new record).
+Each branch compiles on its own; the renderer swaps the resolved `styleId` when
+the signal changes, which also fires any transition on the new record.
 
-**2. `style={{ ... }}` objects.** An inline style object sets individual style
-properties at runtime, bypassing the class table. Each key is diffed against the
-previous frame and pushed as a single `setProp`. Use this for values you cannot
-know at build time.
+**2. `style={{ … }}` objects.** Keys are spec `PROP` names (`translateX`,
+`bgColor`, `radius`), not CSS names, and an unknown key throws. Each key is
+compared against the previous frame and changed keys are pushed as one
+`setProp`. Dropping a key does not reset the property — write the resting value.
 
-**3. `animate()`.** Declarative motion driven natively per vblank — see
+**3. `animate()`.** Declarative motion driven per tick in the core — see
 [/docs/animation/](/docs/animation/).
-
-## Variants: `focus:` and `active:`
-
-`focus:` and `active:` are folded into the **same** style record as a separate
-variant block. When focus or the active state changes, the Rust core switches to
-the matching variant natively — **zero JS runs on the state change**.
-
-```tsx
-<View
-  class="p-2 rounded-md bg-blue-600 focus:bg-blue-500 active:scale-95 transition-colors duration-150"
-  focusable
-  onPress={() => {}}
-/>;
-```
-
-Here `focus:bg-blue-500` and `active:scale-95` live in the same record as the
-base styles. Setting focus (`setFocus`) or pressing the node applies the variant
-without touching JavaScript or reconciling the tree. See
-[/docs/input-focus/](/docs/input-focus/) for how focus moves.
-
-## `rounded-full` needs a known size
-
-`rounded-full` bakes an exact pixel radius at build time, so the compiler must be
-able to compute it. That means the **same literal** must pin both `w-N` and
-`h-N` (or their arbitrary-pixel forms); the radius becomes `min(w, h) / 2`:
-
-```tsx
-<View class="w-12 h-12 rounded-full bg-slate-700" />   // ok: radius baked to 24px
-```
-
-If `rounded-full` appears in an otherwise-valid literal without a build-time
-width and height, it is a **loud compile error** — not a silent drop:
-
-```tsx
-<View class="rounded-full bg-slate-700" />             // compile error
-```
-
-```
-PocketJS tailwind: `rounded-full` needs build-time known size — add w-N and h-N
-to the same literal
-```
-
-`rounded-full` on runtime-sized nodes is explicitly out of scope for v1.
 
 ## Loud errors
 
-Three patterns look like styling but are not supported. Rather than silently do
-nothing, they fail the build with a code frame:
+These parse as class literals and then fail the build, rather than dropping to
+text:
 
-| Pattern | Why it fails | Do this instead |
+| Pattern | Raised by | Do this instead |
 |---|---|---|
-| `classList={{ ... }}` | Not supported in v1 | Ternary of full literals |
-| ``class={`a ${b}`}`` (template-interpolated) | Styles resolve at build time; a fragment isn't a literal | Ternary of full literals |
-| `hover:...` | The PSP has no pointer | Use `focus:` / `active:` |
+| `classList={{ … }}` | pass-1 babel | Ternary of full literals |
+| ``class={`a ${b}`}`` (template-interpolated) | pass-1 babel | Ternary of full literals |
+| `hover:…` | class compiler | `focus:` / `active:` — no pointer on PSP |
+| `rounded-full` with no `w-N`/`h-N` in the same literal | class compiler | Pin a build-time size |
+| `bevel-*` together with any `rounded*` | class compiler | Drop one — bevels are square-only |
+| `animate-loop-[…]` with no `animate-<name>` | class compiler | Name the animation in the same literal |
+| `text-lg font-mono` (mono has 12/14/16 only) | class compiler | Use a mono size |
+
+`classList` and template interpolation are caught by the babel pass over the
+JSX, which prints a code frame at the attribute. The rest come from the class
+compiler once every other token in the literal has parsed, and they quote the
+literal — a stray phrase like `"hover over here"` is text and errors nowhere.
+
+## Spacing scale and arbitrary values
+
+Sizing, spacing and offset utilities take Tailwind's spacing scale, where step
+**N is `N * 4` pixels**: `p-2` is 8px, `gap-4` is 16px, `w-12` is 48px. Decimals
+count (`p-2.5` is 10px).
+
+Every spacing-scale utility also takes a bracketed pixel value, with the `px`
+suffix optional: `w-[123]`, `h-[123px]`, `p-[10]`, `gap-[6px]`. **Bracketed
+values may be negative** (`top-[-10px]`, `translate-x-[-8]`); scale steps may
+not, because a leading `-` fails to parse (`-mt-2` is not a utility, and it
+takes the literal down with it).
+
+A second group takes a **plain non-negative number** and no brackets: `z-N`,
+`opacity-N` (0–100), `scale-N`, `scale-x-N`, `scale-y-N`, `rotate-N`,
+`duration-N`, `delay-N`.
+
+## Colors
+
+Colors come from the Tailwind v3 default palette: `{family}-{shade}`, plus
+`white`, `black` and `transparent`.
+
+**Families:** `slate`, `gray`, `zinc`, `red`, `orange`, `amber`, `yellow`,
+`green`, `emerald`, `teal`, `cyan`, `sky`, `blue`, `indigo`, `violet`, `purple`,
+`fuchsia`, `pink`, `rose`. **Shades:** `50`–`950` in Tailwind's eleven steps.
+
+The prefixes that take a color are `bg-`, `text-`, `border-` (which also sets a
+1px width), and the gradient stops `from-`, `via-`, `to-`. Each of them also
+takes an **arbitrary hex** value in brackets — 3, 6 or 8 digits, the last pair
+being alpha: `bg-[#888]`, `text-[#8899aa]`, `border-[#00000080]`.
+
+An unrecognized family or shade (`bg-slate-999`, `text-brand-500`) does not
+parse, so the literal is text.
+
+## Layout and box
+
+| Utility | Effect |
+|---|---|
+| `flex` | `display: flex` |
+| `flex-row` \| `flex-col` | main axis |
+| `flex-wrap` | allow wrapping |
+| `flex-1` | grow 1, shrink 1, basis 0 |
+| `grow` \| `grow-0` \| `shrink-0` | grow/shrink factors |
+| `basis-N`, `gap-N` | flex basis, gap (spacing scale) |
+| `justify-start` \| `-center` \| `-end` \| `-between` \| `-around` | main-axis distribution |
+| `items-start` \| `-center` \| `-end` \| `-stretch` | cross-axis alignment |
+
+| `w-N` \| `w-full` \| `w-[px]` | width |
+| `h-N` \| `h-full` \| `h-[px]` | height |
+| `min-w-N`, `min-h-N`, `max-w-N`, `max-h-N` | min/max size (no `-full` form) |
+| `p-N`, `px-N`, `py-N`, `pt-N`, `pr-N`, `pb-N`, `pl-N` | padding |
+| `m-N`, `mx-N`, `my-N`, `mt-N`, `mr-N`, `mb-N`, `ml-N` | margin |
+| `absolute` \| `relative` | position type |
+| `inset-N`, `top-N`, `right-N`, `bottom-N`, `left-N` | position offsets |
+| `hidden` | `display: none` |
+| `overflow-hidden` | clip children (native scissor) |
+| `z-N` | z-index |
+| `contain-strict` | the subtree is solved as its own layout root, given this node's box |
+| `layout-baked` | `contain-strict`, plus the MicroTS compiler proves every rect in the subtree at build time |
+
+Those five `justify-*` and four `items-*` values are the whole set — no
+`justify-evenly`, no `items-baseline`. `w-full` / `h-full` are the only
+percentage-style sizes; `p-N` and `m-N` fan out to four sides, `px`/`py` and
+`mx`/`my` to the two axes.
+
+**`contain-strict` needs a definite `w-*` and `h-*`.** The parent solves the
+node as a leaf of that size; the node's children form a second solver root in
+the core's single taffy tree, computed with that box as the available space.
+A structure or style change below the node reconciles and solves that root
+only; the rest of the page keeps its solver nodes and cached results. The
+rects come out as the full tree would produce them: the solver runs with
+rounding off and readback rounds every rect against the cumulative unrounded
+origin, the algorithm taffy itself uses. This is CSS size and layout
+containment, and it works on every host, guest or MicroTS.
+
+**`layout-baked` moves the solve to the build.** It is only meaningful for
+MicroTS native builds; the rules and the compiler's output are in the
+[MicroTS reference](/docs/microts-reference/#build-time-layout-layout-baked).
+
+## Visual
+
+| Utility | Effect |
+|---|---|
+| `bg-{color}` | background color |
+| `bg-gradient-to-t` \| `-b` \| `-l` \| `-r` | gradient direction (cardinal only) |
+| `from-*`, `via-*`, `to-*` | gradient stops; `via-*` sits at 50% |
+| `rounded` | 4px radius |
+| `rounded-sm` \| `-md` \| `-lg` \| `-xl` | 2 / 6 / 8 / 12px |
+| `rounded-[N]` | arbitrary radius in px |
+| `rounded-full` | pill/circle — build-time size required |
+| `opacity-N` | opacity, `N/100` |
+| `shadow` \| `shadow-md` \| `shadow-lg` | the three shadow steps |
+| `border` | 1px border |
+| `border-2` \| `border-4` \| `border-8` \| `border-[N]` | border width in px |
+| `bevel-[#light,#dark]` | classic-chrome outer bevel ring |
+| `bevel-[#a,#b,#c,#d]` | outer light/dark then inner light/dark |
+| `bevel-w-[N]` | per-ring bevel width, default 1px |
+
+`transition-colors` interpolates the background, text, border, `from-*` and
+`to-*` colors; the `via-*` stop is not animatable.
+
+**`rounded-full`** bakes an exact radius at build time, so the **same literal**
+must pin both `w-N` and `h-N` (or their bracketed forms); the radius becomes
+`min(w, h) / 2`. `w-full` is not a build-time pixel size, so
+`w-full h-12 rounded-full` is a compile error.
 
 ```tsx
-// All three throw at build time:
-<View classList={{ "bg-red-500": armed() }} />;
-<View class={`p-2 ${bg}`} />;
-<View class="p-2 hover:bg-blue-500" />;
+<View class="w-12 h-12 rounded-full bg-slate-700" />   // radius baked to 24px
 ```
 
-The `classList` and template-interpolation errors are raised by the babel pass;
-`hover:` is raised by the Tailwind compiler once it confirms every other token in
-the literal is valid. (A stray word like `"hover over here"` is just text — it
-only errors when it genuinely parses as a `hover:` variant on an otherwise-valid
-class literal.)
+**Bevels are square-only.** `bevel-*` in a literal that also has any `rounded*`
+token is a compile error.
 
-## Token order does not matter
+## Text
 
-Within a literal, declarations are deduplicated **last-wins** (a later token
-overrides an earlier one for the same property) and then sorted into a canonical
-order by property id. Two literals with the same tokens in a different order
-compile to **byte-identical** records and therefore share one `styleId`:
+| Utility | Effect |
+|---|---|
+| `text-{color}` | text color |
+| `text-2xs` \| `-xs` \| `-sm` \| `-base` \| `-lg` \| `-xl` \| `-2xl` \| `-4xl` \| `-5xl` | 10 / 12 / 14 / 16 / 18 / 20 / 24 / 36 / 54 px |
+| `font-bold` | bold weight of the same size |
+| `font-mono` | JetBrains Mono at slots 16–18: sizes 12/14/16 only, regular weight only |
+| `text-left` \| `text-center` \| `text-right` | horizontal alignment |
+| `leading-N` | line height (spacing scale or arbitrary px) |
+| `tracking-wide` | letter spacing = `0.025 × font-size` |
 
-```tsx
-"p-2 bg-red-500"   // same style record...
-"bg-red-500 p-2"   // ...and the same styleId
-```
+A text-size utility selects a **baked font-atlas slot**, not a free number:
+slots 0–6 are the regular sizes, 7–13 their bold pairs, 14/15 the 54px pair,
+16–18 monospace, 19/20 the 10px pair (`text-2xs`, for labels under icons).
+There is no arbitrary font size. Text with no size or weight
+utility uses **16px regular**.
 
-Because records are deduplicated across your whole app, writing the same set of
-utilities in many places costs one entry in `styles.bin`, not one per call site.
+`font-mono` overrides weight — `font-mono font-bold` lands on the mono slot for
+its size — and a mono size with no slot throws at build time: `text-lg font-mono`
+gives ``no monospace font slot for 18px``.
+
+The default faces are Inter regular/bold and JetBrains Mono
+(`framework/compiler/bake-font.ts`); `--font-regular` / `--font-bold` on the
+build override them, and `assets/fonts/` also ships InterDisplay and W95FA.
+
+## Transform
+
+Transforms are animatable and do not trigger relayout — prefer them for motion.
+
+| Utility | Effect |
+|---|---|
+| `translate-x-N`, `translate-y-N` | translate (spacing scale or arbitrary px) |
+| `scale-N`, `scale-x-N`, `scale-y-N` | scale, `N/100` (`scale-105` → 1.05) |
+| `rotate-N` | 2D rotation in degrees |
+| `origin-center` \| `-top` \| `-bottom` \| `-left` \| `-right` \| `-top-left` \| `-top-right` \| `-bottom-left` \| `-bottom-right` | transform origin, as a fraction from the node center |
+| `rotate-x-[N]`, `rotate-y-[N]` | 3D rotation, degrees (bracket-only) |
+| `skew-x-[N]` | horizontal shear about the transform origin, degrees (bracket-only) |
+| `translate-z-[N]` | 3D depth, px (bracket-only) |
+| `perspective-[N]` | 3D context root; distance in px (bracket-only, > 0) |
+
+A `perspective-[N]` root projects its subtree through that distance and
+painter-sorts the result ([3D transforms](/docs/animation/#3d-transforms)).
+
+## Arc
+
+`arc-*` strokes a round-capped annular sector from the node's background color.
+All three are animatable through timelines and `animate()`.
+
+| Utility | Effect |
+|---|---|
+| `arc-start-[N]` | start angle, degrees |
+| `arc-sweep-[N]` | sweep angle, degrees |
+| `arc-width-[N]` | stroke width, px |
+
+## Motion
+
+A motion token attaches a transition block to that style. Transitions fire when
+the style is swapped — a `focus:` / `active:` variant swap included — and
+interpolate the animatable properties in the mask.
+
+| Utility | Effect |
+|---|---|
+| `transition` | colors, opacity and 2D transforms |
+| `transition-all` | every animatable property |
+| `transition-colors` | bg / text / border / gradient colors |
+| `transition-opacity` | opacity |
+| `transition-transform` | translate / scale / rotate (2D; 3D and arc props have no transition-mask bit — use timelines or `animate()`) |
+| `duration-N`, `delay-N` | milliseconds, 0–65535 |
+| `ease-linear` \| `-in` \| `-out` \| `-in-out` \| `-spring` \| `-out-back` | easing curve |
+| `animate-<name>` | a baked keyframe timeline from `theme.animation` (built-ins: `spin`, `ping`, `pulse`, `bounce`) |
+| `animate-loop-[Nms]` \| `[Ns]` | whole-choreography loop period; needs `animate-<name>` in the same literal |
+
+**Defaults.** With any motion token present, unspecified fields fall back to
+duration **150ms**, delay **0ms**, easing **in-out**. The mask defaults to every
+animatable property; the bare `transition` shorthand is the one that narrows it
+to colors, opacity and 2D transforms, so `duration-200 ease-out` on its own
+animates everything animatable.
+
+`duration-N` and `delay-N` stay in milliseconds and convert at runtime.
+`animate-*` timelines are baked in **frames** against the bundle's declared tick
+rate (`--hz=N`, 1–240, default 60).
+
+## Native text layout
+
+Baked atlases are the portable path. An app that lists `text.layout.native` in
+the `features` of its `pocket.host.config.ts` gets host measurement and shaping
+instead, on any target whose host contract declares that capability
+(`hosts/<id>/pocket.host.json` for the built-in hosts) — read the contracts,
+not a list of hosts. The host installs a core text measurer before the guest
+mounts (`Ui::set_text_measure`), and one provider then feeds taffy leaf sizes, the `measureText` op and the
+painted glyphs. What changes for your classes:
+
+- Text-size, `font-bold` and `font-mono` still pick the slot; the host resolves
+  the family and the metrics for it (Inter and JetBrains Mono from
+  `assets/fonts/` by default, with the OS fallback chain behind them).
+- Coverage is the OS fallback chain — CJK, emoji, everything — with no runtime
+  atlas baking and no tofu.
+- A literal with no `leading-N` takes its line height from the host font, not
+  from the baked cell.
+- Tracked (`tracking-wide`), scaled and rotated runs keep the baked glyph pair,
+  so measurement and glyphs come from one provider per node.
+
+Pixels stay deterministic per host but are not byte-comparable across hosts in
+this mode: rasterization, metrics and fallback fonts belong to the OS. That is
+why the id is separate from `text.glyphs.baked` — see `docs/BACKENDS.md`.
 
 ## See also
 
-- [/docs/tailwind/](/docs/tailwind/) — the complete supported-utility reference
-- [/docs/animation/](/docs/animation/) — `transition-*` and `animate()`
+- [/docs/animation/](/docs/animation/) — baked timelines and `animate()`
 - [/docs/build-pipeline/](/docs/build-pipeline/) — how `styles.bin` is built
-- [/docs/native-contract/](/docs/native-contract/) — `setStyle`, `setProp`, `setFocus`
+- [/docs/native-contract/](/docs/native-contract/) — `setStyle`, `setProp`, `setFocus`, `setActive`
 - Try classes live in the [playground](/playground/)

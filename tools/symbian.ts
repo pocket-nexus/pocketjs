@@ -1,3 +1,8 @@
+import { repositoryPath } from "./repository.ts";
+import { planProfileDocument } from "../framework/compiler/plan.ts";
+import type { RuntimeApplication } from "../framework/src/host-config.ts";
+import { applicationBundle, runProgramBuild } from "./build/programs/application.ts";
+import { writeHostProfileHeader } from "../tools/host-profile.ts";
 import { createHash } from "node:crypto";
 import {
   createReadStream,
@@ -5,12 +10,11 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
-  readFileSync,
   rmSync,
   statSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import {
   deploySis,
   isExpectedMtpDevice,
@@ -23,7 +27,8 @@ import {
   symbianDataBaseForEmbeddedBytes,
   symbianPackageIdentity,
 } from "./symbian-package.ts";
-import { resolveSymbianE7BuildPlan } from "./symbian-profile.ts";
+import { symbianE7Orientation, type SymbianOrientation } from "./symbian-profile.ts";
+import type { AppViewport } from "../contracts/spec/viewport.ts";
 import {
   SYMBIAN_DOWNLOADS,
   SYMBIAN_RUNTIME_DOWNLOADS,
@@ -34,10 +39,10 @@ import {
   symbianDownloadPath,
   symbianDownloadsRoot,
   symbianImplementationDigest,
-  withSymbianGuestBuildLock,
   withSymbianRuntimeBuildLock,
-} from "./symbian-toolchain.ts";
-import { pocketStackCacheRoot, withArtifactLock } from "./psp-toolchain.ts";
+} from "./build/toolchains/symbian.ts";
+import { pocketNexusCacheRoot } from "../tools/targets/cache.ts";
+import { withArtifactLock } from "../tools/targets/lock.ts";
 import {
   assertSymbianMassStorageDataStageSeparation,
   resolveSymbianMassStorageDataRoot,
@@ -77,7 +82,7 @@ async function spawn(
   ]);
   if (timer) clearTimeout(timer);
   return {
-    exitCode: timedOut ? 124 : exitCode,
+    exitCode: timedOut ? 124 : process.signalCode ? exitCode || 1 : exitCode,
     stdout,
     stderr: timedOut ? `${stderr}\ncommand timed out` : stderr,
   };
@@ -97,6 +102,7 @@ async function sha256File(path: string): Promise<string> {
 }
 
 async function dockerImageReady(): Promise<boolean> {
+  if (!Bun.which("docker")) return false;
   const implementation = symbianImplementationDigest(root);
   const result = await spawn("docker", [
     "image",
@@ -110,8 +116,12 @@ async function dockerImageReady(): Promise<boolean> {
       `${SYMBIAN_TOOLCHAIN.toolchainVersion} ${implementation}`;
 }
 
+/** A CODA request after the handshake: start an installed executable, or
+ *  install a SIS staged in the phone's Installs folder. */
+type CodaAction = { readonly kind: "launch" | "install"; readonly target: string };
+
 async function runCodaUsbProbe(
-  executable?: string,
+  action?: CodaAction,
 ): Promise<CommandResult> {
   const compiler = Bun.which("cc");
   const pkgConfig = Bun.which("pkg-config");
@@ -168,17 +178,19 @@ async function runCodaUsbProbe(
     ], { timeoutMs: 30_000 });
     if (compiled.exitCode !== 0) return compiled;
     const lock = join(
-      pocketStackCacheRoot(),
+      pocketNexusCacheRoot(),
       "symbian/.locks/coda-usb-device.lock",
     );
+    // a silent install unpacks and registers the whole package on the phone
+    const timeoutMs = action?.kind === "install" ? 200_000 : 45_000;
     return await withArtifactLock(
       lock,
       () => spawn(
         binary,
-        executable !== undefined ? ["launch", executable] : [],
-        { timeoutMs: 45_000 },
+        action ? [action.kind, action.target] : [],
+        { timeoutMs },
       ),
-      { timeoutMs: 45_000, staleMs: 2 * 60_000 },
+      { timeoutMs, staleMs: 2 * 60_000 + timeoutMs },
     );
   } finally {
     rmSync(build, { recursive: true, force: true });
@@ -293,7 +305,7 @@ async function buildProbe(): Promise<string> {
   mkdirSync(output, { recursive: true });
   const outputLockId = createHash("sha256").update(output).digest("hex");
   const outputLock = join(
-    pocketStackCacheRoot(),
+    pocketNexusCacheRoot(),
     `symbian/.locks/probe-output-${outputLockId}.lock`,
   );
   await withArtifactLock(outputLock, async () => {
@@ -321,11 +333,19 @@ export interface SymbianBuildTransaction {
 }
 
 export interface SymbianBuildAppOptions {
-  projectRoot?: string;
+  /** Compiled package admitted by the runtime build executor. */
+  application?: RuntimeApplication;
+  /** Opt-in, bounded on-device frame trace. Omitted from release builds. */
+  perfTrace?: boolean;
+  /** Presentation rate; the fixed 60 Hz core must divide into whole ticks. */
+  frameRate?: number;
+  /** The `app.viewport` of the host config the package was compiled from;
+   *  its dynamic range selects the orientation lock. */
+  viewport?: AppViewport;
+  /** Holds the app in this orientation in place of the viewport's rule. */
+  orientation?: SymbianOrientation;
   outputRoot?: string;
   uid?: string;
-  catalogIndex?: string;
-  catalogBlob?: string;
   /**
    * Prebuilt application-specific core that implements the ordinary
    * `ui_*` ABI and may additionally export the native extension provider.
@@ -361,10 +381,15 @@ export async function withSymbianBuildTransaction<T>(
 }
 
 export async function buildApp(
-  manifestPath: string,
   sisVersion: string,
   options: SymbianBuildAppOptions = {},
 ): Promise<string> {
+  if (!options.application) throw new Error("Symbian native build requires a compiled --bundle input; use pocket compile first");
+  const compiled = applicationBundle(options.application, "symbian-e7-dev");
+  const frameRate = options.frameRate ?? SYMBIAN_TOOLCHAIN.runtime.frameRate;
+  if (!Number.isInteger(frameRate) || frameRate <= 0 || 60 % frameRate !== 0) {
+    throw new Error("Symbian frame rate must be a positive integer divisor of 60");
+  }
   const version = sisVersion.match(/^([0-9]+)\.([0-9]+)\.([0-9]+)$/);
   if (!version || version.slice(1).some((part) => Number(part) > 32767)) {
     throw new Error(
@@ -399,43 +424,12 @@ export async function buildApp(
     );
   }
 
-  const absoluteManifest = resolve(manifestPath);
-  const manifest = JSON.parse(readFileSync(absoluteManifest, "utf8")) as unknown;
-  const plan = resolveSymbianE7BuildPlan(manifest);
+  const plan = compiled.plan;
   const packageIdentity = symbianPackageIdentity(plan, options.uid);
-  const manifestRelativeToPocketJs = relative(root, absoluteManifest);
-  const defaultProjectRoot =
-    manifestRelativeToPocketJs !== ".." &&
-      !manifestRelativeToPocketJs.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) &&
-      !isAbsolute(manifestRelativeToPocketJs)
-      ? root
-      : dirname(absoluteManifest);
-  const projectRoot = resolve(options.projectRoot ?? defaultProjectRoot);
-  const manifestRelativeToProject = relative(projectRoot, absoluteManifest);
-  if (
-    manifestRelativeToProject === ".." ||
-    manifestRelativeToProject.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) ||
-    isAbsolute(manifestRelativeToProject)
-  ) {
-    throw new Error(
-      `Symbian manifest ${absoluteManifest} is outside project root ${projectRoot}`,
-    );
-  }
-  const entry = resolve(projectRoot, plan.app.entry);
-  const entryRelativeToProject = relative(projectRoot, entry);
-  if (
-    entryRelativeToProject === ".." ||
-    entryRelativeToProject.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) ||
-    isAbsolute(entryRelativeToProject) ||
-    !existsSync(entry)
-  ) {
-    throw new Error(
-      `Symbian app entry ${plan.app.entry} is missing or outside project root ${projectRoot}`,
-    );
-  }
+  const orientation = options.orientation ?? symbianE7Orientation(options.viewport);
 
   const outputRoot = resolve(
-    options.outputRoot ?? resolve(projectRoot, "dist/symbian"),
+    options.outputRoot ?? resolve(root, "dist/symbian"),
   );
   const customCoreLibrary = options.coreLibrary === undefined
     ? undefined
@@ -454,31 +448,6 @@ export async function buildApp(
     options.massStorageDataRoot,
     customCoreLibrary,
   );
-  if ((options.catalogIndex === undefined) !== (options.catalogBlob === undefined)) {
-    throw new Error(
-      "Symbian app catalog requires both --catalog-index and --catalog-blob",
-    );
-  }
-  if (customCoreLibrary !== undefined && options.catalogIndex !== undefined) {
-    throw new Error(
-      "Symbian application-specific cores cannot be combined with a multi-app catalog",
-    );
-  }
-  const catalogIndex = options.catalogIndex === undefined
-    ? undefined
-    : resolve(options.catalogIndex);
-  const catalogBlob = options.catalogBlob === undefined
-    ? undefined
-    : resolve(options.catalogBlob);
-  for (const [label, path] of [
-    ["catalog index", catalogIndex],
-    ["catalog blob", catalogBlob],
-  ] as const) {
-    if (path !== undefined && (!existsSync(path) || !statSync(path).isFile() ||
-      statSync(path).size === 0)) {
-      throw new Error(`Symbian ${label} is missing or empty: ${path}`);
-    }
-  }
   const payload = resolve(outputRoot, "build", plan.app.output);
   if (massStorageDataRoot !== undefined) {
     assertSymbianMassStorageDataStageSeparation(massStorageDataRoot, payload);
@@ -487,6 +456,7 @@ export async function buildApp(
   const transaction = async () => {
     rmSync(payload, { recursive: true, force: true });
     mkdirSync(payload, { recursive: true });
+    writeHostProfileHeader(payload, planProfileDocument(plan.profile));
     if (massStorageDataRoot !== undefined) {
       stageSymbianMassStorageData(massStorageDataRoot, payload);
     }
@@ -499,29 +469,12 @@ export async function buildApp(
       JSON.stringify(packageIdentity, null, 2) + "\n",
     );
 
-    await withSymbianGuestBuildLock(async () => {
-      const appBuild = await spawn("bun", [
-        "tools/build.ts",
-        `--plan=${resolve(payload, "plan.json")}`,
-        `--project-root=${projectRoot}`,
-        `--outdir=${payload}`,
-      ], { inherit: true, cwd: root });
-      if (appBuild.exitCode !== 0) {
-        throw new Error("PocketJS Symbian guest build failed");
-      }
-      copyFileSync(resolve(payload, `${plan.app.output}.js`), resolve(payload, "app.js"));
-      copyFileSync(resolve(payload, `${plan.app.output}.pak`), resolve(payload, "app.pak"));
-    });
-    if (catalogIndex !== undefined && catalogBlob !== undefined) {
-      copyFileSync(catalogIndex, resolve(payload, "catalog.tsv"));
-      copyFileSync(catalogBlob, resolve(payload, "catalog.bin"));
-    }
+    copyFileSync(compiled.javaScript, resolve(payload, "app.js"));
+    copyFileSync(compiled.pack, resolve(payload, "app.pak"));
+
     const embeddedPaths = [
       resolve(payload, "app.js"),
       resolve(payload, "app.pak"),
-      ...(catalogIndex !== undefined
-        ? [resolve(payload, "catalog.tsv"), resolve(payload, "catalog.bin")]
-        : []),
     ];
     const embeddedBytes = embeddedPaths.reduce(
       (total, path) => total + statSync(path).size,
@@ -532,19 +485,23 @@ export async function buildApp(
     if (customCoreLibrary !== undefined) {
       copyFileSync(
         customCoreLibrary,
-        resolve(payload, "libpocketjs_symbian_core.a"),
+        resolve(payload, "libpocket_native_program.a"),
       );
     } else {
-      const coreDirectory = resolve(root, "engine/symbian");
+      const coreDirectory = resolve(root, "programs/native/runtime");
       const rustBuild = await spawn(rustHost.rustupPath!, [
         "run",
         rustHost.toolchainName!,
         "cargo",
-        "build",
+        "build", "--manifest-path", repositoryPath("programs/native/runtime/Cargo.toml"), "-p", "pocket-native-program",
         "--release",
         "--locked",
+        "--no-default-features",
+        "--features", "standalone-extension-provider",
+        "--config",
+        "profile.release.opt-level=3",
         "--target",
-        "targets/armv6-symbian-eabi.json",
+        resolve(root, "tools/build/toolchains/symbian/armv6-symbian-eabi.json"),
         "-Z",
         "json-target-spec",
         "-Z",
@@ -554,7 +511,7 @@ export async function buildApp(
       ], {
         inherit: true,
         cwd: coreDirectory,
-        env: { ...process.env, CARGO_TARGET_DIR: rustTarget },
+        env: { ...process.env, CARGO_TARGET_DIR: rustTarget, CARGO_PROFILE_RELEASE_LTO: "true", CARGO_PROFILE_RELEASE_PANIC: "abort" },
       });
       if (rustBuild.exitCode !== 0) {
         throw new Error("PocketJS Symbian Rust core build failed");
@@ -562,9 +519,9 @@ export async function buildApp(
       copyFileSync(
         resolve(
           rustTarget,
-          "armv6-symbian-eabi/release/libpocketjs_symbian_core.a",
+          "armv6-symbian-eabi/release/libpocket_native_program.a",
         ),
-        resolve(payload, "libpocketjs_symbian_core.a"),
+        resolve(payload, "libpocket_native_program.a"),
       );
     }
 
@@ -575,6 +532,10 @@ export async function buildApp(
         sisVersion,
         dataBase,
         String(embeddedBytes),
+        String(frameRate),
+        options.perfTrace ? "1" : "0",
+        orientation,
+        plan.features["ui.physics"] ? "1" : "0",
       ],
       {
         repository: root,
@@ -607,7 +568,7 @@ async function deploy(path: string): Promise<void> {
   if (missing.length > 0) {
     throw new Error(`missing ${missing.join(", ")}; install with \`brew install libmtp\``);
   }
-  const lock = join(pocketStackCacheRoot(), "symbian/.locks/mtp-device.lock");
+  const lock = join(pocketNexusCacheRoot(), "symbian/.locks/mtp-device.lock");
   const result = await withArtifactLock(lock, () => deploySis(sis, mtpRunner, {
     storage: SYMBIAN_TOOLCHAIN.device.deployStorage,
     folder: SYMBIAN_TOOLCHAIN.device.deployFolder,
@@ -620,7 +581,7 @@ async function deploy(path: string): Promise<void> {
   console.log(`  file: ${result.localName}`);
   console.log(`  destination: ${SYMBIAN_TOOLCHAIN.device.deployStorage}/${SYMBIAN_TOOLCHAIN.device.deployFolder}`);
   console.log(`  SHA-256: ${result.sha256}`);
-  console.log("  copied and read back byte-for-byte; installation still requires confirmation on the E7");
+  console.log("  copied and read back byte-for-byte; install it on the E7 or with `coda usb install`");
 }
 
 const HELP = `PocketJS Nokia E7 / Symbian toolchain
@@ -629,16 +590,18 @@ const HELP = `PocketJS Nokia E7 / Symbian toolchain
   pocket symbian doctor --coda-usb  verify CODA over the E7 USB interface 4
   pocket symbian setup --yes        fetch pinned SDK inputs and build the amd64 toolchain
   pocket symbian build probe        build and self-sign the visible Qt probe SIS
-  pocket symbian build app --manifest <pocket.json> [--sis-version 1.0.0]
+  pocket symbian build app --bundle <application.pkb> -- [--sis-version 1.0.0]
                            [--project-root <dir>] [--outdir <dir>] [--uid 0xE.......]
-                           [--catalog-index <catalog.tsv> --catalog-blob <catalog.bin>]
                            [--core-library <application-core.a>]
                            [--mass-storage-data-root <dir>]
+                           [--frame-rate 30] [--perf-trace]
                                     build an independently installable PocketJS E7 SIS
   pocket symbian deploy <sis>       copy to Mass memory/Installs and verify by MTP readback
   pocket symbian coda usb           run the CODA USB ping + Locator handshake
   pocket symbian coda usb launch <executable.exe>
                                     remotely launch an installed app from its receipt
+  pocket symbian coda usb install <package.sis>
+                                    install a SIS that deploy staged in Installs, no prompts
 `;
 
 export async function symbianMain(
@@ -667,69 +630,32 @@ export async function symbianMain(
         break;
       }
       if (args[1] === "app") {
-        const manifest = flagValue(args.slice(2), "--manifest");
-        if (!manifest) {
-          throw new Error(
-            "usage: pocket symbian build app --manifest <pocket.json> [--sis-version 1.0.0] [--core-library <lib.a>] [--mass-storage-data-root <dir>]",
-          );
-        }
-        const sisVersion = flagValue(args.slice(2), "--sis-version") ??
-          SYMBIAN_TOOLCHAIN.runtime.sisVersion;
-        console.log(`PocketJS Symbian runtime: ${await buildApp(
-          manifest,
-          sisVersion,
-          {
-            projectRoot: flagValue(args.slice(2), "--project-root"),
-            outputRoot: flagValue(args.slice(2), "--outdir"),
-            uid: flagValue(args.slice(2), "--uid"),
-            catalogIndex: flagValue(args.slice(2), "--catalog-index"),
-            catalogBlob: flagValue(args.slice(2), "--catalog-blob"),
-            coreLibrary: flagValue(args.slice(2), "--core-library"),
-            massStorageDataRoot: flagValue(
-              args.slice(2),
-              "--mass-storage-data-root",
-            ),
-          },
-        )}`);
+        await runProgramBuild("nokia-e7", args.slice(2));
         break;
       }
       throw new Error(
-        "usage: pocket symbian build probe | build app --manifest <pocket.json> [--core-library <lib.a>] [--mass-storage-data-root <dir>]",
+        "usage: pocket symbian build probe | build app --bundle <application.pkb> -- [--core-library <lib.a>] [--mass-storage-data-root <dir>]",
       );
     case "deploy":
       if (!args[1]) throw new Error("usage: pocket symbian deploy <path-to.sis>");
       await deploy(args[1]);
       break;
     case "coda": {
-      if (args[1] !== "usb") throw new Error("usage: pocket symbian coda usb");
-      const action = args[2];
-      if (action !== undefined && action !== "launch") {
-        throw new Error(
-          "usage: pocket symbian coda usb [launch [executable.exe]]",
-        );
-      }
-      if (args.length > (action === "launch" ? 4 : 2)) {
-        throw new Error(
-          "usage: pocket symbian coda usb [launch [executable.exe]]",
-        );
-      }
-      const launchRequested = action === "launch";
-      const executable = launchRequested
-        ? args[3]
-        : undefined;
-      if (launchRequested && !executable) {
-        throw new Error(
-          "usage: pocket symbian coda usb launch <executable.exe>",
-        );
-      }
-      const coda = await runCodaUsbProbe(executable);
+      const usage = "usage: pocket symbian coda usb [launch <executable.exe> | install <package.sis>]";
+      if (args[1] !== "usb") throw new Error(usage);
+      const kind = args[2];
+      if (kind !== undefined && kind !== "launch" && kind !== "install") throw new Error(usage);
+      if (args.length !== (kind === undefined ? 2 : 4)) throw new Error(usage);
+      const coda = await runCodaUsbProbe(kind === undefined ? undefined : { kind, target: args[3] });
       if (coda.stdout) process.stdout.write(sanitizeDeviceOutput(coda.stdout));
       if (coda.stderr) process.stderr.write(sanitizeDeviceOutput(coda.stderr));
       if (coda.exitCode !== 0) {
         throw new Error(
-          launchRequested
+          kind === "launch"
             ? "CODA USB launch failed"
-            : "CODA USB handshake failed",
+            : kind === "install"
+              ? "CODA USB install failed"
+              : "CODA USB handshake failed",
         );
       }
       break;

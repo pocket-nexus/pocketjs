@@ -2,9 +2,9 @@
 
 PocketJS has three ways to move things:
 
-- **Baked keyframe timelines** — CSS-grade `keyframes` / `animation` choreography
-  authored in `pocket.config.ts` and applied with `animate-<name>` classes. Compiled
-  into binary timelines at build time; the richest option.
+- **Baked keyframe timelines** — `keyframes` and `animation` passed as
+  `app.theme` in `pocket.host.config.ts` and applied with `animate-<name>` classes.
+  The compiler turns them into binary timelines at build time.
 - **Transition utilities** — Tailwind-subset classes (`transition`, `duration-N`,
   `ease-*`, `delay-N`) that tween a node whenever its style is swapped.
 - **The imperative API** — `animate()`, `spring()` and `cancelAnim()` from
@@ -15,16 +15,25 @@ Rust core owns every frame from there.**
 
 ## How native animation works
 
-Tweens and springs tick in the Rust core once per vblank at a **fixed `dt = 1/60 s`**.
+Tweens and springs tick in the Rust core, one step per `tick()`. **The step is
+`dt = 1 / tickHz`, with `tickHz` declared by the application as
+`app.tickHz`** (1 through 60, default 60). Application
+compilation bakes that rate into the animation tables; the runtime uses the same
+rate to advance them. The core accepts 1 through 240 Hz and refuses
+`Ui::set_tick_rate` after the first tick, so the step stays constant for a run.
+Durations are written in milliseconds and converted against `tickHz`: a
+`dur: 700` tween lasts 700 ms at 60 Hz and at 120 Hz. See
+[Architecture](/docs/architecture/) for the clock.
+
 Two consequences:
 
 - **Zero steady-state JS.** After you call `animate()` (or a style swap starts a
   transition), JavaScript is not involved again until the tween ends. A 20-second
-  drift costs exactly one FFI call to start — no per-frame `requestAnimationFrame`,
+  drift costs one FFI call to start — no per-frame `requestAnimationFrame`,
   no signal churn.
-- **Deterministic, byte-exact.** Because `dt` is fixed and frame content is a pure
-  function of the frame index, the same app produces the same pixels on every run.
-  That is what makes PocketJS's byte-exact PNG goldens possible. See
+- **Deterministic, byte-exact.** Because `dt` is constant and frame content is a
+  pure function of the frame index, the same app produces the same pixels on
+  every run. That is what makes PocketJS's byte-exact PNG goldens possible. See
   [Native contract](/docs/native-contract/) and [Build pipeline](/docs/build-pipeline/).
 
 ## Imperative: `animate()`
@@ -37,54 +46,33 @@ animate(node, prop, to, { dur, easing, delay }): number
 
 `animate` tweens one prop from its **current** value to `to`, and returns an `animId`
 you can later pass to `cancelAnim()`. `node` is a node ref (see below) or a raw node id.
-
-| Option   | Type                    | Default | Notes                                              |
-| -------- | ----------------------- | ------- | -------------------------------------------------- |
-| `dur`    | `number` (ms)           | `200`   | Ignored by spring easings — those run on physics.  |
-| `easing` | `EasingName \| number`  | `"out"` | A name below, or a raw `ENUMS.Easing` ordinal.     |
-| `delay`  | `number` (ms)           | `0`     | Wait before the tween starts.                      |
+`dur` defaults to 200 ms, `easing` to `"out"`, `delay` to 0; the two spring
+easings (`"spring"`, `"spring-bouncy"`) run on physics and ignore `dur`. The
+full `AnimateOptions` and `EasingName` sets are in the
+[API reference](/docs/api/#animate).
 
 Only **animatable** props are accepted; passing an unknown or non-animatable prop
 throws at the call site.
 
-### Easing names
-
-`easing` accepts any of these `EasingName` values:
-
-| Name             | Feel                                            |
-| ---------------- | ----------------------------------------------- |
-| `"linear"`       | Constant speed.                                 |
-| `"in"`           | Ease-in (accelerate).                           |
-| `"out"`          | Ease-out (decelerate). **Default.**             |
-| `"in-out"`       | Ease-in-out.                                    |
-| `"out-back"`     | Overshoots the target, then settles.            |
-| `"spring"`       | Physics spring; `dur` is ignored.               |
-| `"spring-bouncy"`| Springier spring; `dur` is ignored.             |
-
 ### Getting a node ref
 
-Give any component a `ref` and Solid assigns the underlying `NodeMirror` to your
-variable. Kick the tween off in `onMount`, once the node exists:
+`animate` needs the node's `NodeMirror`, which `ref` (Solid) or `nodeRef` (all
+three frameworks) hands you — see
+[Components → ref and nodeRef](/docs/components/#ref-and-noderef) for the three
+forms. Start the tween in `onMount`/`onMounted`/`useLayoutEffect`, once the node
+exists:
 
 ```tsx
-import { View, type NodeMirror } from "@pocketjs/framework/components";
-import { animate } from "@pocketjs/framework/animation";
-import { onMount } from "solid-js";
-
-function Underline() {
-  let el: NodeMirror | undefined;
-  onMount(() => {
-    // Sweep the underline in once on mount — native tween, zero steady-state JS.
-    if (el) animate(el, "width", 210, { dur: 700, easing: "out", delay: 150 });
-  });
-  return <View ref={el} class="h-1 w-0 rounded-full bg-blue-500" />;
-}
+onMount(() => {
+  if (el) animate(el, "width", 210, { dur: 700, easing: "out", delay: 150 });
+});
 ```
 
-This is the `hero` demo's title underline: it starts at `w-0` and the core animates
-`width` up to `210` px. `width` is a **layout** prop, so it relayouts each frame while
-tweening — fine for a one-shot flourish, but prefer transforms for anything hot (see
-[below](#prefer-transforms-over-layout-props)).
+That is the `hero` demo's title underline: it starts at `w-0` and the core
+animates `width` up to `210` px. `width` is a **layout** prop, so it runs a Taffy pass on
+each tweened frame. Transform props (`translateX/Y`, `scale`, `rotate`), colors
+and `opacity` are paint-only: reserve layout-prop tweens for one-shot flourishes
+and animate a transform for anything that runs continuously or on interaction.
 
 ### Animating colors
 
@@ -103,7 +91,7 @@ For non-color props you pass the raw native value:
 | ------------------------------------------------------------------ | ----------------------- |
 | `translateX`, `translateY`, `width`, `height`, padding/margin/inset | pixels                 |
 | `scale`, `scaleX`, `scaleY`                                        | multiplier (`1` = 100%) |
-| `rotate`, `rotateX`, `rotateY`                                     | degrees                 |
+| `rotate`, `rotateX`, `rotateY`, `skewX`                            | degrees                 |
 | `translateZ`                                                       | pixels                  |
 | `arcStart`, `arcSweep`                                             | degrees                 |
 | `arcWidth`                                                         | pixels                  |
@@ -122,31 +110,20 @@ spring(node, prop, to, preset): number
 not a timer, so there is no `dur`. `preset` is `"default"` or `"bouncy"` (bouncier,
 more overshoot). It returns an `animId` like `animate`.
 
-This is the `cards` demo's detail panel: it renders offscreen via a `style` object,
-then springs into place on mount. Because the panel is a keyed `<Show>` child it
-remounts per card, so the spring replays on every open:
+This is the `cards` demo's detail panel: it renders offscreen through a `style`
+object, then springs into place on mount. Because the panel is a keyed `<Show>`
+child it remounts per card, so the spring replays on every open:
 
 ```tsx
-import { View, Text, type NodeMirror } from "@pocketjs/framework/components";
-import { spring } from "@pocketjs/framework/animation";
-import { onMount } from "solid-js";
+onMount(() => {
+  if (el) spring(el, "translateY", 0); // springs up from +22px
+});
 
-function Detail(props: { title: string; detail: string }) {
-  let el: NodeMirror | undefined;
-  onMount(() => {
-    if (el) spring(el, "translateY", 0); // springs up from +22px
-  });
-  return (
-    <View ref={el} style={{ translateY: 22 }} class="p-3 rounded-xl bg-white">
-      <Text class="text-sm text-slate-950 font-bold">{props.title}</Text>
-      <Text class="text-xs text-slate-600">{props.detail}</Text>
-    </View>
-  );
-}
+<View ref={el} style={{ translateY: 22 }} class="p-3 rounded-xl bg-white">…</View>;
 ```
 
 Setting the start value with a `style={{…}}` object and animating to the end value on
-mount is the canonical "enter" pattern.
+mount is the "enter" pattern throughout the demos.
 
 ## `cancelAnim()`
 
@@ -171,13 +148,13 @@ zero JS) and when a dynamic `class` ternary swaps one full literal for another. 
 core tweens only the animatable props that actually changed between the old and new
 style.
 
-| Utility                | Animates                                                     |
-| ---------------------- | ------------------------------------------------------------ |
-| `transition`           | transforms + colors + opacity (the default property set)     |
-| `transition-transform` | `translateX/Y`, `scale`, `scaleX/Y`, `rotate` (2D only — see [below](#which-props-animate-where)) |
-| `transition-colors`    | `bgColor`, `gradFrom`, `gradTo`, `borderColor`, `textColor` |
-| `transition-opacity`   | `opacity`                                                    |
-| `transition-all`       | every animatable prop (including layout — can relayout)      |
+Each `transition-*` utility compiles to a **u32 mask of anim bits** on the style
+record: `transition` covers transforms, colors and opacity; `transition-colors`,
+`transition-opacity` and `transition-transform` cover their own group;
+`transition-all` sets every bit (`0xffffffff`), which includes the layout props,
+so a `transition-all` across a `width` change relayouts on each tweened frame.
+No mask reaches the 3D or arc props — see
+[which props animate where](#which-props-animate-where). [Styling](/docs/styling/#motion) lists the tokens.
 
 Tune the tween with:
 
@@ -202,47 +179,56 @@ the focus change at all:
 </View>
 ```
 
-And a `cards` surface that lifts and brightens when focused — a translate plus color
-change, both tweened by one `transition-all`:
-
-```tsx
-<View
-  class="p-3 rounded-xl bg-white border-slate-200 translate-y-1
-         focus:bg-blue-50 focus:border-blue-500 focus:translate-y-0
-         transition-all duration-150 ease-out"
-  focusable
->
-  {/* … */}
-</View>
-```
-
 See [Styling](/docs/styling/) for the full utility set and [Input & focus](/docs/input-focus/)
 for how focus moves between nodes.
 
 ## Baked keyframe timelines
 
-For anything richer than a single tween — multi-stop choreography, staggered
-sequences, loops — author `keyframes` and `animation` in `pocket.config.ts`, in the
-exact shape of a `tailwind.config.js` theme:
+For multi-stop animations, staggered sequences and loops, pass `keyframes`
+and `animation` as **`app.theme` in `pocket.host.config.ts`**. The fields use
+the Tailwind keyframe and animation shape:
 
 ```ts
-// pocket.config.ts
+// theme.ts
+import type { AnimationTheme } from "@pocketjs/framework/host-config";
+
 export default {
-  framework: "solid",
-  theme: {
-    keyframes: {
-      "menu-open":  { from: { width: 38 }, "60%": { width: 144 }, to: { width: 141 } },
-      "menu-close": { from: { width: 141 }, "60%": { width: 31 }, to: { width: 38 } },
-    },
-    animation: {
-      "menu-pill": {
-        value: "menu-open 0.6s ease-in-out 0.2s both, menu-close 0.6s ease-in-out 1.2s forwards",
-        loop: "4000ms",
-      },
+  keyframes: {
+    "menu-open": { from: { width: 38 }, "60%": { width: 144 }, to: { width: 141 } },
+    "menu-close": { from: { width: 141 }, "60%": { width: 31 }, to: { width: 38 } },
+  },
+  animation: {
+    "menu-pill": {
+      value: "menu-open 0.6s ease-in-out 0.2s both, menu-close 0.6s ease-in-out 1.2s forwards",
+      loop: "4000ms",
     },
   },
-};
+} satisfies AnimationTheme;
 ```
+
+```ts
+// pocket.host.config.ts
+import { defineHostConfig } from "@pocketjs/framework/host-config";
+import theme from "./theme.ts";
+
+export default defineHostConfig({
+  host: "psp",
+  app: { entry: "main.tsx", framework: "solid", viewport: { logical: [480, 272], presentation: "integer-fit" }, theme },
+});
+```
+
+**The config imports the theme**, from a TypeScript module or a `.json` file
+(`import theme from "./theme.json" with { type: "json" }`), so easing
+constants, loop periods and helpers that derive keyframes stay in TypeScript.
+The resolver checks the content against the theme schema and copies it into
+the build plan; the depfile lists the config module and every module it
+imports. `apps/motions/theme.ts` and `apps/music/theme.json` are the in-repo
+examples.
+
+The theme belongs to the `app` section, and so does `app.tickHz`. Both guest
+compilation and `pocket compile --aot` bake the theme at the application's
+tick rate. See [Frameworks](/docs/frameworks/#contract-selection) for host
+contract selection.
 
 ```tsx
 <View class="w-[38] h-[38] rounded-[19px] bg-white overflow-hidden animate-menu-pill" />
@@ -284,7 +270,7 @@ into per-property tracks:
 ```
 
 Supported transform functions: `translate()`, `translateX/Y/Z()`, `rotate()`,
-`rotateX/Y()`, `scale()`, `scaleX/Y()`. Mixed `scale()`/`scaleX()` keyframes
+`rotateX/Y()`, `skewX()`, `scale()`, `scaleX/Y()`. Mixed `scale()`/`scaleX()` keyframes
 share one prop space (uniform scale decomposes to X + Y).
 
 **Values must be build-time absolute.** A `translateX(-50%)`, `calc()` or
@@ -333,7 +319,7 @@ center, and painter-sorts into clipped triangles the GPU rasterizes.
 
 All four take bracketed arbitrary values (negatives allowed). `rotate-N` without
 an axis stays the 2D Z rotation. Transforms compose in a fixed canonical order —
-scale, then rotate Y, rotate X, rotate Z, then translate — the common CSS idiom,
+scale, then skewX, rotate Y, rotate X, rotate Z, then translate — the common CSS idiom,
 though not an arbitrary `transform:` function list: there is no `matrix3d()`,
 `rotate3d()`, `scaleZ()`, or custom function ordering. `perspective` itself is a
 static context property, not animatable.
@@ -358,6 +344,36 @@ All three are animatable (timelines and `animate()`), which is how the Motion
 Lab reload study reproduces SVG `stroke-dasharray` drawing: the compiler samples
 the dash motion into `arcStart`/`arcSweep` keyframe stops.
 
+## Animation classes
+
+A GPU composes a frame from retained geometry, so a tween costs the same
+whatever it moves. A CPU rasterizer repaints the pixels a tween changes,
+so a `scale` over the whole page costs the whole page every frame, while a
+`translateX` of an opaque page is a pixel move. `animationClass` names
+which of the two this bundle runs on, from the host contract the plan
+resolved (see [Platform contracts](/docs/platform-contracts/#animation-classes)):
+
+```ts
+import { animate, animationClass, jump } from "@pocketjs/framework/animation";
+
+const launch = (board: NodeMirror, icon: NodeMirror) => {
+  if (animationClass === "composited") {
+    animate(board, "scale", 1.6, { dur: 260, easing: "in" });
+    animate(board, "opacity", 0, { dur: 260, easing: "in" });
+  } else {
+    // One icon's area, then a cut.
+    animate(icon, "scale", 1.12, { dur: 120, easing: "out" });
+  }
+};
+```
+
+On a `repaint` target, keep tweens to translations of opaque regions and to
+changes inside a small area; replace a `scale`, `opacity` or `rotate` tween
+over a large subtree with a cut; and run nothing while nothing happens. On
+a `still` target (electronic paper) `animate()` and `spring()` set the end
+value at once and return `0`, so a page written for the other classes shows
+its end states without a branch.
+
 ## Which props animate where
 
 Every animation path gates on the same native animatable-prop set, with one
@@ -368,32 +384,40 @@ boundary worth knowing:
 | 2D transforms, colors, opacity, layout props | ✓ | ✓ | ✓ |
 | `rotateX`, `rotateY`, `translateZ` | ✓ | ✓ | — |
 | `arcStart`, `arcSweep`, `arcWidth` | ✓ | ✓ | — |
+| `skewX` | ✓ | ✓ | — |
 
-The transition mask is a u32 and the 3D/arc props live beyond bit 32, so a
-`transition-transform` on a `focus:rotate-y-[…]` swap will not tween — it snaps.
-Drive 3D and arc motion with a timeline or `animate()`.
+`ANIMATABLE` in `contracts/spec/spec.ts` is an ordered list whose index is a
+prop's anim bit, and the transition mask is a u32. `rotateX`, `rotateY`,
+`translateZ`, `arcStart`, `arcSweep`, `arcWidth` and `skewX` sit at **bits 32
+through 38, past the end of that mask**, and the core's transition spawn loop skips every
+bit ≥ 32 — so even `transition-all`, which sets the mask to `0xffffffff`, leaves
+them alone. A `focus:rotate-y-[…]` swap snaps. Drive 3D and arc motion with a
+baked timeline or `animate()`.
 
-## Prefer transforms over layout props
+## Text caret
 
-Transform props — `translate-x/y`, `scale`, `rotate` — never trigger relayout. Color
-and opacity changes don't either. Layout props (`width`, `height`, padding, margin,
-inset) **relayout the frame they change on**, which costs a Taffy pass every animated
-frame.
-
-For anything that runs continuously or on interaction — enters, lifts, focus emphasis,
-ambient drift — animate a transform and leave layout alone. In the `cards` demo the
-focused-card lift is `translate-y` (never `scale`, since baked glyphs don't scale),
-and the two ambient background streaks are long `translateX` tweens started once on
-mount:
+`createCaretBlink` from `@pocketjs/framework/animation` controls visibility
+independently of caret geometry and the UI library. **Focus and input restart
+the visible phase; a held drag keeps it visible.** Each phase defaults to
+500 virtual milliseconds, so input replay controls blinking on every host.
 
 ```tsx
-onMount(() => {
-  if (streakA) animate(streakA, "translateX", 300, { dur: 20000, easing: "linear" });
-  if (streakB) animate(streakB, "translateX", -260, { dur: 26000, easing: "linear" });
-});
+import { createEffect, createSignal, onCleanup } from "solid-js";
+import { createCaretBlink } from "@pocketjs/framework/animation";
+
+const [caretVisible, setCaretVisible] = createSignal(false);
+const blink = createCaretBlink({ onChange: setCaretVisible });
+createEffect(() => blink.setActive(editorFocused()));
+createEffect(() => blink.setHeld(draggingCaret()));
+createEffect(() => { caretOffset(); draftText(); blink.reset(); });
+onCleanup(blink.dispose);
+// Bind caretVisible() to the caret node's opacity.
 ```
 
-Two FFI calls buy 20+ seconds of motion with zero further JS. Reserve layout-prop
-animation for deliberate one-shots.
+The controller starts inactive. It owns **one cancellable clock deadline**
+while blinking and none while inactive or held; `onChange` runs only when
+visibility changes. `intervalMs` sets the duration of each phase. Call
+`dispose()` when the editor unmounts to cancel its deadline and hide the caret.
+It performs no file access, network requests or wall-clock reads.
 
 Try any of this live in the [playground](/playground/).

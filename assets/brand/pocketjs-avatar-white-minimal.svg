@@ -1,31 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="PocketJS avatar">
-  <defs>
-    <linearGradient id="edge" x1="92" y1="228" x2="932" y2="798" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#f8fafc"/>
-      <stop offset="0.18" stop-color="#b6c0cc"/>
-      <stop offset="0.46" stop-color="#475569"/>
-      <stop offset="0.72" stop-color="#94a3b8"/>
-      <stop offset="1" stop-color="#e5eaf1"/>
-    </linearGradient>
-    <linearGradient id="face" x1="262" y1="424" x2="430" y2="608" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#e2e8f0"/>
-      <stop offset="0.5" stop-color="#94a3b8"/>
-      <stop offset="1" stop-color="#475569"/>
-    </linearGradient>
-    <linearGradient id="bar" x1="512" y1="398" x2="818" y2="620" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#cbd5e1"/>
-      <stop offset="1" stop-color="#64748b"/>
-    </linearGradient>
-    <filter id="shadow" x="-15%" y="-15%" width="130%" height="135%" color-interpolation-filters="sRGB">
-      <feDropShadow dx="0" dy="20" stdDeviation="22" flood-color="#0f172a" flood-opacity="0.16"/>
-    </filter>
-  </defs>
-
   <rect width="1024" height="1024" fill="#ffffff"/>
-  <g filter="url(#shadow)">
-    <rect x="98" y="266" width="828" height="492" rx="147" fill="none" stroke="url(#edge)" stroke-width="76" stroke-linejoin="round"/>
-    <circle cx="338" cy="512" r="92" fill="url(#face)"/>
-    <rect x="512" y="414" width="304" height="70" rx="35" fill="url(#bar)"/>
-    <rect x="512" y="548" width="204" height="70" rx="35" fill="url(#bar)"/>
+  <g transform="translate(152 152) scale(22.5)">
+  <rect x="2" y="6" width="28" height="20" rx="6" fill="#171226" stroke="#ffd23f" stroke-width="2.6" stroke-linejoin="round"/>
+  <circle cx="10" cy="16" r="3.1" fill="#ff5f9e"/>
+  <rect x="16" y="12.6" width="10" height="2.2" rx="1.1" fill="#3fd0e8"/>
+  <rect x="16" y="17.2" width="6.5" height="2.2" rx="1.1" fill="#ff5f9e"/>
   </g>
 </svg>

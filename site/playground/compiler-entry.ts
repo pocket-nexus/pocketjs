@@ -17,17 +17,17 @@ import { parse as parseFont, type Font } from "opentype.js";
 
 import { compileClasses, fontSlotInfo } from "../../framework/compiler/tailwind.ts";
 import { registerAnimationTheme } from "../../framework/compiler/animation.ts";
-import motionsConfig from "../../apps/motions/pocket.config.ts";
-import musicConfig from "../../apps/music/pocket.config.ts";
+import motionsTheme from "../../apps/motions/theme.ts";
+import musicTheme from "../../apps/music/theme.json" with { type: "json" };
 
-// The playground compiles single-file demos without their app-dir
-// pocket.config.ts, so install the demo themes that define keyframes —
-// motions (the homepage/blog motion studies) and music (the Octane
-// equalizer's baked bar timelines) — merged as the playground-wide default.
-// Namespaces are disjoint; a collision would mean a demo rename, not magic.
+// The playground compiles single-file demos without their host configs, so
+// install the theme modules those configs import for the demos that define
+// keyframes — motions (the homepage/blog motion studies) and music (the
+// Octane equalizer's baked bar timelines) — merged as the playground-wide
+// default. The keyframe and animation names of the two themes are disjoint.
 registerAnimationTheme({
-  keyframes: { ...motionsConfig.theme?.keyframes, ...musicConfig.theme?.keyframes },
-  animation: { ...motionsConfig.theme?.animation, ...musicConfig.theme?.animation },
+  keyframes: { ...motionsTheme.keyframes, ...musicTheme.keyframes },
+  animation: { ...motionsTheme.animation, ...musicTheme.animation },
 });
 import { bakeSlot } from "../../framework/compiler/bake-font.ts";
 import {

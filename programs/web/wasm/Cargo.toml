@@ -1,0 +1,27 @@
+# Browser Runtime embedding and direct compiler/pixel harness, using plain
+# WebAssembly exports and generated canonical guest bindings.
+# Standalone cdylib; tools/wasm.ts builds wasm32-unknown-unknown.
+
+[package]
+name = "pocketjs-wasm"
+edition = "2021"
+
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "WebAssembly embedding of the PocketJS runtime"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+pocketjs-core = { workspace = true, default-features = true }
+pocket-runtime = { workspace = true, default-features = true }
+pocket-drivers = { workspace = true, default-features = true }
+pocket-raster = { workspace = true, default-features = true }
+pocket-render = { workspace = true, default-features = true }
+pocket-package = { workspace = true, default-features = true }
+pocket-physics = { workspace = true, default-features = true }
+serde_json = "1"

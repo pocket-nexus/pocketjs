@@ -78,32 +78,5 @@
         "button": "left"
       }
     ]
-  },
-  "media": {
-    "service": "audio-playlist@1",
-    "channel": "ipod-nano",
-    "tracks": [
-      {
-        "id": "neon-boardwalk",
-        "title": "Neon Boardwalk",
-        "artist": "Pocket Sessions",
-        "file": "media/neon-boardwalk.wav",
-        "duration_ms": 24000
-      },
-      {
-        "id": "silver-static",
-        "title": "Silver Static",
-        "artist": "Pocket Sessions",
-        "file": "media/silver-static.wav",
-        "duration_ms": 24000
-      },
-      {
-        "id": "night-bus-loop",
-        "title": "Night Bus Loop",
-        "artist": "Pocket Sessions",
-        "file": "media/night-bus-loop.wav",
-        "duration_ms": 24000
-      }
-    ]
   }
 }

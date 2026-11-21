@@ -1,0 +1,50 @@
+; Rigid indexed skin: CPU uploads 3 affine rows per joint, never posed vertices.
+.constf constants(0.0, 1.0, 0.000000000001, 0.00000000000000000001)
+.fvec lighting
+.fvec lightDirection
+.fvec projection[4]
+.fvec palette[87]
+.in inpos v0
+.in innormal v1
+.in incolor v2
+.in inrow v3
+.out outpos position
+.out outcolor color
+.entry main
+.proc main
+    mova a0.x, inrow.x
+    mov r0.xyz, inpos
+    mov r0.w, constants.y
+    dp4 r1.x, palette[a0.x], r0
+    dp4 r1.y, palette[a0.x+1], r0
+    dp4 r1.z, palette[a0.x+2], r0
+    mov r1.w, constants.y
+    dp4 outpos.x, projection[0], r1
+    dp4 outpos.y, projection[1], r1
+    dp4 outpos.z, projection[2], r1
+    dp4 outpos.w, projection[3], r1
+    mov r2.xyz, innormal
+    dp3 r3.x, palette[a0.x], r2
+    dp3 r3.y, palette[a0.x+1], r2
+    dp3 r3.z, palette[a0.x+2], r2
+    dp3 r4.x, r3, r3
+    ; Visibility is encoded by a zero affine matrix, not a zero input normal.
+    mov r6.xyz, palette[a0.x]
+    dp3 r6.x, r6, r6
+    sge r5.w, r6.x, constants.w
+    max r4.x, constants.z, r4.x
+    rsq r4.x, r4.x
+    mul r3.xyz, r3, r4.x
+    dp3 r4.x, lightDirection, r3
+    max r4.x, constants.x, r4.x
+    mul r4.x, lighting.y, r4.x
+    add r4.x, lighting.x, r4.x
+    ; sqrt(light) = light * rsqrt(light).
+    max r4.y, constants.z, r4.x
+    rsq r4.y, r4.y
+    mul r4.x, r4.x, r4.y
+    mul r4.x, r4.x, r5.w
+    mul r5.xyz, incolor, r4.x
+    mov outcolor, r5
+    end
+.end

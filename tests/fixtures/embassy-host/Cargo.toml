@@ -1,0 +1,18 @@
+[package]
+name = "pocket-embassy-host-check"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+pocket-guest-rquickjs = { path = "../../../engine/guest-rquickjs", default-features = false, features = ["rust-alloc"] }
+pocket-package = { path = "../../../engine/package" }
+pocket-raster = { path = "../../../engine/raster" }
+pocket-embassy = { path = "../../../platforms/embassy" }
+pocket-runtime = { path = "../../../engine/runtime" }
+pocket-drivers = { path = "../../../engine/drivers" }
+embassy-time = { version = "0.5", features = ["std", "generic-queue-8"] }
+embassy-executor = { version = "0.10", features = ["platform-std", "executor-thread"] }
+static_cell = "2"

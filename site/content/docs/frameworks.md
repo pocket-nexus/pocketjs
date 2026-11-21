@@ -1,7 +1,7 @@
 # Frameworks
 
-PocketJS supports three app frameworks over the same native tree and Rust
-core:
+PocketJS supports TypeScript applications using three framework adapters over
+the same native tree and Rust core:
 
 | Framework | Build id | JSX transform | Runtime renderer | Output suffix |
 |---|---|---|---|---|
@@ -9,94 +9,105 @@ core:
 | Vue Vapor | `vue-vapor` | `vue-jsx-vapor` | `renderer-vue-vapor.ts` | `.vue-vapor` |
 | Octane | `octane` | Octane universal compiler (host plans + slots) | `renderer-octane.ts` (pocket universal driver over the native tree) | `.octane` |
 
+**Solid TSX and Vue SFC views can also compile to Rust.** A native application
+uses a compiled TypeScript model or a handwritten Rust model. The
+[TypeScript support reference](/docs/typescript-support/#execution-modes)
+compares those modes with the ordinary guest applications described below.
+Selecting `framework: "vue-vapor"` chooses the Vue adapter; model compilation
+needs its own `app` settings (`aot`, `model`).
+
 Solid is the default so existing apps keep building to `dist/<app>.js` and
 `dist/<app>.pak`. Vue Vapor and Octane build next to it:
 
 ```sh
 bun tools/build.ts hero-main                    # dist/hero-main.js
-bun tools/build.ts hero-vue-vapor-main --framework=vue-vapor
-# dist/hero-vue-vapor-main.vue-vapor.js
+bun tools/build.ts hero-main --framework=vue-vapor
+# dist/hero-main.vue-vapor.js
 bun tools/build.ts hero-main --framework=octane
 # dist/hero-main.octane.js
 ```
 
-Sibling variant files select automatically: an `app.octane.tsx` (or
+Sibling variant files select on their own: an `app.octane.tsx` (or
 `app.vue-vapor.tsx`) next to `app.tsx` is picked up when building with the
 matching `--framework`, which is how one demo directory carries all of its
-ports — all eight showcase demos (`hero`, `cards`, `stats`, `library`,
-`settings`, `notifications`, `music`, `gallery`) ship an `app.octane.tsx` and
-`main.octane.tsx` beside the Solid originals.
+ports. The showcase demos each ship an `app.octane.tsx` and a
+`main.octane.tsx` beside the Solid originals; `ls apps/*/app.octane.tsx` names
+the current set.
 
 There is no environment-variable switch for framework selection. Product
-builds declare it in `pocket.json`; low-level compiler work can still use a
-project config or one-command override.
+builds state it as `app.framework` in `pocket.host.config.ts`; low-level
+compiler work can use a `--framework` override for one invocation.
 
-## Manifest selection
+## Contract selection
 
-```json
-{
-  "app": {
-    "framework": "solid"
-  }
-}
+```ts
+// pocket.host.config.ts
+import { defineHostConfig } from "@pocketjs/framework/host-config";
+
+export default defineHostConfig({
+  hosts: ["psp", "./hosts/my-board/pocket.host.json"],
+  app: {
+    entry: "main.tsx",
+    framework: "solid",
+    viewport: { logical: [480, 272], presentation: "integer-fit" },
+  },
+});
 ```
 
 Use `"vue-vapor"` for the Vue adapter and `"octane"` for Octane.
-`pocket check|compile|build --target …`
-resolves this value once and all framework/compiler/native stages consume the same plan.
-Do not also put `framework` in `pocket.config.ts` for a manifest build.
+**`pocket check` and `pocket compile` read the framework from `app.framework`.**
+The compiler passes that selection through the resolved build plan. Animation
+keyframes and shorthand definitions belong beside it in `app.theme`.
 
-## Low-level project config
-
-`pocket.config.ts` is the low-level script default:
-
-```ts
-import { definePocketConfig } from "@pocketjs/framework/config";
-
-export default definePocketConfig({
-  framework: "solid",
-});
-```
-
-Use Vue Vapor or Octane by changing the file:
-
-```ts
-export default definePocketConfig({
-  framework: "vue-vapor",
-});
-```
-
-```ts
-export default definePocketConfig({
-  framework: "octane",
-});
-```
-
-The direct framework/compiler/dev scripts read the config by default. Use
-`--framework=solid`, `--framework=vue-vapor`, or `--framework=octane` to
-override it for one invocation. `--config=<path>` selects a different config
-file, and `--no-config` ignores config entirely.
-
-The same flag works through the dev and PSP entry points:
+The caller selects one of the hosts the config lists:
 
 ```sh
-bun tools/dev.ts --framework=vue-vapor hero-vue-vapor-main
-bun tools/dev.ts --framework=octane hero-main
-bun tools/psp.ts hero-vue-vapor --framework=vue-vapor --release
+pocket compile --target psp
+pocket compile --target ./hosts/my-board/pocket.host.json
+POCKET_TARGET=psp pocket compile
 ```
+
+`--target` accepts a built-in host id or the path of a `pocket.host.json`
+file whose id the config lists. `POCKET_TARGET` provides the default for that
+option. Without a target, the config must list one host. The compiler reads
+the nearest `pocket.host.config.ts` above the current directory, or the file
+`--config` names.
+
+The host contract supplies display geometry, cadences and capabilities; the
+`app` section supplies `app.tickHz`.
+**`pocket build` consumes the host config's `build` recipe** to build
+the native program. The recipe uses `cargo()`, `cmake()`, `make()` or
+`compilerOnly()` from `@pocketjs/framework/host-config`; an application config
+without `build` builds with the stock program of a built-in host.
+
+## Low-level compiler overrides
+
+Direct compiler and development scripts accept `--framework=solid`,
+`--framework=vue-vapor`, or `--framework=octane` for a single invocation:
+
+```sh
+bun tools/build.ts hero-main --framework=vue-vapor
+bun tools/dev.ts --framework=octane hero-main
+```
+
+These overrides support framework compiler work. Application builds from a
+host config use `app.framework`.
 
 ## Framework app imports
 
-Apps import state and component lifecycle from the selected framework directly.
-PocketJS does not wrap `createSignal`, `ref`, `useState`, `onMount`,
-`onMounted`, or `useEffect`.
+Ordinary apps import state and control-flow primitives from their framework.
+PocketJS runtime, host components and lifecycle APIs come from
+`@pocketjs/framework/*`. Solid/Vue component hooks use the framework's PocketJS
+lifecycle subpath. Compiled models have a separate
+[reactive import contract](/docs/typescript-support/#reactive-state-and-regions).
 
-Solid app:
+A Solid app:
 
 ```tsx
 import { mount, frameworkName } from "@pocketjs/framework/solid";
 import { View, Text, type NodeMirror } from "@pocketjs/framework/solid/components";
-import { createSignal, onMount, Show } from "solid-js";
+import { onMount } from "@pocketjs/framework/solid/lifecycle";
+import { createSignal, Show } from "solid-js";
 
 export default function App() {
   const [count, setCount] = createSignal(0);
@@ -122,73 +133,22 @@ export default function App() {
 mount(() => <App />);
 ```
 
-Vue Vapor app:
+The Vue Vapor and Octane ports of that app render the same tree from the same
+`View`/`Text` components. What changes is the state syntax and where it is
+imported from:
 
-```tsx
-import { mount, frameworkName } from "@pocketjs/framework/vue-vapor";
-import { View, Text, type NodeMirror } from "@pocketjs/framework/vue-vapor/components";
-import { onMounted, ref } from "vue";
+| | Solid | Vue Vapor | Octane |
+|---|---|---|---|
+| State | `const [c, setC] = createSignal(0)` | `const c = ref(0)` | `const [c, setC] = useState(0)` |
+| Read in JSX | `{c()}` | `{c.value}` | `` {`${c}`} `` — mixed static + dynamic text is one template literal |
+| Mount hook | `onMount` | `onMounted` | `useLayoutEffect(fn, [])` |
+| State import | `solid-js` | `vue` | `octane` |
+| Runtime import | `@pocketjs/framework/solid` | `@pocketjs/framework/vue-vapor` | `@pocketjs/framework/octane` |
+| Entry call | `mount(() => <App />)` | `mount(App)` | `mount(App)` |
 
-export default function App() {
-  const count = ref(0);
-  let marker: NodeMirror | undefined;
-
-  onMounted(() => {
-    console.log(frameworkName(), marker?.id);
-  });
-
-  return (
-    <View class="p-4 flex-col gap-2">
-      <Text class="text-base text-slate-950">Framework: {frameworkName()}</Text>
-      <View nodeRef={(node) => (marker = node ?? undefined)} focusable onPress={() => count.value++}>
-        <Text class="text-sm text-blue-600">Count: {count.value}</Text>
-      </View>
-      {count.value > 2 ? (
-        <Text class="text-sm text-emerald-600">Vue Vapor, native tree.</Text>
-      ) : null}
-    </View>
-  );
-}
-
-mount(App);
-```
-
-Octane app:
-
-```tsx
-import { mount, frameworkName } from "@pocketjs/framework/octane";
-import { View, Text, type NodeMirror } from "@pocketjs/framework/octane/components";
-import { useEffect, useRef, useState } from "octane";
-
-export default function App() {
-  const [count, setCount] = useState(0);
-  const marker = useRef<NodeMirror | null>(null);
-
-  useEffect(() => {
-    console.log(frameworkName(), marker.current?.id);
-  }, []);
-
-  return (
-    <View class="p-4 flex-col gap-2">
-      <Text class="text-base text-slate-950">{`Framework: ${frameworkName()}`}</Text>
-      <View
-        nodeRef={(node: NodeMirror | null) => {
-          marker.current = node;
-        }}
-        focusable
-        onPress={() => setCount(count + 1)}
-      >
-        <Text class="text-sm text-blue-600">{`Count: ${count}`}</Text>
-      </View>
-      {count > 2 ? (
-        <Text class="text-sm text-emerald-600">Octane, native tree.</Text>
-      ) : null}
-    </View>
-  );
-}
-
-mount(App);
-```
+`nodeRef` takes a callback on all three. Solid also supports `ref`; `nodeRef`
+avoids framework-specific ref semantics in examples meant to read the same way
+across frameworks.
 
 The generic public subpaths remain Solid-first defaults. Use explicit framework
 subpaths when an example or app is tied to a framework:
@@ -199,31 +159,29 @@ subpaths when an example or app is tied to a framework:
 | `@pocketjs/framework/components` | `framework/src/components.ts` | `framework/src/components-vue-vapor.ts` | `framework/src/components-octane.tsx` |
 | `@pocketjs/framework/lifecycle` | Solid lifecycle hooks | Vue Vapor lifecycle hooks | Octane lifecycle hooks (`useFrame`, `useButtonPress`, `useSpriteAnimation`) |
 
-Use `nodeRef` when a component should look similar across framework examples. Solid still supports
-`ref`, but `nodeRef` avoids framework-specific ref semantics.
+Not every subpath resolves under every framework. `framework/compiler/subpaths.ts`
+is the registry, and it declares:
 
-## Explicit framework subpaths
+- **`gesture` and `kinetics` resolve under Solid and Vue Vapor.** The
+  recognizer and scroller machinery lives in framework-neutral core modules;
+  each of the two frameworks gets a thin shim that binds disposal to its own
+  lifecycle.
+- **`osk` and `virtual-list` resolve under Solid only.** Nothing else is
+  meant to reach their Solid-flavored implementations.
+- **What a framework does not resolve is not walked in pass 1**, so class
+  strings from another framework's module never enter this build's
+  `styles.bin`. The bare specifier still carries an npm export pointing at
+  the Solid file, so an Octane build importing `@pocketjs/framework/gesture`
+  compiles against the Solid module — which the Octane entry never pumps (see
+  [What stays shared](#what-stays-shared)).
 
-When you intentionally want one framework, import it directly:
+## Reactivity on PocketJS
 
-```tsx
-import { mount } from "@pocketjs/framework/solid";
-import { View } from "@pocketjs/framework/solid/components";
-```
-
-```tsx
-import { mount } from "@pocketjs/framework/vue-vapor";
-import { View } from "@pocketjs/framework/vue-vapor/components";
-```
-
-```tsx
-import { mount } from "@pocketjs/framework/octane";
-import { View } from "@pocketjs/framework/octane/components";
-```
-
-Explicit subpaths are useful for framework-specific examples, tests, and
-integration code. Most apps should prefer the generic PocketJS subpaths and keep
-framework state imports native.
+PocketJS wraps no reactive system: each framework brings its own, and the
+runtime adds four rules on top — when a handler's write commits, which imports
+the Solid lint rejects, the scheduler globals QuickJS lacks, and why continuous
+motion does not come from per-frame state.
+[Reactivity](/docs/reactivity/) puts the three side by side and states all four.
 
 ## Octane notes
 
@@ -241,10 +199,8 @@ slot-keys custom hooks by the `use[A-Z]` naming convention.
 At build time, Octane's universal compiler lowers JSX to static host plans
 plus dynamic slots against the "pocket" renderer; at runtime the compiled
 imports retarget to `@pocketjs/framework/octane/renderer`, whose driver maps
-host command batches onto the native `ui.*` tree. There is no DOM shim
-(unlike Vue Vapor). PocketJS's frame loop flushes Octane's microtask-scheduled
-re-renders synchronously inside each frame, so a state write in a handler
-commits in that same frame.
+host command batches onto the native `ui.*` tree. Vue Vapor gets a micro-DOM
+shim; Octane gets none.
 
 Authoring rules specific to Octane apps:
 
@@ -255,7 +211,7 @@ Authoring rules specific to Octane apps:
   ``<Text>{`Count: ${count}`}</Text>``, not `<Text>Count: {count}</Text>` —
   the compiler drops trailing whitespace on a static segment that precedes an
   expression.
-- **`class` stays full literals or ternaries of full literals**, exactly as in
+- **`class` stays full literals or ternaries of full literals**, as in
   the other frameworks.
 - **Counters driven from `useFrame` use functional updates**
   (`setX((v) => v + 1)`): a same-frame handler's state write would otherwise
@@ -264,37 +220,36 @@ Authoring rules specific to Octane apps:
   changes across re-renders.** Re-applying a changed style value cancels the
   running tween (unchanged values are diffed away and are safe); drive such
   properties from an effect with `animate()`/`jump()` and a `nodeRef` instead.
-- **Continuous motion rides the native animation system, never per-frame
-  state.** An Octane state commit replays the whole root — the cost is the
-  same whether the state lives in the root or a one-node leaf (leaf state
-  changes *how often* you replay, not what a replay costs, and on the PSP
-  one replay is a multi-frame stall). Every continuous visual has a native
-  channel with zero per-frame JS: `<Sprite>` atlases for sprite cycling
-  (the hero/gallery/library spinners, `sprites.json`), baked keyframe
-  timelines for looping choreography (the music equalizer,
-  `apps/music/pocket.config.ts`), `animate()`/`jump()` for one-shot tweens
-  (the stats bars and systems reveal, notification rows), and
-  `setTextContent` — the text-shaped sibling of `animate()` — for per-frame
-  text like count-ups and percentages (`StatTiles`, `ProgressLine`).
-- **Frame counters that merely time a phase live in refs**, committing state
-  exactly once at the boundary they're waiting for (the notifications
+- **An Octane state commit replays the whole root**, which is where the
+  no-per-frame-state rule bites hardest. The replay costs the same whether the
+  state lives in the root or in a one-node leaf — leaf state changes *how
+  often* you replay, not what a replay costs, and on the PSP one replay is a
+  multi-frame stall. The showcase demos put every continuous visual on a native
+  channel instead: `<Sprite>` atlases for the hero/gallery/library spinners
+  (`sprites.json`), a baked keyframe timeline for the music equalizer
+  (`apps/music/theme.json`, imported as `app.theme`), `animate()`/`jump()` for the stats bars and
+  notification rows, and `setTextContent` for count-ups and percentages
+  (`StatTiles`, `ProgressLine`).
+- **Frame counters that only time a phase live in refs**, committing state
+  once at the boundary they're waiting for (the notifications
   dismiss/rise timers, the library loading screen). Counting in state
   replays the root every frame of the phase for pixels that never change.
-- **Re-render residue is per replay, not per frame, on the pinned engine.**
-  Each replay retains a small residue the collector cannot reclaim on this
+- **Each replay retains a residue the collector cannot reclaim** on the pinned
   QuickJS revision, and the slab allocator amplifies it on the fixed arena
-  (the host's arena-pressure GC absorbs the churn). With the demos'
-  continuous motion moved onto native channels, replays happen at
-  interaction rate — button presses, track changes — so the residue no
-  longer bounds a play session the way per-frame replays did. The engine
-  repair (quickjs-rs GC fix + repin) remains the tracked follow-up, as does
-  upstream work on Octane's replay cost itself, which today makes a single
-  press noticeably heavier on PSP than in Solid or Vue Vapor.
+  (the host's arena-pressure GC absorbs the churn). Keeping continuous motion
+  on native channels holds replays down to interaction rate — button presses,
+  track changes — which bounds the residue.
 
 ## What stays shared
 
-All three frameworks use the same Tailwind-subset compiler, generated style table,
-font atlas baker, `.pak` asset container, host detection, input/focus system,
-overlay layer, animation API, PSP/Vita native build paths, browser dev host, and
-PPSSPP/Vita3K capture paths. Switching frameworks changes only the JS
-component/reactivity layer and renderer adapter.
+All three frameworks use the same Tailwind-subset compiler, generated style
+table, font atlas baker, `.pak` asset container, host detection, button/focus
+input, overlay layer, animation API, and the native rendering and capture paths
+provided by the selected program. Host contracts declare software capabilities;
+`pocket.host.config.ts` declares the program build. Switching frameworks changes
+the JS component/reactivity layer and the renderer adapter.
+
+One exception: **touch under Octane is raw contacts only.** The Solid and Vue
+Vapor entries call `installTouchActivation()` and run the gesture pump each
+frame; `framework/src/index-octane.ts` does neither, so an Octane app gets no
+tap-to-press on `onPress` and no recognizers — it reads `touches()` itself.

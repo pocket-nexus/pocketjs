@@ -82,3 +82,71 @@ impl Camera {
         (near, (far - near).normalize_or_zero())
     }
 }
+
+/// Intersect a finite camera-to-subject segment with local axis-aligned bounds.
+/// Transform both endpoints into object space before calling for rotated/scaled
+/// models. A segment beginning or ending inside the bounds counts as occluded.
+pub fn segment_intersects_bounds(start: Vec3, end: Vec3, min: Vec3, max: Vec3) -> bool {
+    if !start.is_finite()
+        || !end.is_finite()
+        || !min.is_finite()
+        || !max.is_finite()
+        || min.cmpgt(max).any()
+    {
+        return false;
+    }
+    let delta = end - start;
+    let mut near: f32 = 0.0;
+    let mut far: f32 = 1.0;
+    for axis in 0..3 {
+        if delta[axis].abs() < 1e-8 {
+            if start[axis] < min[axis] || start[axis] > max[axis] {
+                return false;
+            }
+        } else {
+            let a = (min[axis] - start[axis]) / delta[axis];
+            let b = (max[axis] - start[axis]) / delta[axis];
+            near = near.max(a.min(b));
+            far = far.min(a.max(b));
+            if near > far {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+#[cfg(test)]
+mod occlusion_tests {
+    use super::*;
+    use glam::Quat;
+    #[test]
+    fn finite_segments_handle_rotated_and_nonuniform_bounds() {
+        for transform in [
+            Mat4::IDENTITY,
+            Mat4::from_scale_rotation_translation(
+                Vec3::new(2.0, 0.5, 3.0),
+                Quat::from_rotation_y(0.7),
+                Vec3::new(5.0, 2.0, -3.0),
+            ),
+        ] {
+            let inverse = transform.inverse();
+            for (a, b, expected) in [
+                (Vec3::Z * 3.0, Vec3::NEG_Z * 3.0, true),
+                (Vec3::Z * 3.0, Vec3::Z * 2.0, false),
+                (Vec3::new(2.0, 0.0, 3.0), Vec3::new(2.0, 0.0, -3.0), false),
+                (Vec3::ZERO, Vec3::ZERO, true),
+            ] {
+                assert_eq!(
+                    segment_intersects_bounds(
+                        inverse.transform_point3(transform.transform_point3(a)),
+                        inverse.transform_point3(transform.transform_point3(b)),
+                        Vec3::NEG_ONE,
+                        Vec3::ONE
+                    ),
+                    expected
+                );
+            }
+        }
+    }
+}

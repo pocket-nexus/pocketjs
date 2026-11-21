@@ -1,0 +1,29 @@
+[package]
+name = "pocket-guest-rquickjs"
+readme = "README.md"
+homepage = "https://pocketjs.pocket.nexus"
+documentation = "https://docs.rs/pocket-guest-rquickjs"
+keywords = ["pocketjs", "quickjs", "javascript"]
+categories = ["gui", "api-bindings"]
+edition = "2021"
+description = "Generated PocketJS UI bindings and guest lifecycle for rquickjs"
+
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+default = ["std"]
+std = ["rquickjs/std"]
+rust-alloc = ["rquickjs/rust-alloc"]
+bindgen = ["rquickjs/bindgen"]
+
+[dependencies]
+pocket-runtime = { workspace = true, default-features = true }
+pocket-drivers = { workspace = true, default-features = true }
+rquickjs = { version = "0.14", default-features = false }
+log = { version = "0.4", default-features = false }
+
+[dev-dependencies]
+pocketjs-core = { workspace = true, default-features = true }

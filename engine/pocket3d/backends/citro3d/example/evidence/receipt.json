@@ -1,0 +1,22 @@
+{
+  "environment": "Azahar software PICA",
+  "hardwareTiming": false,
+  "assertions": "two rigs, shared mesh, hidden joint, three lights, invalid input: pass",
+  "frames": [
+    {
+      "frame": 1,
+      "leftPropPixels": 2483,
+      "red": 223
+    },
+    {
+      "frame": 31,
+      "leftPropPixels": 2492,
+      "red": 255
+    },
+    {
+      "frame": 61,
+      "leftPropPixels": 2500,
+      "red": 0
+    }
+  ]
+}

@@ -3,9 +3,7 @@
 // Doubles as the font-atlas charset anchor: the baker harvests codepoints
 // from source literals, so everything the sample renders is guaranteed
 // baked. Beyond the baked set, the widget host rasterizes new glyphs at
-// runtime (text.glyphs.runtime) and the gpui host shapes through the OS
-// text system (text.layout.native, docs/BACKENDS.md) — tofu is a
-// console-target concern only.
+// runtime (text.glyphs.runtime).
 
 export const SAMPLE_DOC = `# Pocket Note
 
@@ -19,11 +17,9 @@ A markdown sticky for your desktop — one process, a real PocketJS app.
 - Quotes, rules, fenced code
 
 > The window is the ui surface: same core, same DrawList —
-> painted from baked atlases by wgpu, or with native text
-> by gpui (docs/BACKENDS.md).
+> painted from glyph atlases by wgpu (docs/BACKENDS.md).
 
 \`\`\`
-bun run macos note   # gpui backend, native text
 bun run note         # wgpu widget, baked atlases
 \`\`\`
 

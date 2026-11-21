@@ -62,6 +62,18 @@ impl Default for AppConfig {
     }
 }
 
+/// Cursor ownership requested by a game or an overlay.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CursorMode {
+    /// Use AppConfig's capture setting and the legacy Escape/click behavior.
+    #[default]
+    Legacy,
+    /// The game owns mouse look; mode changes discard held input.
+    Captured,
+    /// A UI owns the visible pointer. Clicking never recaptures the mouse.
+    Visible,
+}
+
 /// What the app loop needs from a game.
 pub trait Game {
     /// Called once after the GPU exists — load assets here.
@@ -70,6 +82,12 @@ pub trait Game {
     fn frame(&mut self, dt: f32, input: &Input);
     /// Fixed-step simulation.
     fn tick(&mut self, dt: f32, input: &Input);
+    /// Input ownership requested by the application, applied after frame/tick.
+    fn cursor_mode(&self) -> CursorMode {
+        CursorMode::Legacy
+    }
+    /// Physical viewport and OS scale, delivered before input in the new size.
+    fn resized(&mut self, _size: (u32, u32), _scale_factor: f64) {}
     /// Provide the frame to draw. `time` is seconds since launch.
     fn compose(&mut self, alpha: f32, time: f32, size: (u32, u32)) -> (&Scene, &Camera, &Hud);
     /// Record extra passes over the finished frame (UI overlays, composite
@@ -117,6 +135,8 @@ struct WindowState {
     start: Instant,
     last_frame: Instant,
     mouse_captured: bool,
+    cursor_mode: CursorMode,
+    focused: bool,
 }
 
 struct WinitApp<G: Game> {
@@ -159,6 +179,8 @@ impl<G: Game> WinitApp<G> {
 
         let mut renderer = Renderer::new(&gpu, surface_config.format)?;
         self.game.init(&gpu, &mut renderer)?;
+        self.game
+            .resized((px.width, px.height), window.scale_factor());
 
         let mut state = WindowState {
             window,
@@ -171,8 +193,10 @@ impl<G: Game> WinitApp<G> {
             start: Instant::now(),
             last_frame: Instant::now(),
             mouse_captured: false,
+            cursor_mode: self.game.cursor_mode(),
+            focused: true,
         };
-        if self.config.capture_mouse {
+        if wants_capture(state.cursor_mode, self.config.capture_mouse) {
             set_mouse_capture(&mut state, true);
         }
         Ok(state)
@@ -188,9 +212,11 @@ impl<G: Game> WinitApp<G> {
         state.last_frame = now;
 
         self.game.frame(dt, &state.input);
+        sync_cursor_mode(state, self.game.cursor_mode(), self.config.capture_mouse);
         let ticks = state.timestep.advance(dt);
         for _ in 0..ticks {
             self.game.tick(state.timestep.step, &state.input);
+            sync_cursor_mode(state, self.game.cursor_mode(), self.config.capture_mouse);
         }
         state.input.end_frame();
 
@@ -224,11 +250,20 @@ impl<G: Game> WinitApp<G> {
         state
             .renderer
             .render(&state.gpu, &view, size, scene, camera, hud);
-        let mut encoder = state
-            .gpu
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("overlay") });
-        self.game.overlay(&state.gpu, &mut encoder, &view, state.surface_config.format, size);
+        let mut encoder =
+            state
+                .gpu
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("overlay"),
+                });
+        self.game.overlay(
+            &state.gpu,
+            &mut encoder,
+            &view,
+            state.surface_config.format,
+            size,
+        );
         state.gpu.queue.submit([encoder.finish()]);
         state.window.pre_present_notify();
         frame.present();
@@ -277,6 +312,23 @@ fn set_mouse_capture(state: &mut WindowState, captured: bool) {
     }
 }
 
+fn wants_capture(mode: CursorMode, legacy: bool) -> bool {
+    match mode {
+        CursorMode::Legacy => legacy,
+        CursorMode::Captured => true,
+        CursorMode::Visible => false,
+    }
+}
+
+fn sync_cursor_mode(state: &mut WindowState, mode: CursorMode, legacy: bool) {
+    if state.cursor_mode == mode {
+        return;
+    }
+    state.cursor_mode = mode;
+    state.input.clear();
+    set_mouse_capture(state, state.focused && wants_capture(mode, legacy));
+}
+
 impl<G: Game> ApplicationHandler for WinitApp<G> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.state.is_none() {
@@ -308,9 +360,21 @@ impl<G: Game> ApplicationHandler for WinitApp<G> {
                 state
                     .surface
                     .configure(&state.gpu.device, &state.surface_config);
+                self.game.resized(
+                    (size.width.max(1), size.height.max(1)),
+                    state.window.scale_factor(),
+                );
+            }
+            WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+                let size = state.window.inner_size();
+                self.game
+                    .resized((size.width.max(1), size.height.max(1)), scale_factor);
             }
             WindowEvent::KeyboardInput { .. } => {
-                if self.config.capture_mouse && state.input.key_pressed(KeyCode::Escape) {
+                if state.cursor_mode == CursorMode::Legacy
+                    && self.config.capture_mouse
+                    && state.input.key_pressed(KeyCode::Escape)
+                {
                     let captured = !state.mouse_captured;
                     set_mouse_capture(state, captured);
                 }
@@ -321,8 +385,15 @@ impl<G: Game> ApplicationHandler for WinitApp<G> {
                 ..
             } => {
                 // Clicking back into the window recaptures the mouse.
-                if self.config.capture_mouse && !state.mouse_captured {
+                if state.focused
+                    && wants_capture(state.cursor_mode, self.config.capture_mouse)
+                    && !state.mouse_captured
+                    && elem_state.is_pressed()
+                {
                     set_mouse_capture(state, true);
+                    if state.cursor_mode != CursorMode::Legacy {
+                        state.input.clear();
+                    }
                 }
                 if self.config.drag_window
                     && button == winit::event::MouseButton::Left
@@ -331,7 +402,12 @@ impl<G: Game> ApplicationHandler for WinitApp<G> {
                     let _ = state.window.drag_window();
                 }
             }
-            WindowEvent::Focused(false) => set_mouse_capture(state, false),
+            WindowEvent::Focused(focused) => {
+                state.focused = focused;
+                if !focused {
+                    set_mouse_capture(state, false);
+                }
+            }
             WindowEvent::RedrawRequested => self.redraw(event_loop),
             _ => {}
         }
@@ -364,6 +440,19 @@ impl<G: Game> ApplicationHandler for WinitApp<G> {
             state.window.request_redraw();
         } else {
             event_loop.set_control_flow(ControlFlow::WaitUntil(due));
+        }
+    }
+}
+
+#[cfg(test)]
+mod cursor_tests {
+    use super::*;
+    #[test]
+    fn explicit_pointer_ownership_overrides_legacy_capture_settings() {
+        for legacy in [true, false] {
+            assert!(!wants_capture(CursorMode::Visible, legacy));
+            assert!(wants_capture(CursorMode::Captured, legacy));
+            assert_eq!(wants_capture(CursorMode::Legacy, legacy), legacy);
         }
     }
 }

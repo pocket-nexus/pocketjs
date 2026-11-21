@@ -1,0 +1,45 @@
+; PocketJS 3DS vertex shader: the DrawList's logical pixel coordinates through
+; the ortho-tilt projection, with UV and colour passed to the TEV stages.
+;
+; The PICA200 has no fragment shader, so `outclr` is the primary colour that
+; TEV stage 0 modulates the sampled texel by (see gfx.c). Untextured ops bind
+; an 8x8 white texture, which makes that one stage cover every op.
+;
+; picasso freezes the GPU on two consecutive `mova`, and one instruction may
+; reference only a single input register across its source operands — hence
+; the plain per-attribute moves rather than anything fused.
+
+.constf myconst(0.0, 1.0, -1.0, 0.5)
+.alias  zeros myconst.xxxx
+.alias  ones  myconst.yyyy
+.alias  half  myconst.wwww
+
+.fvec projection[4]
+
+.in inpos v0
+.in intex v1
+.in inclr v2
+
+.out outpos position
+.out outtex texcoord0
+.out outclr color
+
+.entry vmain
+.proc vmain
+    mov r0.xy, inpos
+    mov r0.z,  half
+    mov r0.w,  ones
+    dp4 outpos.x, projection[0], r0
+    dp4 outpos.y, projection[1], r0
+    dp4 outpos.z, projection[2], r0
+    dp4 outpos.w, projection[3], r0
+    ; Whole-register moves, never component-masked ones: a vertex leaves the
+    ; shader only after EVERY component of every mapped output register has
+    ; been written, and real hardware waits forever for the ones that never
+    ; are — the first draw wedges the GPU with `mov outtex.xy, intex.xy`
+    ; here. Emulators emit the vertex at `end` regardless, so Azahar passes
+    ; either way; the loader pads the two-float attribute to (x, y, 0, 1).
+    mov outtex, intex
+    mov outclr, inclr
+    end
+.end

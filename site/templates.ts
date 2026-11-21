@@ -2,31 +2,64 @@
 // page is renderPage(...)'d so nav/branding/theme stay in one place. Styling is
 // Tailwind (utilities inline + a few component classes in assets/tailwind.css).
 
+import { candyHeadings } from "./candy.ts";
+
 const YEAR = 2026;
-const GH = "https://github.com/pocket-stack/pocketjs";
+const GH = "https://github.com/pocket-nexus/pocketjs";
 const DISCORD = "https://discord.gg/cTce4eXzSK";
 const X_URL = "https://x.com/pocket_js";
-export const SITE_URL = "https://pocketjs.dev";
-export const SITE_TITLE = "PocketJS JavaScript UI runtime";
+// The organization PocketJS belongs to; its homepage links back here.
+const NEXUS_URL = "https://pocket.nexus";
+// The canonical origin: PocketJS lives under the Pocket Nexus homepage.
+// pocketjs.dev serves the same build; its pages point here as canonical.
+export const SITE_URL = "https://pocketjs.pocket.nexus";
+export const SITE_TITLE = "PocketJS · Create UI on every screen you love";
 export const SITE_DESC =
-  "A compact JavaScript runtime for building UI, games, 3D experiences and AI-native applications across radically different devices. A tiny JavaScript guest where it fits; the framework compiled away where it doesn't.";
+  "Create UI on every screen you love. Build apps with familiar JavaScript components, from handhelds and desktops to embedded screens.";
 // Shared by the standalone homepage and every page rendered through renderPage().
 export const SITE_FOOTER_DESC =
-  "A compact JavaScript runtime for UI, games, 3D and AI-native software, carried to radically different devices by a tiny native core.";
+  "Create UI on every screen you love. A small runtime for apps on handhelds, desktops, and embedded devices.";
 export const SITE_FOOTER_DESC_SLOT = "{{SITE_FOOTER_DESC}}";
 export const OG_IMAGE_URL = `${SITE_URL}/og-image.png`;
 
 // Every icon a browser, a phone home screen or a Safari tab asks for. All of it
 // is rendered from site/assets/favicon.svg by `bun tools/icons.ts`, so the three
 // <head>s on this site (here, the homepage and the /for/ pages) share one list.
+//
+// iOS ignores the manifest when an apple-touch-icon exists and picks the link
+// whose `sizes` is closest to the size it wants, so every rung of that ladder is
+// declared: an iPhone asking for 180 must not settle for a scaled 152. ICON_V
+// versions those URLs because iOS caches the home screen icon per URL and keeps
+// serving a page screenshot if the first fetch ever came up empty; bump it when
+// the drawing changes.
+//
+// Two of these entries exist for Safari specifically. The sizes-less
+// apple-touch-icon is the form Apple documents, at the root name Safari looks
+// for on its own, with no query on it: bookmarks and the Favorites grid read
+// that path rather than the sized ladder the home screen picks from. And Safari
+// could not render an SVG favicon until version 26, so a large PNG favicon has
+// to be declared as well or every Safari before that has only the 96 to scale.
+const ICON_V = "3";
 export const ICON_LINKS = [
-  '<link rel="icon" href="/favicon.svg" type="image/svg+xml">',
-  '<link rel="icon" href="/favicon.ico" sizes="48x48">',
-  '<link rel="icon" href="/favicon-96.png" type="image/png" sizes="96x96">',
-  '<link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180">',
-  '<link rel="mask-icon" href="/safari-pinned-tab.svg" color="#4ef08a">',
+  `<link rel="icon" href="/favicon.svg?v=${ICON_V}" type="image/svg+xml">`,
+  `<link rel="icon" href="/favicon.ico?v=${ICON_V}" sizes="48x48">`,
+  `<link rel="icon" href="/favicon-96.png?v=${ICON_V}" type="image/png" sizes="96x96">`,
+  `<link rel="icon" href="/icon-192.png?v=${ICON_V}" type="image/png" sizes="192x192">`,
+  '<link rel="apple-touch-icon" href="/apple-touch-icon.png">',
+  `<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=${ICON_V}">`,
+  `<link rel="apple-touch-icon" sizes="167x167" href="/apple-touch-icon-167.png?v=${ICON_V}">`,
+  `<link rel="apple-touch-icon" sizes="152x152" href="/apple-touch-icon-152.png?v=${ICON_V}">`,
+  `<link rel="apple-touch-icon" sizes="120x120" href="/apple-touch-icon-120.png?v=${ICON_V}">`,
+  '<meta name="apple-mobile-web-app-title" content="PocketJS">',
+  '<link rel="mask-icon" href="/safari-pinned-tab.svg" color="#ffd23f">',
   '<link rel="manifest" href="/site.webmanifest">',
 ].join("\n");
+
+// The Arcade look (site/assets/arcade.css) sets headlines in Press Start 2P.
+// The file is self-hosted and preloaded, and its @font-face blocks rendering
+// until it arrives, so a headline never paints in a fallback face and jumps.
+export const PIXEL_FONT_PRELOAD =
+  '<link rel="preload" href="/assets/fonts/press-start-2p-latin.woff2" as="font" type="font/woff2" crossorigin>';
 
 export function injectSiteFooterDescription(template: string): string {
   const slots = template.split(SITE_FOOTER_DESC_SLOT).length - 1;
@@ -48,16 +81,13 @@ export interface PageOpts {
   robots?: string;
 }
 
+// The nav mark, drawn inline so the shared shell needs no extra request.
+// Same geometry as site/assets/favicon.svg, which is the source of record.
 export const LOGO = `<svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true">
-  <defs>
-    <linearGradient id="pj-shell-edge" x1="4" y1="4" x2="28" y2="28" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#eef6ff"/><stop offset="0.38" stop-color="#b7c8e2"/><stop offset="0.58" stop-color="#7487a0"/><stop offset="0.78" stop-color="#aec0d6"/><stop offset="1" stop-color="#dbe8f6"/></linearGradient>
-    <linearGradient id="pj-shell-lens" x1="7" y1="13" x2="13" y2="19" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#e4edf8"/><stop offset="0.55" stop-color="#a7b8cf"/><stop offset="1" stop-color="#53677f"/></linearGradient>
-    <linearGradient id="pj-shell-bar" x1="16" y1="12" x2="24" y2="20" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#d7e3f1"/><stop offset="1" stop-color="#71849d"/></linearGradient>
-  </defs>
-  <rect x="2" y="6" width="28" height="20" rx="6" fill="none" stroke="url(#pj-shell-edge)" stroke-width="2.6" stroke-linejoin="round"/>
-  <circle cx="10" cy="16" r="3.1" fill="url(#pj-shell-lens)"/>
-  <rect x="16" y="12.6" width="10" height="2.2" rx="1.1" fill="url(#pj-shell-bar)"/>
-  <rect x="16" y="17.2" width="6.5" height="2.2" rx="1.1" fill="url(#pj-shell-bar)"/>
+  <rect x="2" y="6" width="28" height="20" rx="6" fill="none" stroke="#ffd23f" stroke-width="2.6" stroke-linejoin="round"/>
+  <circle cx="10" cy="16" r="3.1" fill="#ff5f9e"/>
+  <rect x="16" y="12.6" width="10" height="2.2" rx="1.1" fill="#3fd0e8"/>
+  <rect x="16" y="17.2" width="6.5" height="2.2" rx="1.1" fill="#ff5f9e"/>
 </svg>`;
 
 function header(active: string): string {
@@ -79,12 +109,14 @@ function header(active: string): string {
     <nav class="nav-links" aria-label="Primary">
       ${link("/docs/overview/", "Docs", "docs")}
       ${link("/blog/", "Blog", "blog")}
+      <a href="https://3d.pocket.nexus/" class="p3d-link">Pocket3D</a>
       <div class="menu">
         <button class="menu-btn" aria-haspopup="true" aria-expanded="false">Resources
           <svg width="9" height="9" viewBox="0 0 10 10" aria-hidden="true"><path d="M1 3l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
         <div class="menu-list">
-          <a href="https://pocketlab.build">Lab</a>
+          <a href="https://3d.pocket.nexus/" class="p3d-item">Pocket3D</a>
+          <a href="https://microts.pocket.nexus/">MicroTS</a>
           <a href="/playground/">Playground</a>
           <a href="/changelog/">Changelog</a>
         </div>
@@ -99,16 +131,19 @@ function header(active: string): string {
 
 const footer = `<footer class="foot">
   <div class="wrap">
-    <span class="hud">© ${YEAR} PocketJS · MIT · a Pocket Lab project</span>
+    <span class="hud">© ${YEAR} PocketJS · MIT · a <a href="${NEXUS_URL}">Pocket Nexus</a> project</span>
     <nav class="cols2" aria-label="Footer">
-      <a href="/docs/overview/">Docs</a>
-      <a href="/playground/">Playground</a>
-      <a href="/blog/">Blog</a>
-      <a href="/changelog/">Changelog</a>
-      <a href="https://pocketlab.build">Pocket Lab</a>
-      <a href="${GH}" target="_blank" rel="noreferrer">GitHub</a>
-      <a href="${X_URL}" target="_blank" rel="noreferrer">X</a>
-      <a href="${DISCORD}" target="_blank" rel="noreferrer">Discord</a>
+      <span class="fgrp">
+        <a href="/docs/overview/">Docs</a>
+        <a href="/playground/">Playground</a>
+        <a href="/blog/">Blog</a>
+        <a href="/changelog/">Changelog</a>
+      </span>
+      <span class="fgrp"><span class="fdot" aria-hidden="true">·</span>
+        <a href="${GH}" target="_blank" rel="noreferrer">GitHub</a>
+        <a href="${X_URL}" target="_blank" rel="noreferrer">X</a>
+        <a href="${DISCORD}" target="_blank" rel="noreferrer">Discord</a>
+      </span>
     </nav>
     <span class="hud">${SITE_FOOTER_DESC}</span>
   </div>
@@ -129,7 +164,7 @@ export function renderPage(o: PageOpts): string {
     programmingLanguage: ["TypeScript", "JavaScript", "Rust"],
     runtimePlatform: ["Sony PSP", "PPSSPP", "WebAssembly", "Bun"],
   });
-  return `<!doctype html>
+  return candyHeadings(`<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -151,12 +186,14 @@ export function renderPage(o: PageOpts): string {
 <meta name="twitter:title" content="${fullTitle}">
 <meta name="twitter:description" content="${desc}">
 <meta name="twitter:image" content="${OG_IMAGE_URL}">
-<meta name="theme-color" content="#05070d">
+<meta name="theme-color" content="#171226">
 ${ICON_LINKS}
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=STIX+Two+Text:ital,wght@0,400;0,600;1,400&family=VT323&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=STIX+Two+Text:ital,wght@0,400;0,600;1,400&family=VT323&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Fredoka:wght@500;600;700&display=swap">
+${PIXEL_FONT_PRELOAD}
 <link rel="stylesheet" href="/assets/site.css">
+<link rel="stylesheet" href="/assets/arcade.css">
 <script type="application/ld+json">${jsonLd}</script>
 ${o.head ?? ""}
 </head>
@@ -166,5 +203,5 @@ ${header(o.active)}
 ${footer}
 ${(o.scripts ?? []).join("\n")}
 </body>
-</html>`;
+</html>`);
 }

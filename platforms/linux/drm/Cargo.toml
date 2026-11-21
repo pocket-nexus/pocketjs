@@ -1,0 +1,16 @@
+[package]
+name = "pocket-linux-drm"
+edition = "2021"
+description = "PocketJS Linux drm platform unit"
+publish = true
+
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+pocket-drivers = { workspace = true, default-features = true }
+libc = "0.2.191"
+[target.'cfg(target_os = "linux")'.dependencies]
+drm = { version = "0.14.1", default-features = false }

@@ -4,7 +4,7 @@ index 68838c4..f085ec6 100644
 +++ b/tools/makesis-4/src/signutils.cpp
 @@ -113,7 +113,7 @@ SISSignature* makeSignature(SISField* controller, const char* keyData, int keyLe
  	BIO_free_all(io);
- 
+
  	if (type == SigAuto) {
 -		if (key->type == EVP_PKEY_DSA || key->type == EVP_PKEY_DSA1 || key->type == EVP_PKEY_DSA2 || key->type == EVP_PKEY_DSA3 || key->type == EVP_PKEY_DSA4)
 +		if (EVP_PKEY_base_id(key) == EVP_PKEY_DSA)
@@ -14,7 +14,7 @@ index 68838c4..f085ec6 100644
 @@ -123,39 +123,38 @@ SISSignature* makeSignature(SISField* controller, const char* keyData, int keyLe
  	uint8_t* ptr = buffer;
  	controller->CopyFieldData(ptr);
- 
+
 -	EVP_MD_CTX ctx, verify;
 -	EVP_MD_CTX_init(&ctx);
 -	EVP_MD_CTX_init(&verify);
@@ -72,12 +72,12 @@ index 68838c4..f085ec6 100644
 -	EVP_MD_CTX_cleanup(&verify);
 +	EVP_MD_CTX_free(verify);
  	EVP_PKEY_free(key);
- 
- 
+
+
 @@ -274,9 +273,6 @@ SISCertificateChain* makeChain(const char* certData, int certLen, EVP_PKEY** pub
  			*publicKey = X509_PUBKEY_get(X509_get_X509_PUBKEY(cert));
  		i2d_X509_bio(out, cert);
- 
+
 -		X509_OBJECT obj;
 -		obj.type = X509_LU_X509;
 -		obj.data.x509 = cert;
@@ -88,7 +88,7 @@ index 68838c4..f085ec6 100644
 @@ -309,9 +305,6 @@ SISCertificateChain* makeChain(const char* certData, int certLen, EVP_PKEY** pub
  			*publicKey = X509_PUBKEY_get(X509_get_X509_PUBKEY(cert));
  		i2d_X509_bio(out, cert);
- 
+
 -		X509_OBJECT obj;
 -		obj.type = X509_LU_X509;
 -		obj.data.x509 = cert;
@@ -103,12 +103,12 @@ index e7e1a6a..da06192 100644
 @@ -248,10 +248,7 @@ int main(int argc, char *argv[]) {
  				else
  					displayCert(cert);
- 
+
 -				X509_OBJECT obj;
 -				obj.type = X509_LU_X509;
 -				obj.data.x509 = cert;
 -				X509_OBJECT_free_contents(&obj);
 +				X509_free(cert);
  			}
- 
+
  			if (out)

@@ -15,21 +15,15 @@ if (Bun.resolveSync("solid-js", import.meta.dir).endsWith("server.js")) {
 
 import { installHost, type Host, type HostOps } from "../framework/src/host.ts";
 import { render as publicRender } from "../framework/src/index.ts";
-import { expandTape, expandTapeTouch, fmt, type Tape } from "../framework/src/devtools.ts";
-import { touches, __packTouch } from "../framework/src/touch.ts";
-import { onFrame } from "../framework/src/lifecycle.ts";
-import {
-  createComponent,
-  createTextNode,
-  insertNode,
-  resetRendererState,
-  rootMirror,
-  type NodeMirror,
-} from "../framework/src/renderer.ts";
+import { expandTape, expandTapeMotion, expandTapeTouch, expandTapeTouchSurfaces, fmt, type Tape } from "../framework/src/devtools.ts";
+import { touches, __packTouch, __packTouchCancel } from "../framework/src/touch.ts";
+import { onFrame, onMotion, rightAnalogRaw, rightAnalogX, rightAnalogY } from "../framework/src/lifecycle.ts";
+import { feedMotionState, MotionQuality, type MotionState } from "../framework/src/input-api.ts";
+import { createComponent, createTextNode, insertNode, resetRendererState, rootMirror, type NodeMirror } from "../framework/src/renderer.ts";
 import { resetStyles } from "../framework/src/styles.ts";
 import { resetInput } from "../framework/src/input.ts";
 import { resetPack } from "../framework/src/pak.ts";
-import { Named, View } from "../framework/src/components.ts";
+import { AuxiliarySurface, Named, Text, View } from "../framework/src/components.ts";
 import { BTN, ROOT_ID } from "../contracts/spec/spec.ts";
 
 // ---------------------------------------------------------------------------
@@ -142,6 +136,66 @@ function mountApp(app: () => unknown): void {
 // ---------------------------------------------------------------------------
 
 describe("tree + semantic names", () => {
+  test("tree and node stats include independent primary and auxiliary roots", () => {
+    host.ops.__auxiliarySurface = { root: 90, w: 320, h: 240 };
+    mountApp(() =>
+      View({
+        debugName: "Primary content",
+        children: AuxiliarySurface({
+          children: () => Text({ debugName: "Auxiliary content", children: "BOTTOM" }),
+        }),
+      }),
+    );
+    push({ t: "getTree" });
+    frame();
+
+    const trees = sent("tree");
+    const root = trees[trees.length - 1].root as {
+      i: number;
+      t: string;
+      v?: number;
+      k?: Array<{ n?: string; k?: unknown[] }>;
+    };
+    expect(root).toMatchObject({ i: 0, t: "surfaces", v: 1, n: "Displays" });
+    expect(root.k).toHaveLength(2);
+    expect(root.k?.[0]?.n).toBe("Primary display");
+    expect(root.k?.[1]?.n).toBe("Auxiliary display");
+    expect(JSON.stringify(root.k?.[0])).toContain("Primary content");
+    expect(JSON.stringify(root.k?.[1])).toContain("Auxiliary content");
+    expect(JSON.stringify(root.k?.[1])).toContain("BOTTOM");
+
+    const findNamed = (
+      node: unknown,
+      name: string,
+    ): { i: number; n?: string; k?: unknown[] } | null => {
+      if (!node || typeof node !== "object") return null;
+      const current = node as { i?: unknown; n?: string; k?: unknown[] };
+      if (current.n === name && typeof current.i === "number") {
+        return current as { i: number; n?: string; k?: unknown[] };
+      }
+      for (const child of current.k ?? []) {
+        const found = findNamed(child, name);
+        if (found) return found;
+      }
+      return null;
+    };
+    const auxiliaryContent = findNamed(root.k?.[1], "Auxiliary content");
+    expect(auxiliaryContent).not.toBeNull();
+    push({ t: "inspect", id: auxiliaryContent!.i });
+    frame();
+    expect(host.of("debugInspect")).toContainEqual(["debugInspect", auxiliaryContent!.i]);
+
+    const count = (node: unknown): number => {
+      if (!node || typeof node !== "object") return 0;
+      const children = (node as { k?: unknown[] }).k ?? [];
+      return 1 + children.reduce<number>((total, child) => total + count(child), 0);
+    };
+    const mountedNodes = count(root.k?.[0]) + count(root.k?.[1]);
+    push({ t: "pause" });
+    frame();
+    expect(sent("stats").at(-1)?.nodes).toBe(mountedNodes);
+  });
+
   test("getTree returns the mirror tree with debugName and <Named> tags", () => {
     // Same type erasure as renderer.test.ts: runtime-identical, DOM-typed JSX.
     const comp = createComponent as (fn: unknown, props: unknown) => NodeMirror;
@@ -199,6 +253,98 @@ describe("tree + semantic names", () => {
     expect(() => {
       for (let index = 0; index < 30; index++) frame();
     }).not.toThrow();
+  });
+});
+
+describe("listening", () => {
+  function mountQuiet(isListening: () => boolean): void {
+    g.__pocketDevtoolsTransport = {
+      send: (l: string) => outbox.push(l),
+      recv: () => (inbox.length ? inbox.shift() : null),
+      listening: isListening,
+    };
+    mountApp(() => View({ debugName: "Scene", children: Text({ children: "idle" }) }));
+  }
+
+  test("snapshots and console lines wait for a panel", () => {
+    let listening = false;
+    mountQuiet(() => listening);
+    for (let i = 0; i < 90; i++) frame();
+    (globalThis as { console: { log(...a: unknown[]): void } }).console.log("unheard");
+    expect(sent("tree")).toHaveLength(0);
+    expect(sent("stats")).toHaveLength(0);
+    expect(sent("log")).toHaveLength(0);
+
+    listening = true;
+    frame();
+    expect(sent("tree")).toHaveLength(1);
+    (globalThis as { console: { log(...a: unknown[]): void } }).console.log("heard");
+    expect(sent("log").map((m) => m.args)).toEqual([["heard"]]);
+  });
+
+  test("a transport with a log path gets every console line, whether a panel listens or not", () => {
+    const lines: string[] = [];
+    let listening = false;
+    g.__pocketDevtoolsTransport = {
+      send: (l: string) => outbox.push(l),
+      recv: () => (inbox.length ? inbox.shift() : null),
+      listening: () => listening,
+      log: (level: string, text: string) => lines.push(`${level}: ${text}`),
+    };
+    mountApp(() => View({ debugName: "Scene", children: Text({ children: "idle" }) }));
+    frame();
+    const out = (globalThis as { console: Record<"log" | "warn" | "error", (...a: unknown[]) => void> }).console;
+    out.log("no panel", 7);
+    out.error("still none");
+    // The panel's channel carried nothing; the host's log path carried both lines.
+    expect(sent("log")).toHaveLength(0);
+    expect(lines).toEqual(["log: no panel 7", "error: still none"]);
+    listening = true;
+    out.warn("both");
+    expect(sent("log").map((m) => m.args)).toEqual([["both"]]);
+    expect(lines[2]).toBe("warn: both");
+  });
+
+  test("a panel that reattaches to an unchanged tree gets it again", () => {
+    let listening = true;
+    mountQuiet(() => listening);
+    frame();
+    expect(sent("tree")).toHaveLength(1);
+    listening = false;
+    for (let i = 0; i < 40; i++) frame();
+    listening = true;
+    frame();
+    expect(sent("tree")).toHaveLength(2);
+  });
+
+  test("an explicit getTree is answered while nobody listens for snapshots", () => {
+    mountQuiet(() => false);
+    frame();
+    push({ t: "getTree" });
+    frame();
+    expect(sent("tree")).toHaveLength(1);
+  });
+
+  test("the native transport listens through ui.__dbgConnected", () => {
+    delete g.__pocketDevtoolsTransport;
+    let connected = false;
+    let nativeInbox: string | undefined;
+    Object.assign(host.ops, {
+      __dbgActive: () => true,
+      __dbgConnected: () => connected,
+      __dbgPoll: () => {
+        const chunk = nativeInbox;
+        nativeInbox = undefined;
+        return chunk;
+      },
+      __dbgSend: (line: string) => outbox.push(line),
+    });
+    mountApp(() => View({ debugName: "Scene", children: Text({ children: "idle" }) }));
+    for (let i = 0; i < 90; i++) frame();
+    expect(sent("tree")).toHaveLength(0);
+    connected = true;
+    frame();
+    expect(sent("tree")).toHaveLength(1);
   });
 });
 
@@ -343,6 +489,52 @@ describe("tape v2 touch track", () => {
     );
   }
 
+  test("first touch does not initialize a session-sized array", () => {
+    mountApp(() => View({}));
+    const nativeArray = globalThis.Array;
+    const allocations: number[] = [];
+    globalThis.Array = new Proxy(nativeArray, {
+      construct(target, args, newTarget) {
+        if (args.length === 1 && typeof args[0] === "number") allocations.push(args[0]);
+        return Reflect.construct(target, args, newTarget);
+      },
+    });
+    try { frameTouch(0, [__packTouch(0, 100, 100)]); }
+    finally { globalThis.Array = nativeArray; }
+    expect(Math.max(0, ...allocations)).toBeLessThanOrEqual(512);
+    push({ t: "dumpTape" }); frame(0);
+    expect((sent("tape")[0].tape as Tape).touch).toEqual([[0, [__packTouch(0, 100, 100)]]]);
+  });
+
+  test("chunk boundaries and ring wrap preserve contacts and clear expired surface lanes", () => {
+    mountApp(() => View({}));
+    const packed = __packTouch(3, 120, 80);
+    const withSurface = (globalThis as { frame?: (...args: any[]) => void }).frame!;
+    const contacts = new Set([0, 127, 128, 35999, 36000, 36127]);
+    for (let i = 0; i < 36260; i++) {
+      withSurface(0, undefined, contacts.has(i) ? [packed] : [], undefined,
+        contacts.has(i) ? [i === 36000 ? 0 : 1] : undefined);
+    }
+    push({ t: "dumpTape" }); frame(0);
+    const tape = sent("tape")[0].tape as Tape;
+    expect(tape.frames).toBe(36000);
+    expect(tape.startFrame).toBe(260);
+    expect(tape.touch).toEqual([[35739, [packed]], [35740, [packed]], [35867, [packed]]]);
+    expect(tape.touchSurfaces).toEqual([[35739, [1]], [35740, [0]], [35867, [1]]]);
+    expect(expandTapeTouch(tape)!.filter(Boolean)).toHaveLength(3);
+  });
+
+  test("a full snapshot retains all terminal cancellations in the recorded tape", () => {
+    mountApp(() => View({}));
+    const words = [...Array.from({ length: 8 }, (_, i) => __packTouch(i + 8, 10, 20)),
+      ...Array.from({ length: 8 }, (_, i) => __packTouchCancel(i))];
+    frameTouch(0, words);
+    push({ t: "dumpTape" }); frame(0);
+    const tape = sent("tape")[0].tape as Tape;
+    expect(tape.touch).toEqual([[0, words]]);
+    expect(expandTapeTouch(tape)![0]).toEqual(words);
+  });
+
   test("a touch-free session still exports v:1 with no touch key", () => {
     mountApp(() => View({}));
     frame(BTN.UP);
@@ -421,6 +613,29 @@ describe("tape v2 touch track", () => {
     const tape: Tape = { v: 1, frames: 3, masks: [[0, 3]] };
     expect(expandTapeTouch(tape)).toEqual([undefined, undefined, undefined]);
   });
+
+  test("v3 records and expands the parallel auxiliary-surface lane", () => {
+    mountApp(() => View({}));
+    const packed = __packTouch(3, 120, 80);
+    const frameWithSurface = (globalThis as {
+      frame?: (
+        buttons: number,
+        analog?: number,
+        touches?: readonly number[],
+        hits?: readonly number[],
+        surfaces?: readonly number[],
+      ) => void;
+    }).frame!;
+    frameWithSurface(0, undefined, [packed], [7], [1]);
+    frameWithSurface(0);
+    push({ t: "dumpTape" });
+    frame(0);
+    const tape = sent("tape")[0].tape as Tape;
+    expect(tape.v).toBe(3);
+    expect(tape.touch).toEqual([[0, [packed]]]);
+    expect(tape.touchSurfaces).toEqual([[0, [1]]]);
+    expect(expandTapeTouchSurfaces(tape)).toEqual([[1], undefined, undefined]);
+  });
 });
 
 describe("errors + formatting", () => {
@@ -449,7 +664,7 @@ describe("errors + formatting", () => {
 });
 
 // ---------------------------------------------------------------------------
-// stats (OP.debugStats) + the bundle-hash twin
+// stats (OP.debugStats)
 // ---------------------------------------------------------------------------
 
 describe("stats", () => {
@@ -476,14 +691,77 @@ describe("stats", () => {
   });
 });
 
-describe("bundle hash", () => {
-  test("fnv1a64 matches the published FNV-1a 64 test vectors", async () => {
-    const { fnv1a64 } = await import("../tools/bundle-hash.ts");
-    const bytes = (s: string) => new TextEncoder().encode(s);
-    expect(fnv1a64(new Uint8Array(0))).toBe("cbf29ce484222325"); // offset basis
-    expect(fnv1a64(bytes("a"))).toBe("af63dc4c8601ec8c");
-    expect(fnv1a64(bytes("hello"))).toBe("a430d84680aabd0b");
-    // Chunk boundaries must not matter (js+pak concatenation).
-    expect(fnv1a64(bytes("he"), bytes("llo"))).toBe(fnv1a64(bytes("hello")));
+test("right stick records, replays independently, and centers absent legacy samples", () => {
+  const samples: number[][] = [];
+  mountApp(() => { onFrame(() => samples.push([rightAnalogX(), rightAnalogY(), rightAnalogRaw()])); return View({}); });
+  const run = (right?: number) => (globalThis as any).frame(0, 0x8080, undefined, undefined, undefined, right);
+  run(); run(0xff80); run(0x8000); run(0x8181);
+  expect(samples).toEqual([[0, 0, 0x8080], [1, 0, 0xff80], [0, -1, 0x8000], [0, 0, 0x8181]]);
+  const api = (globalThis as any).__pocketDevtools;
+  const tape = api.dumpTape(); expect(tape.rightAnalog).toEqual([[0x8080, 1], [0xff80, 1], [0x8000, 1], [0x8181, 1]]);
+  api.replay(tape); samples.length = 0;
+  for (let i = 0; i < 4; i++) run(0x0080);
+  expect(samples).toEqual([[0, 0, 0x8080], [1, 0, 0xff80], [0, -1, 0x8000], [0, 0, 0x8181]]);
+  api.replay({ v: 1, frames: 1, masks: [[0, 1]] }); run(0xff80);
+  expect(samples.at(-1)).toEqual([0, 0, 0x8080]);
+});
+
+describe("tape v5 motion track", () => {
+  const frameMotion = (motion?: MotionState | null) =>
+    (globalThis as { frame?: (...args: unknown[]) => void }).frame!(0, undefined, undefined, undefined, undefined, undefined, undefined, motion);
+  const at = (timestamp: number, x: number): MotionState => ({ timestamp, gravityDirection: { value: [x, -0.8, 0], quality: MotionQuality.High } });
+
+  test("a motion-free session keeps its version and omits the track", () => {
+    mountApp(() => View({}));
+    frameMotion(); frameMotion(null);
+    const tape = (globalThis as any).__pocketDevtools.dumpTape() as Tape;
+    expect(tape.v).toBe(1);
+    expect("motion" in tape).toBe(false);
+  });
+
+  test("delivered estimates record sparsely, round-trip through JSON, and replay without live leaks", () => {
+    const seen: string[] = [];
+    mountApp(() => {
+      onFrame(() => seen.push("|"));
+      onMotion("gravityDirection", (x, y, z, quality, timestamp) => seen.push(`${x}@${timestamp}`));
+      return View({});
+    });
+    frameMotion();
+    frameMotion(at(10, 0.6)); // f32-rounded before it is recorded
+    feedMotionState(at(20, 0.5)); frameMotion(); // a queued estimate is recorded like a frame argument
+    feedMotionState(at(25, 0.25)); frameMotion(null); // an explicit null drops the queue
+    const live = seen.splice(0);
+    expect(live.join("")).toBe(`||${Math.fround(0.6)}@10|0.5@20|`);
+    const api = (globalThis as any).__pocketDevtools;
+    const tape = JSON.parse(JSON.stringify(api.dumpTape())) as Tape;
+    expect(tape.v).toBe(5);
+    expect(tape.motion).toEqual([[1, { timestamp: 10, gravityDirection: { value: [Math.fround(0.6), Math.fround(-0.8), 0], quality: MotionQuality.High } }],
+      [2, { timestamp: 20, gravityDirection: { value: [0.5, Math.fround(-0.8), 0], quality: MotionQuality.High } }]]);
+    expect(expandTapeMotion(tape).map(state => state?.timestamp)).toEqual([undefined, 10, 20, undefined]);
+    api.replay(tape);
+    feedMotionState(at(99, 0.1));
+    for (let i = 0; i < 4; i++) frameMotion(at(98, 0.2));
+    expect(seen.splice(0).join("")).toBe(live.join(""));
+    frameMotion(at(97, 0.5)); // exhausted: live again
+    expect(seen.splice(0).join("")).toBe("|0.5@97");
+    api.replay({ v: 4, frames: 1, masks: [[0, 1]], axes: [] } satisfies Tape);
+    feedMotionState(at(96, 0.5)); frameMotion(at(95, 0.5));
+    expect(seen.splice(0).join("")).toBe("|");
+    expect(() => expandTapeMotion({ v: 5, frames: 1, masks: [[0, 1]], motion: [[0, { timestamp: -5 }]] })).toThrow("timestamp");
+  });
+
+  test("zeros reach handlers unsigned, so a JSON replay matches the live session", () => {
+    const seen: number[][] = [];
+    mountApp(() => {
+      onMotion("angles", (...payload) => seen.push(payload));
+      return View({});
+    });
+    frameMotion({ timestamp: -0, angles: { value: [-0, 0, -0], quality: MotionQuality.High, referenceFrame: -0 as 0, epoch: -0 } });
+    const live = seen.splice(0);
+    expect(live).toEqual([[0, 0, 0, MotionQuality.High, 0, 0, 0]]);
+    const api = (globalThis as any).__pocketDevtools;
+    api.replay(JSON.parse(JSON.stringify(api.dumpTape())) as Tape);
+    frameMotion();
+    expect(seen.splice(0)).toEqual(live);
   });
 });
