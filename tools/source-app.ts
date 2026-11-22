@@ -35,9 +35,10 @@ export function sourceApplication(file: string): Promise<SourceApplication | und
   return loaded;
 }
 
-/** Register an application's model settings for the AOT frontends. */
-export function registerAppSettings(directory: string, app: Pick<AppConfig, "aot" | "model" | "recursionLimit" | "framework" | "entry">) {
-  return registerApplication({ directory, aot: app.aot, model: app.model, recursionLimit: app.recursionLimit, framework: app.framework, entry: app.entry });
+/** Register an application's model and animation settings for the AOT frontends. */
+export function registerAppSettings(directory: string, app: Pick<AppConfig, "aot" | "model" | "recursionLimit" | "framework" | "entry" | "theme" | "tickHz">) {
+  return registerApplication({ directory, aot: app.aot, model: app.model, recursionLimit: app.recursionLimit, framework: app.framework, entry: app.entry,
+    theme: app.theme, tickHz: app.tickHz });
 }
 
 /** Register the application `file` belongs to, once, unless its directory is

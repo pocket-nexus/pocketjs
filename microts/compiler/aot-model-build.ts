@@ -83,7 +83,7 @@ export function transformCompiledModel(source: string, filename: string, buildEn
   const entry = selected && realpathSync(selected);
   if (!entry) throw new Error(`Model AOT: cannot find a view entry under ${config.directory}`);
   const views = extension === ".vue"
-    ? vueEntries(entry, sources).map(root => analyzeVueAot(root, { sources }))
+    ? vueEntries(entry, sources).map(root => { const { theme, tickHz } = modelConfiguration(root); return analyzeVueAot(root, { sources, theme, tickHz }); })
     : checkSolidAotGraph(entry, { sources });
   const programs = views.map(view => attachCompiledModel(view, view.components.find(component => component.root)!.file, false, sources).model!);
   const program = programs.find(program => program.modules.some(module => module.file === resolve(filename)));

@@ -6,6 +6,7 @@ import { checkSolidAotGraph, generateSolidAotMock, getSolidAotProgram, resolveSo
 import { normalizeSolidAotSemantics } from "../microts/compiler/aot-solid-semantics.ts";
 import { jsxPlugin, transformFile } from "../framework/compiler/jsx-plugin.ts";
 import { registerApplication } from "../microts/compiler/aot-model-config.ts";
+import type { AotCompileError, AotDiagnostic, AotProgram } from "../microts/compiler/aot-ir.ts";
 
 let sequence = 0;
 function fixture(files: Record<string, string>, aot = true) {
@@ -123,4 +124,28 @@ test("root factories export their context objects at module scope", async () => 
   expect(code.match(/ThemeContext\d* = createContext\(/g)).toHaveLength(1);
   const output = resolve(root, "factory-context-bundle.mjs"); writeFileSync(output, code);
   expect((await import(output)).snapshot).toBe("factory context:");
+});
+
+test("admission bakes class literals with the registered theme and tick rate, and caches per animation settings", () => {
+  const view = imports + `export default function App() {
+  return <View>
+    <View class="w-[8] h-[8] animate-spin" />
+    <View class="w-[8] h-[8] animate-blink" />
+  </View>;
+}`;
+  const root = fixture({ "main.tsx": main, "App.tsx": view });
+  const theme = { keyframes: { blink: { "0%,49.99%": { opacity: 1 }, "50%,100%": { opacity: 0 } } }, animation: { blink: "blink 1s linear infinite" } };
+  const entry = resolve(root, "main.tsx"), file = resolve(root, "App.tsx");
+  const settings = { directory: root, framework: "solid", aot: true, entry: "main.tsx" } as const;
+  // Both timelines run 1s: their last segment ends at the tick rate's frame count.
+  const ends = (program: AotProgram) => program.styles.anims.map(anim => anim.tracks[0]!.segments.at(-1)!.t1);
+  registerApplication({ ...settings, theme });
+  expect(ends(getSolidAotProgram(file)!)).toEqual([60, 60]);
+  registerApplication({ ...settings, theme, tickHz: 30 });
+  expect(ends(checkSolidAotGraph(entry)[0]!)).toEqual([30, 30]);
+  // The warm graph was admitted under the theme; without it the literal is reported where the source writes it.
+  registerApplication(settings);
+  let diagnostic: AotDiagnostic | undefined;
+  try { checkSolidAotGraph(entry); } catch (error) { diagnostic = (error as AotCompileError).diagnostics[0]; }
+  expect(diagnostic).toMatchObject({ file, line: 4, column: 17, message: 'Unsupported class literal "w-[8] h-[8] animate-blink"' });
 });

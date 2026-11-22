@@ -92,7 +92,7 @@ test("a source's application registers its model settings once", async () => {
   expect(modelConfiguration(join(directory, "model.ts")).directory).toBeUndefined();
   await registerSourceApplication(join(directory, "model.ts"));
   expect(modelConfiguration(join(directory, "model.ts"))).toEqual({
-    mode: "compiled", recursionLimit: 32, aot: true, directory, framework: "solid", entry: join(directory, "App.tsx"),
+    mode: "compiled", recursionLimit: 32, tickHz: 60, aot: true, directory, framework: "solid", entry: join(directory, "App.tsx"),
   });
   // A registration the build driver made (from a plan) is not replaced.
   registerApplication({ directory, framework: "solid", aot: true, model: "rust" });

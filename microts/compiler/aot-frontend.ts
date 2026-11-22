@@ -35,7 +35,7 @@ export function getAotDependencyVersions(program: AotProgram): readonly AotDepen
 /** Admission, TypeScript contract analysis, and serializable View IR for all three execution classes. */
 export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {}): AotProgram {
   entry = resolve(entry);
-  const parsed = new Map<string, ParsedComponent>(), visiting = new Set<string>(), classLiterals = new Set<string>();
+  const parsed = new Map<string, ParsedComponent>(), visiting = new Set<string>(), classLiterals = new Map<string, SourceLocation>();
   function collect(file: string, override?: string): ParsedComponent {
     if (visiting.has(file)) fail(location(file, ""), "Recursive component imports are outside the AOT subset");
     const existing = parsed.get(file); if (existing) return existing;
@@ -594,7 +594,7 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
       if (!tag && !child) fail(at, `Element ${node.tag} is not an imported host primitive or child component`);
       const host: Extract<AotNode, {kind:"element"}> = { kind: "element", id: component.nodeCount++, tag: tag ?? "View", style: -1, props: [], focusable: false, events: [], children: [], loc: at };
       const instance: Extract<AotNode, {kind:"component"}> = { kind: "component", id: host.id, component: child?.name ?? "", props: [], events: [], slots: [], loc: at };
-      let staticClass = "", classBinding: SimpleExpressionNode | undefined, textBinding: AotExpr | undefined;
+      let staticClass = "", staticClassAt: SourceLocation | undefined, classBinding: SimpleExpressionNode | undefined, textBinding: AotExpr | undefined;
       for (const attribute of node.props) {
         if (attribute.type === NodeTypes.DIRECTIVE) {
           const d = attribute;
@@ -657,7 +657,7 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
         } else {
           const name = attribute.name, value = attribute.value?.content;
           if (tag) {
-            if (name === "class") staticClass = value ?? "";
+            if (name === "class") { staticClass = value ?? ""; staticClassAt = tplLoc(attribute); }
             else if (name === "focusable" && tag === "View" && value === undefined) host.focusable = true;
             else if (name === "debug-name" && tag === "View" && value !== undefined) host.debugName = value;
             else if (name === "src" && tag === "Image" && value !== undefined) host.src = value;
@@ -701,7 +701,7 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
         function styles(e: AotExpr): AotExpr {
           if (e.kind === "conditional") return { ...e, consequent: styles(e.consequent), alternate: styles(e.alternate), type: I32 };
           if (e.kind !== "literal" || typeof e.value !== "string") fail(e.loc, ":class must be a ternary with full class literal leaves");
-          const classes = `${staticClass} ${e.value}`.trim(); if (classes) classLiterals.add(classes);
+          const classes = `${staticClass} ${e.value}`.trim(); if (classes && !classLiterals.has(classes)) classLiterals.set(classes, e.loc);
           return { ...e, value: classes, type: I32 };
         }
         if (value.type.kind === "style") {
@@ -712,7 +712,7 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
           if (value.kind !== "conditional") fail(value.loc, ":class must be a ternary or chain of ternaries");
           host.dynamicStyle = { id: component.memoCount++, expression: styles(value) };
         }
-      } else if (staticClass) { classLiterals.add(staticClass); (host as typeof host & { classLiteral?: string }).classLiteral = staticClass; }
+      } else if (staticClass) { if (!classLiterals.has(staticClass)) classLiterals.set(staticClass, staticClassAt!); (host as typeof host & { classLiteral?: string }).classLiteral = staticClass; }
       if (tag === "Text") {
         const parts: (string | AotExpr)[] = [];
         if (textBinding) parts.push(textBinding);

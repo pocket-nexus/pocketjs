@@ -2,12 +2,15 @@
 import { withIsolatedAnimationBake, type AnimationTheme } from "../../framework/compiler/animation.ts";
 import { compileClasses } from "../../framework/compiler/tailwind.ts";
 import { resolveProvidedContext } from "./aot-provide-inject.ts";
-import type { AotProgram, AotComponent, AotNode, AotExpr } from "./aot-ir.ts";
+import type { AotProgram, AotComponent, AotNode, AotExpr, SourceLocation } from "./aot-ir.ts";
 import { fail, location, type TypeMapper } from "./aot-types.ts";
-export function finalizeAotProgram(root: string, components: AotComponent[], mapper: TypeMapper, classLiterals: Set<string>, animation?: { theme?: AnimationTheme; tickHz?: number }): AotProgram {
+/** `classLiterals` maps each class literal to the first place the source wrote it. */
+export function finalizeAotProgram(root: string, components: AotComponent[], mapper: TypeMapper, classLiterals: Map<string, SourceLocation>, animation?: { theme?: AnimationTheme; tickHz?: number }): AotProgram {
   resolveProvidedContext(components);
+  const rootLocation = components.find(c => c.root)?.nodes[0]?.loc ?? location(root, "");
+  const addLiteral = (classes: string, loc: SourceLocation | undefined) => { if (!classLiterals.has(classes)) classLiterals.set(classes, loc ?? rootLocation); };
   function collectStyle(value: AotExpr, allowForward = true): void {
-    if (value.kind === "literal" && typeof value.value === "string") { if (value.value) classLiterals.add(value.value); }
+    if (value.kind === "literal" && typeof value.value === "string") { if (value.value) addLiteral(value.value, value.loc); }
     else if (value.kind === "conditional") { collectStyle(value.consequent, false); collectStyle(value.alternate, false); }
     else if (!(allowForward && value.kind === "binding" && value.scope === "prop" && value.type.kind === "style")) fail(value.loc, "StyleClass values require full class literal leaves or an unchanged StyleClass prop");
   }
@@ -21,13 +24,13 @@ export function finalizeAotProgram(root: string, components: AotComponent[], map
     }
   }
   for (const component of components) for (const prop of component.props) {
-    if (prop.type.kind === "style" && typeof prop.default === "string" && prop.default) classLiterals.add(prop.default);
+    if (prop.type.kind === "style" && typeof prop.default === "string" && prop.default) addLiteral(prop.default, component.nodes[0]?.loc);
   }
   for (const component of components) walk(component.nodes, node => {
     if (node.kind === "component") for (const prop of node.props) if (prop.value.type.kind === "style") collectStyle(prop.value);
   });
-  const styles = withIsolatedAnimationBake(() => compileClasses(classLiterals), animation);
-  for (const classes of classLiterals) if (styles.ids[classes] === undefined) fail(components.find(c => c.root)?.nodes[0]?.loc ?? location(root, ""), `Unsupported class literal ${JSON.stringify(classes)}`);
+  const styles = withIsolatedAnimationBake(() => compileClasses(classLiterals.keys()), animation);
+  for (const [classes, loc] of classLiterals) if (styles.ids[classes] === undefined) fail(loc, `Unsupported class literal ${JSON.stringify(classes)}`);
   function finalize(nodes: AotNode[]) {
     for (const node of nodes) {
       if (node.kind === "element") {
