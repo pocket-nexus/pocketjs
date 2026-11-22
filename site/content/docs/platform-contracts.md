@@ -284,6 +284,18 @@ pointer from the analog nub. It takes two steps: the feature in the
 application's `features` and `enableCursor()` at run time; apps that never
 call it keep the d-pad focus walk unchanged.
 
+**No stock host contract lists `input.scroll`.** The id is registered because
+the framework acts on it ([Host-defined
+capabilities](#host-defined-capabilities) states the rule): in a build whose
+plan turns it off, [`onScroll`](/docs/input-focus/#pointer-position-and-scrolling)
+keeps no handler. A host contract lists it together with `input.pointer` when
+its program fills the pointer's scroll (`InputFrameBuilder.scroll` in
+`pocket-drivers`, `scroll` in `pocket_input_frame`). `validatePocketProfile`
+and `validatePlatformContractRegistry` refuse `input.scroll` without
+`input.pointer` (`profile.scrollWithoutPointer`,
+`registry.scrollWithoutPointer`), and the resolver refuses the feature without
+`input.pointer` in `features` (`capability.dependency`).
+
 ### Host-defined capabilities
 
 **A capability id is defined by PocketJS or by a host.** The registry lists

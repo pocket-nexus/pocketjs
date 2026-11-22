@@ -119,6 +119,7 @@ Some ids depend on others:
 | --- | --- |
 | `text.glyphs.streamed`, `text.layout.offload` | `io.offload` in `features` (`capability.offloadDependency`) |
 | `input.touch.auxiliary` | `display.auxiliary` in `features` (`capability.dependency`) |
+| `input.scroll` | `input.pointer` in `features` (`capability.dependency`) |
 | `display.auxiliary` | `surfaces.auxiliary`, and the reverse: the two are stated together (`surface.auxiliaryDeclarationMismatch`) |
 | `runtime.worker` | `worker` (`worker.entry`) |
 
@@ -140,7 +141,8 @@ share an id, and a different guarantee gets a new id.
 | `input.buttons` | A d-pad and face buttons. |
 | `input.analog.left`, `input.analog.right` | Analog sticks the host reports. |
 | `input.cursor` | A pointer the framework synthesizes from the analog nub: hover applies `focus:`, the press button applies `active:` and clicks on release. Opt-in per app with `enableCursor`. |
-| `input.pointer` | A real absolute pointer (mouse or trackpad) with press, drag and release edges. |
+| `input.pointer` | A real absolute pointer (mouse or trackpad) with press, drag and release edges. `pointer()` reads its position with no button down as well. |
+| `input.scroll` | Wheel and trackpad scrolling at the pointer reaches `onScroll`, in logical pixels of the pointer's surface. Without it `onScroll` keeps no handler. Requires `input.pointer`. |
 | `input.touch` | Touch contacts on the primary viewport. |
 | `input.touch.auxiliary` | Touch contacts reported in the auxiliary surface's logical pixels. Does not imply `input.touch`. |
 | `input.text` | A hardware text stream: characters plus named editing keys with key repeat. |

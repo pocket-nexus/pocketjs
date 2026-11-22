@@ -57,6 +57,7 @@ export function validatePocketProfile(input: unknown, options: { builtin?: boole
   if (Boolean(auxiliary) !== Boolean(panel.auxiliary)) problem("auxiliaryPanel", "/panel/auxiliary", "an auxiliary display and its panel must be declared together");
   if (auxiliary && auxiliary.rasterDensity !== display.rasterDensity) problem("auxiliaryDensity", "/display/auxiliary/rasterDensity", "auxiliary and primary raster density must match");
   if (capabilities.has("input.touch.auxiliary") && !auxiliary) problem("auxiliaryTouch", "/capabilities", "input.touch.auxiliary requires an auxiliary display");
+  if (capabilities.has("input.scroll") && !capabilities.has("input.pointer")) problem("scrollWithoutPointer", "/capabilities", "input.scroll requires input.pointer");
   // The input wire encodes 9-bit coordinates with a 10-bit extension.
   const coordinateLimit = 2 ** (profile.input?.coordinateBits ?? 10);
   const checkTouch = (viewports: readonly Viewport[], path: string) => viewports.forEach((size, index) => {
