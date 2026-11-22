@@ -397,8 +397,11 @@ widths):
   sector (center = node center, outer radius = min(w,h)/2) instead of filling
   the box; deterministic 2x2-supersampled coverage RECT runs. All three are
   keyframe-animatable — circular progress, spinners and stroke-draw arcs bake
-  to arcStart/arcSweep timelines (rotation belongs in arcStart; the renderer
-  is axis-aligned-world only).
+  to arcStart/arcSweep timelines. Under a rotated world the centre goes
+  through the world transform, the radius scales by the length of its second
+  column and the end directions turn with its linear part; a skewed or
+  non-uniformly scaled world draws a circle, not the ellipse, and a mirrored
+  world draws nothing.
 - **motion**: `transition[-transform|colors|opacity|all]`, `duration-N`,
   `ease-linear|in|out|in-out|spring|out-back`, `delay-N`
 - **keyframe animations (baked)**: `animate-<name>` resolves against

@@ -1945,7 +1945,12 @@ impl<'a> Walker<'a> {
 
     /// Rasterize an annular sector ("stroke arc" with round caps) as
     /// alpha-covered RECT runs — deterministic 2x2 supersampled coverage.
-    /// Axis-aligned worlds only; rotation belongs in arcStart.
+    /// A rotated circle is a circle: under a rotated world the centre goes
+    /// through the affine, the radius scale is the length of the world's
+    /// second column (`world.d` when axis-aligned) and the two end
+    /// directions go through the world's linear part. A skew or a
+    /// non-uniform scale still draws a circle, not the ellipse. A mirrored
+    /// world (determinant <= 0) would flip the sweep and draws nothing.
     fn emit_arc(
         &self,
         dl: &mut DrawList,
@@ -1956,11 +1961,17 @@ impl<'a> Walker<'a> {
         color: u32,
         clip: &Clip,
     ) {
-        if !world.is_axis_aligned() {
+        // The axis-aligned path keeps its exact arithmetic (goldens).
+        let axis = world.is_axis_aligned();
+        if !axis && world.a * world.d - world.b * world.c <= 0.0 {
             return;
         }
         let (cx, cy) = world.apply(w * 0.5, h * 0.5);
-        let s = world.d.max(0.0);
+        let s = if axis {
+            world.d.max(0.0)
+        } else {
+            sqrtf(world.c * world.c + world.d * world.d)
+        };
         let outer = (w.min(h) * 0.5) * s;
         let width = (r.arc_width * s).min(outer);
         if outer <= 0.0 || width <= 0.0 {
@@ -1981,10 +1992,20 @@ impl<'a> Walker<'a> {
         };
         let full = asweep >= 360.0;
         let major = asweep > 180.0;
-        // 0 deg = 12 o'clock, clockwise positive.
+        // 0 deg = 12 o'clock, clockwise positive. Under a rotated world the
+        // local direction goes through the world's linear part and is
+        // renormalized, so the caps stay on the ring; det > 0 keeps the
+        // sweep's orientation, and with it the cross-product tests below.
         let dir = |deg: f32| {
             let rad = deg * (PI / 180.0);
-            (sinf(rad), -cosf(rad))
+            let (lx, ly) = (sinf(rad), -cosf(rad));
+            if axis {
+                return (lx, ly);
+            }
+            let wx = world.a * lx + world.c * ly;
+            let wy = world.b * lx + world.d * ly;
+            let len = sqrtf(wx * wx + wy * wy);
+            (wx / len, wy / len)
         };
         let (svx, svy) = dir(a0);
         let (evx, evy) = dir(a0 + asweep);
