@@ -1,79 +1,44 @@
-import "./showcase.js";
+// The homepage's interactions: the framework tabs, the PocketUI theme
+// buttons, and the community wall (community.js).
 import "./community.js";
-const handhelds = document.querySelector("[data-handheld]");
-if (handhelds) {
-  const approach = new IntersectionObserver((entries) => {
-    if (!entries.some((entry) => entry.isIntersecting)) return;
-    approach.disconnect();
-    void import("/assets/handheld-stages.js");
-  }, { rootMargin: "400px" });
-  approach.observe(handhelds);
-}
 
-// Homepage interactions: framework code tabs and the lazy motion demo.
-for (const group of document.querySelectorAll("[data-subtabs]")) {
-  const tabs = group.querySelectorAll(".subtab");
-  tabs.forEach(t => t.addEventListener("click", () => {
-    tabs.forEach(x => x.classList.remove("on"));
-    group.querySelectorAll("pre").forEach(p => p.classList.remove("on"));
-    t.classList.add("on");
-    group.querySelector("#" + t.dataset.sub).classList.add("on");
-  }));
-}
-
-// The scale panel reveals its markers once, when it scrolls into view.
-const scale = document.querySelector("[data-scale]");
-if (scale) {
-  if (!("IntersectionObserver" in window)) scale.classList.add("on");
-  else {
-    const io = new IntersectionObserver((entries) => {
-      for (const e of entries) {
-        if (!e.isIntersecting) continue;
-        e.target.classList.add("on");
-        io.unobserve(e.target);
-      }
-    }, { threshold: 0.35 });
-    io.observe(scale);
+const select = (buttons, key, value) => {
+  for (const button of buttons) {
+    const on = button.dataset[key] === value;
+    button.classList.toggle("on", on);
+    button.setAttribute(button.getAttribute("role") === "tab" ? "aria-selected" : "aria-pressed", String(on));
   }
-}
+};
 
-// Reference links leave the reading flow: open them in their own tab. The
-// compatibility chips are receipts too, so they behave the same way.
-for (const a of document.querySelectorAll("[data-refs] a, .cgrid a")) {
-  a.target = "_blank";
-  a.rel = "noreferrer";
-}
+// Framework tabs: show one code sample and dim the other frameworks' bars.
+const frameworkTabs = [...document.querySelectorAll("[data-fw]")];
+const showFramework = (fw) => {
+  select(frameworkTabs, "fw", fw);
+  for (const pre of document.querySelectorAll("[data-fw-code]")) pre.classList.toggle("on", pre.dataset.fwCode === fw);
+  for (const bar of document.querySelectorAll("[data-fw-bar]")) bar.classList.toggle("dim", bar.dataset.fwBar !== fw);
+};
+for (const tab of frameworkTabs) tab.addEventListener("click", () => showFramework(tab.dataset.fw));
+if (frameworkTabs.length) showFramework("solid");
 
-// The motion stage is the real runtime in WebAssembly, so it boots only when
-// the chapter is actually on screen.
-const motionStage = document.querySelector("[data-motion-stage]");
-if (motionStage) {
-  let booted = false;
-  const boot = async () => {
-    if (booted) return;
-    booted = true;
-    try {
-      const { mountPocketStage } = await import("/assets/pocket-stage-web.js");
-      await mountPocketStage(motionStage, {
-        bootApp: "motions-main",
-        readyText: "yui540 motion studies, live",
-        errorText: "Interactive 3D is unavailable in this browser.",
-        receiptName: "__motionStageReceipt",
-      });
-    } catch (error) {
-      motionStage.classList.add("has-error");
-      const status = motionStage.querySelector("[data-stage-status]");
-      if (status) status.textContent = "The motion studies could not be loaded.";
-      console.error("motion stage failed", error);
+// PocketUI themes: the same gallery screen, captured in each theme.
+const themeButtons = [...document.querySelectorAll(".themes [data-theme]")];
+for (const button of themeButtons) {
+  button.addEventListener("click", () => {
+    select(themeButtons, "theme", button.dataset.theme);
+    for (const img of document.querySelectorAll("[data-theme-stage] img")) {
+      img.classList.toggle("on", img.dataset.theme === button.dataset.theme);
     }
-  };
-  if (!("IntersectionObserver" in window)) void boot();
-  else {
-    const io = new IntersectionObserver((entries) => {
-      if (!entries.some((e) => e.isIntersecting)) return;
-      io.disconnect();
-      void boot();
-    }, { rootMargin: "300px 0px", threshold: 0.01 });
-    io.observe(motionStage);
-  }
+  });
+}
+
+// Looping clips play only while they are on screen.
+const clips = document.querySelectorAll("video[autoplay]");
+if ("IntersectionObserver" in window) {
+  const io = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (entry.isIntersecting) void entry.target.play().catch(() => {});
+      else entry.target.pause();
+    }
+  });
+  for (const clip of clips) io.observe(clip);
 }

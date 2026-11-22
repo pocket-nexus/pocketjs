@@ -51,6 +51,15 @@ export const MOTION_CREDIT_ASSETS: readonly MotionCreditAsset[] = [
     offsetY: 1,
   },
   {
+    path: "site/assets/home/motions-53.gif",
+    width: 480,
+    height: 272,
+    badge: "large",
+    gravity: "southeast",
+    offsetX: 4,
+    offsetY: 1,
+  },
+  {
     path: "assets/screenshots/motions-3d.gif",
     width: 480,
     height: 272,

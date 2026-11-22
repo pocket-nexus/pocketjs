@@ -15,7 +15,7 @@ export const ICON_RETRO = `<svg width="26" height="26" viewBox="0 0 32 32" aria-
 
 export const FAMILY = [
   { name: "Pocket Nexus", tagline: "The lab behind the Pocket family", href: NEXUS_SITE, icon: ICON_NEXUS },
-  { name: "PocketJS", tagline: "Create UI on every screen you love", href: POCKETJS_SITE, icon: ICON_POCKETJS },
+  { name: "PocketJS", tagline: "Modern UI. Minimal footprint.", href: POCKETJS_SITE, icon: ICON_POCKETJS },
   { name: "Pocket3D", tagline: "Create 3D for every machine you love", href: "https://3d.pocket.nexus", icon: ICON_3D },
   { name: "Pocket Studio", tagline: "Make a game with your coding agent", href: "https://studio.pocket.nexus", icon: ICON_STUDIO },
   { name: "Pocket Retro", tagline: "Pyxel games compiled for the Game Boy Advance", href: GITHUB_RETRO, icon: ICON_RETRO },
