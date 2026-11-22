@@ -209,6 +209,8 @@ export const SUBPATHS: Record<string, SubpathDecl> = {
   "model/animation": { file: "framework/src/model-animation.ts" },
   physics: { file: "framework/src/physics.ts", aliases: TWINS },
   game2d: { file: { solid: "framework/src/game2d/index.ts" }, npmFile: "framework/src/game2d/index.ts" },
+  // PocketUI: semantic parts, themes that paint and arrange them (docs/POCKETUI.md). Solid only.
+  ui: { file: { solid: "framework/src/pocketui/index.ts" }, npmFile: "framework/src/pocketui/index.ts" },
 };
 
 /** The bare npm export target for a row (npmFile > invariant file > solid). */

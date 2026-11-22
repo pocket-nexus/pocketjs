@@ -21,7 +21,8 @@ Framework-internal and tests/debug helpers are not exhaustive here. For conceptu
 | `@pocketjs/framework/kinetics` | `createScroller`, `bindDpadScroll`, `Scroller` / `ScrollerOptions` / `ScrollerState` types (Solid and Vue Vapor) |
 | `@pocketjs/framework/osk` | `Osk`, `TextField`, `createOsk`, `OSK_H`, `OSK_LAYERS`, `OSK_LAYOUTS`, `oskPanelHeight`, `resetPanelMemory` (Solid) |
 | `@pocketjs/framework/virtual-list` | `VirtualList`, `VirtualListProps`, `VirtualListHandle` (Solid) |
-| `@pocketjs/framework/display` | `auxiliaryViewport`, `hasAuxiliarySurface` |
+| `@pocketjs/framework/ui` | PocketUI: `mountPocketUI`, `PocketUI`, `useUI`, the stacks and `Text` / `RichText` / `Feed` / `Scroll` / `TextEditor`, the kit (`Scaffold`, `Panes`, `Bar`, `Row`, `Button`, `Picker`, `Toggle`, `Segmented`, …), `useCommands`, `present`, `THEMES`, `defineTheme`, `installRuntimeText` (Solid) — see `docs/POCKETUI.md` |
+| `@pocketjs/framework/display` | `auxiliaryViewport`, `hasAuxiliarySurface`, `onAuxiliaryViewport` |
 | `@pocketjs/framework/platform` | `platform`, `hasFeature` |
 | `@pocketjs/framework/modality` | `modality`, `presentation`, `screen`, `surfaceHasTouch`, `supports`, `glyph` |
 | `@pocketjs/framework/actions` | `useActions`, `ACTION_BUTTONS`, `ACTION_INTENTS`, `HOLD_SECONDS` (Solid) |

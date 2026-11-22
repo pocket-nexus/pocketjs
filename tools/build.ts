@@ -58,6 +58,7 @@ import {
 import { animationThemeSchema } from "../contracts/spec/animation-theme.ts";
 import { validateSchema, type ContractDiagnostic } from "../contracts/spec/json-schema.ts";
 import { verifyPlanHash, verifyPlanProfile, type ResolvedBuildPlan } from "../framework/compiler/plan.ts";
+import { BUTTON_GLYPHS, PORTABLE_MODALITY } from "../contracts/spec/modality.ts";
 import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.ts";
 import { profileResponseBytes } from "../contracts/spec/profile.ts";
 import { resolveWorkerChannels } from "../contracts/spec/worker.ts";
@@ -400,8 +401,14 @@ const { fallbackTtfs } = fontConfig;
 if (fallbackTtfs.length || fontConfig.codepoints.length)
   console.log(`  fonts: ${fallbackTtfs.length} fallback face(s), ${fontConfig.codepoints.length} declared characters`);
 
+// The device's button marks (@pocketjs/framework/modality glyph()): an app
+// that names a button in a legend draws the mark the device's shell prints,
+// and that string is the modality table's, not a literal pass 1 collected.
+const buttonMarks = [...Object.values(BUTTON_GLYPHS[(buildPlan?.modality ?? PORTABLE_MODALITY).glyphs]).join("")]
+  .map(ch => ch.codePointAt(0)!);
+
 const atlases = await bakeAtlases({
-  codepoints: new Set([...codepoints, ...fontConfig.codepoints]),
+  codepoints: new Set([...codepoints, ...fontConfig.codepoints, ...buttonMarks]),
   slots: styles.usedFontSlots,
   extraChars,
   rasterDensity,
