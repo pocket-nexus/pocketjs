@@ -7,6 +7,7 @@ import { resolveAppPlan } from "../framework/compiler/app-plan.ts";
 import { profileRegistry } from "../tools/profile-resolver.ts";
 import { POCKET_PROFILES } from "../hosts/index.ts";
 import { analyzeAot } from "../microts/compiler/aot-build.ts";
+import { AOT_CARGO_ENV } from "../microts/compiler/cargo-target.ts";
 const gba = POCKET_PROFILES["gba"];
 
 const ROOT = resolve(import.meta.dir, "..");
@@ -115,4 +116,34 @@ import {label} from './App';
       await expect(compileAot({ plan: resolved.plan, projectRoot: project, outdir: join(project, "missing-wasm"), wasmPath: join(project, "absent.wasm") })).rejects.toThrow("prebuilt layout oracle");
     } finally { rmSync(project, { recursive: true, force: true }); }
   }, 120_000);
+
+  test("include.rs loaders compile without warnings with and without images", async () => {
+    const project = temporary();
+    try {
+      const roots = {
+        empty: { imports: "View", root: `<View class="w-[20] h-[20]"/>`, images: "_" },
+        assets: { imports: "Image, Text, View", root: `<View class="w-[40] h-[40]"><Image class="w-[16] h-[16]" src="logo.png"/><Text>A</Text></View>`, images: "ui" },
+      };
+      for (const [name, { imports, root, images }] of Object.entries(roots)) {
+        const directory = join(project, name);
+        mkdirSync(join(directory, "harness/src"), { recursive: true });
+        writeFileSync(join(directory, "app.tsx"), `import {${imports}} from '@pocketjs/framework/solid/components';\nexport default function App(){return ${root}}`);
+        const app = { id: `dev.test.${name}`, title: name, version: "1.0.0", features: ["text.glyphs.baked"],
+          entry: "app.tsx", framework: "solid", aot: true, viewport: { fixed: { logical: [240,160], presentation: "native" } } } as const;
+        const resolved = resolveAppPlan(app, { target: "gba" }, profileRegistry(gba));
+        if (!resolved.ok) throw new Error(JSON.stringify(resolved.diagnostics));
+        const result = await compileAot({ plan: resolved.plan, projectRoot: directory, outdir: join(directory, "out") });
+        const include = readFileSync(result.includeFile, "utf8");
+        // A loader with nothing to load leaves its parameter unnamed.
+        const fonts = files(join(directory, "out")).some(file => /font-\d+\.bin$/.test(file));
+        expect(include).toContain(`fn load_fonts(${fonts ? "ui" : "_"}: &mut microts::Ui)`);
+        expect(include).toContain(`fn load_images(${images}: &mut microts::Ui)`);
+        // A product crate built with warnings denied calls both loaders.
+        writeFileSync(join(directory, "harness/Cargo.toml"), `[package]\nname = "aot-include-${name}"\nversion = "0.0.0"\nedition = "2021"\n[workspace]\n[dependencies]\nmicrots = { path = ${JSON.stringify(resolve(ROOT, "engine/microts-runtime"))} }\n`);
+        writeFileSync(join(directory, "harness/src/lib.rs"), `#![no_std]\n#![deny(warnings)]\nextern crate alloc;\ninclude!(${JSON.stringify(result.includeFile)});\npub use generated::*;\npub fn mount(ui: &mut microts::Ui) -> u32 {\n    load_fonts(ui);\n    load_images(ui);\n    TICK_HZ\n}\n`);
+        const check = Bun.spawnSync(["cargo", "check", "--quiet", "--manifest-path", join(directory, "harness/Cargo.toml")], { stdout: "pipe", stderr: "pipe", env: { ...process.env, ...AOT_CARGO_ENV } });
+        expect({ status: check.exitCode, stderr: check.stderr.toString() }).toEqual({ status: 0, stderr: "" });
+      }
+    } finally { rmSync(project, { recursive: true, force: true }); }
+  }, 300_000);
 });

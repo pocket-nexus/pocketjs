@@ -57,7 +57,8 @@ export function checkModelRust(name: string, source: string, harness: string) {
   mkdirSync(`${directory}/src`, { recursive: true });
   writeFileSync(`${directory}/Cargo.toml`, `[package]\nname = "model-aot-${name}"\nversion = "0.0.0"\nedition = "2021"\n[workspace]\n[dependencies]\nmicrots = { path = ${JSON.stringify(resolve("engine/microts-runtime"))} }\n`);
   writeFileSync(`${directory}/src/model.rs`, source);
-  writeFileSync(`${directory}/src/lib.rs`, `mod model;\nuse model::*;\nuse microts::{Cmd, Ready};\n${harness}`);
+  // Unused-code lints in the generated module (dead stores, unreachable code or arms) fail the check.
+  writeFileSync(`${directory}/src/lib.rs`, `#[deny(unused)]\nmod model;\nuse model::*;\nuse microts::{Cmd, Ready};\n${harness}`);
   const result = Bun.spawnSync(["cargo", "test", "--quiet", "--manifest-path", `${directory}/Cargo.toml`], { stdout: "pipe", stderr: "pipe", env: { ...process.env, ...AOT_CARGO_ENV } });
   expect(result.exitCode, result.stdout.toString() + result.stderr.toString()).toBe(0);
 }
@@ -285,4 +286,38 @@ test("public async entry returns unit and drains commands through its explicit s
 export function before():void{console.log("before");}
 export async function load(cmds:i32):Promise<i32>{console.log("start",cmds);await frames(1);return cmds;}
 `), `#[test]fn signature(){let mut model=AppModel::default();let mut commands=vec![Cmd::Log("existing".into())];model.before();let result:()=model.load(7,&mut commands);assert_eq!(result,());assert_eq!(commands,vec![Cmd::Log("existing".into()),Cmd::Log("before".into()),Cmd::Log("start 7".into())]);model.resume(&Ready{frame:1,..Default::default()},&mut commands);model.react(false,&mut commands);assert_eq!(commands.len(),3);}`);
+}, 120_000);
+
+test("pop and removeAt results are assigned once, or default under an out-of-range index", () => {
+  checkModelRust("array-results", compileSource(`import { pop, push, removeAt } from "@pocketjs/framework/solid/std";
+interface Bag { items: i32[] }
+export const [result, setResult] = createSignal(0);
+let stack: i32[] = [1, 2, 3];
+let rows: i32[][] = [[4, 5], [6]];
+let bag: Bag = { items: [7, 8] };
+export function press(row: i32) {
+  const values: i32[] = [9, 10];
+  const top = pop(stack);
+  push(stack, top);
+  setResult(top * 1000 + removeAt(values, 0) * 100 + pop(rows[row]) * 10 + removeAt(bag.items, 1));
+}
+`), `#[test]fn results(){let mut m=AppModel::default();m.press(0);assert_eq!(m.result(),3958);m.press(5);assert_eq!(m.result(),3900);}`);
+}, 120_000);
+
+test("task segments that end in a return emit no unreachable finish", () => {
+  checkModelRust("task-return", compileSource(`
+export const [count, setCount] = createSignal(0);
+async function child(): Promise<void> { setCount(n => n + 1); return; }
+async function value(): Promise<i32> { await frames(1); if (count() > 0) return 2; else return 3; }
+export async function run(): Promise<void> { await child(); const next = await value(); setCount(n => n + next); }
+`), `#[test]fn returns(){let mut m=AppModel::default();let mut commands=Vec::new();m.run(&mut commands);assert_eq!(m.count(),1);for frame in 1..=3{m.resume(&Ready{frame,..Default::default()},&mut commands);}assert_eq!(m.count(),3);}`);
+}, 120_000);
+
+test("a field-less union variant decodes without an unreachable match arm", () => {
+  checkModelRust("union-unit-variant", compileSource(`
+type Flag = { kind: "off" } | { kind: "on"; level: i32 };
+export const [flag, setFlag] = createSignal<Flag>({ kind: "off" });
+export function press() { setFlag({ kind: "on", level: 2 }); }
+`), `use microts::model::{ModelValue, Value};
+#[test]fn decode(){let off=Flag::from_model_value(&Value::Object(vec![("kind".into(),Value::String("off".into()))]));assert!(matches!(off,Some(Flag::Off{})));let mut m=AppModel::default();m.press();assert!(matches!(m.flag(),Flag::On{level:2}));}`);
 }, 120_000);
