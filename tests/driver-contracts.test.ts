@@ -29,6 +29,8 @@ describe("candidate driver and runtime contract generation", () => {
   test("capabilities select the supported input class mask", () => {
     expect(inputClassesForCapabilities(["input.buttons", "input.touch.auxiliary", "input.ime"])).toBe(INPUT_CLASSES.buttons.bit | INPUT_CLASSES.contact.bit | INPUT_CLASSES.text.bit);
     expect(inputClassesForCapabilities(["input.cursor", "audio.pcm"])).toBe(0);
+    // Scroll arrives with the pointer, from a POINTER-class source.
+    expect(inputClassesForCapabilities(["input.pointer", "input.scroll"])).toBe(INPUT_CLASSES.pointer.bit);
   });
 
   test("32-bit layouts respect target scalar alignment rather than pointer width", () => {

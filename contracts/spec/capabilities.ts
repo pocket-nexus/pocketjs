@@ -44,11 +44,22 @@ export const POCKET_CAPABILITIES = defineCapabilityRegistry([
   "input.ime",
   // A REAL absolute pointer (mouse/trackpad): position plus press/drag/
   // release edges, hover resolves focus. The position reaches the app with
-  // no button down as well (`pointer()`), and wheel/trackpad scrolling in
-  // logical px reaches `onScroll` when the device reports it. A different
-  // guarantee than input.cursor's synthesized nub-pointer, hence a different
-  // id (see the header rule).
+  // no button down as well (`pointer()`). A different guarantee than
+  // input.cursor's synthesized nub-pointer, hence a different id (see the
+  // header rule).
   "input.pointer",
+  // Wheel and trackpad scrolling at the pointer: `onScroll` in
+  // @pocketjs/framework/input receives each frame's deltas, summed since the
+  // previous frame, in logical px of the pointer's surface; positive dx and
+  // dy move the view toward the content's right and bottom end, as
+  // WheelEvent.deltaX/deltaY. The host converts wheel lines to px and
+  // applies the system's scroll direction. In a build whose plan turns the
+  // id off, onScroll keeps no handler. Requires input.pointer: a scroll
+  // event carries the pointer's surface and position, and the runtime
+  // passes no scroll in a frame without a pointer. Registered because the
+  // framework acts on it; a host contract lists it when its program fills
+  // the pointer's scroll (InputFrameBuilder.scroll, pocket_input_frame.scroll).
+  "input.scroll",
   // A hardware text stream: layout-applied characters plus named editing
   // keys (Backspace/Enter/arrows/Home/End/…), key repeat included. The OSK
   // is the fallback spelling on targets without it.

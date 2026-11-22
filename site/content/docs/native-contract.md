@@ -486,7 +486,8 @@ relative-axis millidegrees, and `motion` is the motion driver's newest fused
 `MotionState`. `text` lists the keyboard's text events. `pointer` is
 `{ surface, x, y, buttons, scrollX, scrollY }` or `null`: the host pointer's
 unclamped logical position with or without a button down, and the frame's
-summed wheel and trackpad scrolling in logical pixels; a host turns a pressed
+summed wheel and trackpad scrolling in logical pixels, which the framework
+passes to `onScroll` in a build with `input.scroll` on; a host turns a pressed
 primary button into a touch contact as well. A touch word holds whole pixels up
 to 1023 per axis; `touchPositions` lists x then y for each word, the contact's
 exact logical position, fractional and unclamped, with a zero pair for a

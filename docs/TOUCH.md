@@ -270,3 +270,5 @@ The view owns key-cap feedback, character insertion, layout and modality.
 ## 指针:悬停与滚动
 
 带 `input.pointer` 的宿主(鼠标、触控板)在第 10 参送出指针:`{ surface, x, y, buttons, scrollX, scrollY }`,没有指针时为 `null`。主键按下时运行时还把它变成一个触点(带命中事实),所以 `onPress`、手势、拖拽不读指针也照常工作。**没有按键按下时的位置就是悬停,与焦点分开**:`pointer()` 读它,`hitNode(x, y)` 给出它下面的节点。滚轮与触控板的滚动以逻辑像素累加成每帧一次的 `onScroll`,正的 `dy` 让视图朝内容末尾移动(同 `WheelEvent.deltaY`);处理器从新到旧执行,返回 `true` 即吞掉,嵌套在内层的滚动视图先拿到。
+
+**滚动属于 `input.scroll` 能力,它依赖 `input.pointer`。** 应用在 `app.features` 里同时列出两者;plan 对声明了 `input.scroll` 的宿主契约记 `true`,否则记 `false`。为 `false` 的构建里 `onScroll` 不保留处理器,第 10 参的 `scrollX`/`scrollY` 照常传入但不派发,`pointer()` 仍读位置。以 `input.scroll` 为 `true` 构建的包只被列出 `input.scroll` 的宿主准入。

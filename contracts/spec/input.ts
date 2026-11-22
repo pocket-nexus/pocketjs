@@ -14,7 +14,7 @@ export const INPUT_CLASSES = {
   buttons: { bit: 1 << 0, constant: "BUTTONS", capabilities: ["input.buttons"] },
   "axis.absolute": { bit: 1 << 1, constant: "AXIS_ABSOLUTE", capabilities: ["input.analog.left", "input.analog.right"] },
   "axis.relative": { bit: 1 << 2, constant: "AXIS_RELATIVE", capabilities: ["input.axis.relative"] },
-  pointer: { bit: 1 << 3, constant: "POINTER", capabilities: ["input.pointer"] },
+  pointer: { bit: 1 << 3, constant: "POINTER", capabilities: ["input.pointer", "input.scroll"] },
   contact: { bit: 1 << 4, constant: "CONTACT", capabilities: ["input.touch", "input.touch.auxiliary"] },
   text: { bit: 1 << 5, constant: "TEXT", capabilities: ["input.text", "input.ime"] },
   motion: { bit: 1 << 6, constant: "MOTION", capabilities: ["input.motion.gravity", "input.motion.inertial", "input.motion.geomagnetic"] },

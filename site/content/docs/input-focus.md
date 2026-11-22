@@ -396,7 +396,8 @@ A key the session does not edit with passes on to the handlers below it.
 
 A target whose host contract declares `input.pointer` has a mouse or a
 trackpad. Each frame carries the pointer's position whether or not a button
-is down, and the wheel and trackpad scrolling since the previous frame.
+is down. A host contract that also declares `input.scroll` delivers the
+wheel and trackpad scrolling since the previous frame.
 
 ```ts
 import { hitNode, onScroll, pointer } from "@pocketjs/framework/input";
@@ -431,6 +432,16 @@ first after text handlers and before button handlers, and a handler that
 returns `true` consumes the frame's scroll**, so a scroll view nested in
 another, registered after it, takes the scroll first. A DevTools replay
 carries no pointer.
+
+**`onScroll` follows the build's `input.scroll` feature.** The application
+lists `input.scroll` together with `input.pointer` in `app.features`
+(`capability.dependency` otherwise); the plan records it `true` for a host
+contract that declares it and `false` for one that does not. In a build
+where it is `false`, `onScroll` keeps no handler and returns a function that
+does nothing; `pointer()` still reads the position. A bundle built with
+`input.scroll` on is admitted only by a host that lists `input.scroll`. Branch
+on `hasFeature("input.scroll")` to offer another way to scroll where the
+feature is off.
 
 ## Blocking background input
 

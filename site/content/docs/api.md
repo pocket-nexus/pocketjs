@@ -744,7 +744,10 @@ function onScroll(handler: (event: ScrollEvent) => boolean | void): () => void
 frame's summed wheel and trackpad scrolling in logical pixels at the pointer's
 position; positive `dy` moves the view toward the content's end. Handlers run
 newest first, a `true` return consumes the event, and the returned function
-removes the handler. Declare `input.pointer`; see
+removes the handler. Declare `input.pointer` for `pointer()` and
+`input.scroll`, which requires `input.pointer`, for `onScroll`. **In a build
+whose plan turns `input.scroll` off, `onScroll` keeps no handler and returns
+a function that does nothing.** See
 [Input & focus](/docs/input-focus/#pointer-position-and-scrolling).
 
 ### `focusNode`

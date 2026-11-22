@@ -1323,7 +1323,9 @@ describe("public render() (index.ts)", () => {
     ]);
   });
 
-  test("frame argument 10 latches the pointer and dispatches its scroll before frame hooks", () => {
+  test("frame argument 10 latches the pointer before frame hooks; without input.scroll no scroll handler runs", () => {
+    // This build has no plan, so the input.scroll feature is off
+    // (tests/pointer.test.ts covers a build with it on).
     const order: string[] = [];
     const events: ScrollEvent[] = [];
     const dispose = publicRender(
@@ -1340,8 +1342,8 @@ describe("public render() (index.ts)", () => {
     const frame = (globalThis as { frame?: (...args: unknown[]) => void }).frame!;
     frame(0, 0x8080, [], [], [], 0x8080, [], null, [], { surface: 0, x: 1200.5, y: 30, buttons: 0, scrollX: 0, scrollY: 24 });
     frame(0, 0x8080, [], [], [], 0x8080, [], null, []);
-    expect(order).toEqual(["scroll", "frame:1200.5", "frame:none"]);
-    expect(events).toEqual([{ surface: "primary", x: 1200.5, y: 30, dx: 0, dy: 24 }]);
+    expect(order).toEqual(["frame:1200.5", "frame:none"]);
+    expect(events).toEqual([]);
     dispose();
     expect(pointer()).toBeNull();
   });

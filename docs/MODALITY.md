@@ -26,10 +26,11 @@ registry stays an inventory of hosts and the modality stays a view over it.
 | `form` | `form` | the target form |
 
 With `pointer: "pointer"` the app reads the pointer's position with no
-button down through `pointer()` and the device's wheel and trackpad scrolling
-through `onScroll`, both from `@pocketjs/framework/input`; a pressed primary
-button also arrives as a touch contact. With `cursor` or `none` the position
-is the framework's virtual cursor (`cursorX()`, `cursorY()`) or absent.
+button down through `pointer()` from `@pocketjs/framework/input`; a pressed
+primary button also arrives as a touch contact. Wheel and trackpad scrolling
+reaches `onScroll` where the plan turns `input.scroll` on; the modality has no
+field for it. With `cursor` or `none` the position is the framework's virtual
+cursor (`cursorX()`, `cursorY()`) or absent.
 
 A screen's `logical` size is the panel at the target's raster density
 (`physicalViewport / rasterDensity`); a dynamic form reports its default

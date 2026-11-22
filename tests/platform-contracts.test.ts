@@ -23,7 +23,7 @@ import { defineHostConfig } from "../framework/src/host-config.ts";
 import { validatePocketProfile } from "../framework/src/profile.ts";
 import { POCKET_PROFILES } from "../hosts/index.ts";
 import { BUILTIN_PROFILE_IDS } from "../hosts/ids.ts";
-import { cadenceFor } from "../contracts/spec/admission.ts";
+import { admissionHost, admitPlan, cadenceFor } from "../contracts/spec/admission.ts";
 import { loadHostConfig, profileRegistry } from "../tools/profile-resolver.ts";
 import { dirname, resolve } from "node:path";
 import { PORTABLE_APP, ROOT, portableApp, repositoryApp, repositoryAppConfigs, resolveRepositoryApp } from "./app-fixtures.ts";
@@ -751,5 +751,58 @@ describe("auxiliary surfaces", () => {
     // A host without an auxiliary display: the features are off and no surface resolves.
     const single = resolveAppPlan({ ...dual({ auxiliary: { fixed: { logical: [320, 240], presentation: "native" } } }), viewport: PORTABLE_APP.viewport }, { target: "psp" });
     expect(single.ok && [single.plan.surfaces, single.plan.features["display.auxiliary"]]).toEqual([undefined, false]);
+  });
+});
+
+describe("the input.scroll capability", () => {
+  // The stock macos-widget host contract lists input.pointer and not
+  // input.scroll; a product host contract whose program fills the pointer's
+  // scroll adds the id.
+  const widget = POCKET_PROFILES["macos-widget"];
+  const scrolling = { ...widget, id: "widget-scroll", capabilities: [...widget.capabilities, "input.scroll"] };
+  const scroller = {
+    ...portableApp(),
+    viewport: { dynamic: { default: [800, 600] } },
+    features: ["text.glyphs.baked", "input.pointer", "input.scroll"],
+  };
+
+  test("is registered, and a host contract that lists it with input.pointer validates", () => {
+    expect(POCKET_CAPABILITIES).toContain("input.scroll");
+    expect(validatePocketProfile(scrolling).ok).toBe(true);
+    expect(validatePlatformContractRegistry(profileRegistry(scrolling))).toEqual([]);
+  });
+
+  test("is on in the plan for a host that lists it and off for one that does not", () => {
+    const on = resolveAppPlan(scroller, { target: scrolling.id }, profileRegistry(scrolling));
+    const off = resolveAppPlan(scroller, { target: "macos-widget" });
+    if (!on.ok || !off.ok) throw new Error(JSON.stringify([codes(on), codes(off)]));
+    expect(on.plan.features).toEqual({ "input.pointer": true, "input.scroll": true, "text.glyphs.baked": true });
+    expect(off.plan.features).toEqual({ "input.pointer": true, "input.scroll": false, "text.glyphs.baked": true });
+  });
+
+  test("a plan with input.scroll on is admitted only by a host that lists it", () => {
+    const on = resolveAppPlan(scroller, { target: scrolling.id }, profileRegistry(scrolling));
+    const off = resolveAppPlan(scroller, { target: "macos-widget" });
+    if (!on.ok || !off.ok) throw new Error("the application must resolve on both hosts");
+    const withScroll = admissionHost(scrolling, "sha256:scroll");
+    const withoutScroll = admissionHost(widget, "sha256:widget");
+    expect(admitPlan(withScroll, POCKET_BINDING_GENERATION, on.plan).ok).toBe(true);
+    expect(admitPlan(withoutScroll, POCKET_BINDING_GENERATION, on.plan))
+      .toEqual({ ok: false, items: ["capability"], capability: "input.scroll" });
+    // Built for a host without the id, the plan records it off: both admit it.
+    expect(admitPlan(withoutScroll, POCKET_BINDING_GENERATION, off.plan).ok).toBe(true);
+    expect(admitPlan(withScroll, POCKET_BINDING_GENERATION, off.plan).ok).toBe(true);
+  });
+
+  test("requires input.pointer in the application's features and in the host contract", () => {
+    const alone = { ...scroller, features: ["text.glyphs.baked", "input.scroll"] };
+    expect(paths(resolveAppPlan(alone, { target: scrolling.id }, profileRegistry(scrolling))))
+      .toEqual([["capability.dependency", "/app/features/1"]]);
+    const pointerless = { ...scrolling, capabilities: scrolling.capabilities.filter(id => id !== "input.pointer") };
+    const profile = validatePocketProfile(pointerless);
+    expect(profile.ok ? [] : profile.diagnostics.map(item => [item.code, item.path]))
+      .toEqual([["profile.scrollWithoutPointer", "/capabilities"]]);
+    expect(validatePlatformContractRegistry(profileRegistry(pointerless)).map(item => [item.code, item.path]))
+      .toEqual([["registry.scrollWithoutPointer", "/targets/widget-scroll/capabilities"]]);
   });
 });

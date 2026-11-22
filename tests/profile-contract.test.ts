@@ -109,6 +109,8 @@ describe("host contracts", () => {
     expect(messages({ ...profile, form: "window" })).toContain("dynamic viewport");
     expect(messages({ ...profile, capabilities: ["display.auxiliary"] })).toContain("geometry");
     expect(messages({ ...profile, capabilities: ["input.touch.auxiliary"] })).toContain("auxiliary display");
+    expect(messages({ ...profile, capabilities: ["input.scroll"] })).toContain("input.scroll requires input.pointer");
+    expect(messages({ ...profile, capabilities: ["input.pointer", "input.scroll"] })).toBe("");
     expect(messages({ ...profile, capabilities: ["display.auxiliary"], display: { ...profile.display, auxiliary: { logicalViewports: [[320, 240]], presentations: ["native"], rasterDensity: 1 } } })).toContain("panel");
     expect(messages({ ...profile, worker: { nodes: { http: 1 } } })).toContain("runtime.worker");
     expect(messages({ ...profile, capabilities: ["runtime.worker"], worker: { nodes: { http: 1 } } })).toContain("net.http");

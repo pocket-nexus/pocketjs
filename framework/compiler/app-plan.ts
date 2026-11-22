@@ -36,6 +36,8 @@ export const DEFAULT_TICK_HZ = 60;
 export const DEFAULT_APP_VERSION = "0.1.0";
 const AUXILIARY_DISPLAY = "display.auxiliary";
 const AUXILIARY_TOUCH = "input.touch.auxiliary";
+const POINTER = "input.pointer";
+const SCROLL = "input.scroll";
 
 export interface ResolveAppRequest {
   readonly target: string;
@@ -424,6 +426,13 @@ export function validatePlatformContractRegistry(
         message: "input.touch.auxiliary requires display.auxiliary",
       });
     }
+    if (targetCapabilities.has(SCROLL) && !targetCapabilities.has(POINTER)) {
+      diagnostics.push({
+        code: "registry.scrollWithoutPointer",
+        path: `/targets/${targetId}/capabilities`,
+        message: "input.scroll requires input.pointer",
+      });
+    }
     if (!TARGET_FORMS.includes(target.form)) {
       diagnostics.push({
         code: "registry.invalidForm",
@@ -571,6 +580,13 @@ export function resolveAppPlan(
       code: "capability.dependency",
       path: `/app/features/${app.features!.indexOf(AUXILIARY_TOUCH)}`,
       message: "input.touch.auxiliary requires the display.auxiliary feature",
+    });
+  }
+  if (features.has(SCROLL) && !features.has(POINTER)) {
+    diagnostics.push({
+      code: "capability.dependency",
+      path: `/app/features/${app.features!.indexOf(SCROLL)}`,
+      message: "input.scroll requires the input.pointer feature",
     });
   }
   if (app.surfaces && !app.surfaces.auxiliary.fixed === !app.surfaces.auxiliary.adaptive) {

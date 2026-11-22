@@ -1,6 +1,7 @@
-// Desktop pointer facts (capability input.pointer): the frame's pointer
-// position, with or without a button down, and its wheel and trackpad
-// scrolling, as the host's pointer driver reported them.
+// Desktop pointer facts: the frame's pointer position, with or without a
+// button down (capability input.pointer), and its wheel and trackpad
+// scrolling (capability input.scroll), as the host's pointer driver
+// reported them.
 //
 // The guest receives them as the tenth frame argument and this module
 // latches them for the frame. pointer() reads the position, so an app can
@@ -12,10 +13,17 @@
 // the handlers registered before it, so a nested scroll view registered
 // after its parent takes the delta first.
 //
+// Scrolling follows the build's input.scroll feature (hasFeature): true
+// when the app lists input.scroll in app.features and the host contract
+// provides it. Without it onScroll keeps no handler and the frame's scroll
+// is not latched; the frame argument still carries it.
+//
 // Coordinates are logical px of the pointer's surface, unclamped: a pointer
 // held past the window edge reports positions outside the viewport. Scroll
 // deltas are logical px; positive dy moves the view toward the content's
 // end, as WheelEvent.deltaY.
+
+import { hasFeature } from "./platform.ts";
 
 /** The frame's pointer. */
 export interface PointerState {
@@ -51,6 +59,10 @@ export interface PointerRecord {
 
 export type ScrollHandler = (event: ScrollEvent) => boolean | void;
 
+/** The build's input.scroll feature: whether onScroll delivers. */
+const scrolls: boolean = hasFeature("input.scroll");
+const ignore = (): void => {};
+
 const handlers: ScrollHandler[] = [];
 let current: PointerState | null = null;
 let pending: ScrollEvent | null = null;
@@ -67,6 +79,7 @@ export function __setPointer(record: PointerRecord | null | undefined): void {
   }
   const surface = record.surface === 1 ? "auxiliary" as const : "primary" as const;
   current = Object.freeze({ surface, x: record.x, y: record.y, buttons: (record.buttons ?? 0) >>> 0 });
+  if (!scrolls) return;
   const dx = finite(record.scrollX) ? record.scrollX : 0;
   const dy = finite(record.scrollY) ? record.scrollY : 0;
   if (dx !== 0 || dy !== 0) pending = Object.freeze({ surface, x: record.x, y: record.y, dx, dy });
@@ -95,8 +108,11 @@ export function pointer(): PointerState | null {
 }
 
 /** Receive each frame's scrolling until the returned function runs. A
- *  handler that returns true consumes the delta. */
+ *  handler that returns true consumes the delta. A build without the
+ *  input.scroll feature keeps no handler, and the returned function does
+ *  nothing. */
 export function onScroll(handler: ScrollHandler): () => void {
+  if (!scrolls) return ignore;
   handlers.push(handler);
   return () => {
     const at = handlers.lastIndexOf(handler);
