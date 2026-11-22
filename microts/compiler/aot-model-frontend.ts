@@ -257,8 +257,32 @@ export function analyzeModel(entry: string, options: AnalyzeModelOptions = {}): 
     if (value.type.kind !== "array" || value.type.capacity !== undefined || !primitive(value.type.element) || scalarBase(value.type.element).kind === "string") return false;
     return value.kind === "array" && value.items.every(item => item.kind === "literal" || item.kind === "unary" && item.operand.kind === "literal") || value.kind === "builtin" && value.name === "embedBytes";
   }
+  /**
+   * A copy of a lowered constant for one inlined use. The temporaries its
+   * initializer bound, such as the operands of `f32(0.5) * f32(2)`, receive new
+   * binder ids, so a function that reads the constant twice declares each once.
+   */
+  function instantiate(value: ModelExpr): ModelExpr {
+    const renamed = new Map<number, number>();
+    const binders = (node: unknown): void => {
+      if (Array.isArray(node)) { node.forEach(binders); return; }
+      if (!node || typeof node !== "object") return;
+      const record = node as { kind?: string; binder?: ModelBinder; pre?: ModelBinder; params?: ModelBinder[] };
+      for (const binder of [record.binder, record.pre, ...(record.kind === "lambda" ? record.params! : [])]) if (binder) renamed.set(binder.id, nextId++);
+      for (const [key, child] of Object.entries(record)) if (key !== "type" && key !== "loc" && key !== "ledger") binders(child);
+    };
+    binders(value);
+    if (!renamed.size) return value;
+    // Binder ids are unique across the program, so every renamed id names one of these binders.
+    const copy = (node: unknown): unknown => {
+      if (Array.isArray(node)) return node.map(copy);
+      if (!node || typeof node !== "object") return node;
+      return Object.fromEntries(Object.entries(node).map(([key, child]) => [key, key === "type" || key === "loc" ? child : (key === "id" || key === "owner" || key === "viewOf") && typeof child === "number" ? renamed.get(child) ?? child : copy(child)]));
+    };
+    return copy(value) as ModelExpr;
+  }
   function read(b: Binding, node: ts.Node): ModelExpr {
-    if (b.kind === "constant") { const value = loadConstant(b); return staticConstant(value) ? make(node, { kind: "constant", id: b.id, value }, value.type) : { ...value, loc: loc(node) }; }
+    if (b.kind === "constant") { const value = loadConstant(b); return staticConstant(value) ? make(node, { kind: "constant", id: b.id, value }, value.type) : { ...instantiate(value), loc: loc(node) }; }
     if (b.kind === "function" || b.kind === "setter") error(node, "function values may not escape; call the function or use an admitted inline callback");
     if (b.kind === "ref") return make(node, { kind: "literal", value: b.name }, STRING);
     const value=make(node, { kind: b.kind, id: b.id }, b.type);
