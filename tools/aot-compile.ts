@@ -6,8 +6,7 @@ import { analyzeAot, buildAot, type AotBuildResult } from "../microts/compiler/a
 import { getSolidAotDependencyVersions } from "../microts/compiler/aot-solid-frontend.ts";
 import { getAotDependencyVersions } from "../microts/compiler/aot-frontend.ts";
 import { bakeAtlases } from "../framework/compiler/bake-font.ts";
-import { bakeSvg } from "../framework/compiler/bake-svg.ts";
-import { decodePng } from "../framework/compiler/pak.ts";
+import { encodeStaticImage, loadRasterImage, readImageManifest } from "../framework/compiler/raster-assets.ts";
 import { readFontConfig } from "../framework/compiler/font-config.ts";
 import { BuildInputs, depfile } from "../framework/compiler/build-inputs.ts";
 import { resolveAppPlan } from "../framework/compiler/app-plan.ts";
@@ -146,17 +145,20 @@ export async function compileAot(options: AotCompileOptions): Promise<AotCompile
   };
   for (const font of fonts) write(`font-${font.slot}.bin`, font.bytes, [...fontSources].sort());
   const imageCode: string[] = [];
+  // The guest build's image baking (raster-assets.ts): the @Nx sibling, images.json format and sampling, and the IMG entry's size check.
+  const imageManifest = resolve(dirname(component), "images.json");
+  const imageMeta = readImageManifest(imageManifest, inputs);
   for (const [index, name] of [...images].sort().entries()) {
     if (!/\.(?:png|svg)$/i.test(name)) throw new Error(`AOT: unsupported image ${JSON.stringify(name)}`);
     const candidates = [resolve(dirname(component), name), resolve(projectRoot, "assets/images", name), resolve(ROOT, "assets/images", name), resolve(ROOT, "assets", name)];
     candidates.forEach(path => inputs.optional(path));
     const source = candidates.find(path => existsSync(path) && statSync(path).isFile());
     if (!source) throw new Error(`AOT: image ${JSON.stringify(name)} not found`);
-    const bytes = readFileSync(source);
-    const image = /\.svg$/i.test(source) ? bakeSvg(bytes.toString(), plan.viewport.rasterDensity) : decodePng(bytes);
-    const file = `images/image-${index}.rgba`;
-    write(file, image.rgba, [source, ...settingsFiles, ...(options.dependencyFiles ?? []).map(path => resolve(path))]);
-    imageCode.push(`{ let id = ui.core_mut().upload_texture(include_bytes!(${JSON.stringify(file)}), ${image.width}, ${image.height}, microts::pocketjs_core::spec::psm::PSM_8888); assert!(id >= 0); ui.register_image(${JSON.stringify(name)}, id); }`);
+    const loaded = loadRasterImage(source, plan.viewport.rasterDensity, inputs);
+    const file = `images/image-${index}.img`;
+    write(file, encodeStaticImage(loaded.image, imageMeta[name]), [...new Set([source, loaded.source]), ...(existsSync(imageManifest) ? [imageManifest] : []),
+      ...settingsFiles, ...(options.dependencyFiles ?? []).map(path => resolve(path))]);
+    imageCode.push(`{ let id = ui.core_mut().upload_img_entry(include_bytes!(${JSON.stringify(file)})); assert!(id >= 0); ui.register_image(${JSON.stringify(name)}, id); }`);
   }
   write("include.rs", `#[path = "mod.rs"]\nmod generated;\n/// The compiled package rate, core ticks per virtual second (plan.profile.tickHz).\n#[allow(dead_code)]\npub const TICK_HZ: u32 = ${tickHz};\n#[allow(dead_code)]\nfn load_fonts(ui: &mut microts::Ui) {\n${fonts.map(font => `assert!(ui.core_mut().load_font_atlas(include_bytes!("font-${font.slot}.bin")));`).join("\n")}\n}\n#[allow(dead_code)]\nfn load_images(ui: &mut microts::Ui) {\n${imageCode.join("\n")}\n}\n`);
   write("layers.json", JSON.stringify({ viewport: plan.viewport.logical, tickRate: tickHz, settleFrames: 40, layers: result.layout.regions.flatMap(region => region.layers) }, null, 2) + "\n");
