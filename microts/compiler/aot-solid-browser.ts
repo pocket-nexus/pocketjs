@@ -72,14 +72,19 @@ export function checkSolidAotGraph(entry: string, options: { sources?: ReadonlyM
 }
 
 /** Basename imports alone never opt ordinary Solid applications into AOT: the
- *  application a file belongs to (aot-model-config.ts) selects it. */
+ *  application a file belongs to (aot-model-config.ts) selects it. The bundler
+ *  names modules by their real paths, so the graph is analyzed from the real
+ *  path of the entry: through a symbolic link, its components keep the
+ *  bundler's spelling. */
 export function getSolidAotProgram(filename: string, source?: string, buildEntry?: string): AotProgram | undefined {
   filename = resolve(filename);
   const app = modelConfiguration(filename);
   if (!app.directory || app.framework !== "solid" || app.aot !== true) return;
   if (!app.entry) throw new Error(`Solid AOT: the application at ${app.directory} registers no entry`);
-  const entry = buildEntry && modelConfiguration(buildEntry).aot ? resolve(buildEntry) : app.entry;
-  if (!existsSync(entry)) throw new Error(`Solid AOT: cannot resolve the application entry ${entry}`);
+  const selected = buildEntry && modelConfiguration(buildEntry).aot ? resolve(buildEntry) : app.entry;
+  if (!existsSync(selected)) throw new Error(`Solid AOT: cannot resolve the application entry ${selected}`);
+  const entry = realpathSync(selected);
+  if (existsSync(filename)) filename = realpathSync(filename);
   const override = source !== undefined && source !== readFileSync(filename, "utf8") ? new Map([[filename, source]]) : undefined;
   const programs = checkSolidAotGraph(entry, { sources: override });
   return programs.find(program => program.components.some(component => component.file === filename));

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdirSync, symlinkSync, writeFileSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { analyzeSolidAot } from "../microts/compiler/aot-solid-frontend.ts";
 import { checkSolidAotGraph, generateSolidAotMock, getSolidAotProgram, resolveSolidAotMock, resolveSolidAotModel } from "../microts/compiler/aot-solid-browser.ts";
@@ -46,6 +46,23 @@ test("declaration previews create signals and resolve the whole graph through th
 test("model modules are resolved before homonymous TSX views", () => {
   const root = fixture({ "main.tsx": main, "App.tsx": imports + 'import { count } from "./App"; export default function App() { return <Text>{count()}</Text>; }', "App.ts": 'import { createSignal } from "solid-js"; export const [count] = createSignal("value");' });
   expect(resolveSolidAotModel(resolve(root, "App.tsx"), "./App")).toBe(resolve(root, "App.ts"));
+});
+test("a compiled application registered through a symbolic link bundles as from its real path", async () => {
+  const base = resolve(".pocket-build/validation/solid-aot/browser", `${Date.now()}-${sequence++}`), real = resolve(base, "real"), link = resolve(base, "link");
+  mkdirSync(real, { recursive: true });
+  writeFileSync(resolve(real, "main.tsx"), main);
+  writeFileSync(resolve(real, "App.tsx"), imports + 'import { count, setCount } from "./App"; export default function App() { return <View focusable onPress={() => setCount(count() + 1)}><Text>{count()}</Text></View>; }');
+  writeFileSync(resolve(real, "App.ts"), 'import { createSignal } from "solid-js"; import type { i32 } from "@pocketjs/framework/solid/std"; export const [count, setCount] = createSignal<i32>(0);');
+  symlinkSync(real, link, "dir");
+  registerApplication({ directory: link, framework: "solid", aot: true, model: "compiled", entry: "main.tsx" });
+  const bundle = async (root: string) => {
+    const result = await Bun.build({ entrypoints: [resolve(root, "main.tsx")], target: "browser", plugins: [jsxPlugin("solid", { entry: resolve(root, "main.tsx") })] });
+    expect(result.success, result.logs.map(String).join("\n")).toBe(true);
+    return result.outputs[0]!.text();
+  };
+  const linked = await bundle(link);
+  expect(linked).toContain('setCount(__modelNumber(count() + 1, "i32"))');
+  expect(linked).toBe(await bundle(real));
 });
 test("Color text, equality and derived colors normalize against their source locations", () => {
   const root = fixture({ "main.tsx": main, "App.tsx": imports + 'import { color } from "./App"; export default function App() { const derived = () => color(); return <Text>{derived()}:{color() === "#FFF" ? "yes" : "no"}:{`${color()}`}</Text>; }', "App.d.ts": 'import type { Accessor } from "solid-js"; import type { Color } from "@pocketjs/framework/solid/std"; export declare const color: Accessor<Color>;' });

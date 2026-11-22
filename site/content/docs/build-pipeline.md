@@ -28,11 +28,12 @@ task segments.
 **The compiler reads no file to find application settings.** Before a
 compile, the build driver registers each application's `aot`, `model`,
 `recursionLimit`, `framework` and entry with `registerApplication`
-(`microts/compiler/aot-model-config.ts`), keyed by the application directory;
-model lowering and the AOT frontends look up the nearest registered directory
-above a source file. `tools/build.ts --plan --config=<file>` registers the
-config's `app` section and **rejects a plan whose model settings differ from
-it**; without `--config`, it registers the plan's settings for the entry's
+(`microts/compiler/aot-model-config.ts`), keyed by the real path of the
+application directory; model lowering and the AOT frontends look up the
+nearest registered directory above a source file.
+`tools/build.ts --plan --config=<file>` registers the config's `app` section
+and **rejects a plan whose model settings differ from it**; without
+`--config`, it registers the plan's settings for the entry's
 directory. Pass 1 registers the host config nearest each source file it
 walks, so **sources one application imports from another compile with the
 owning application's settings**: `apps/iphone16-demo` mounts

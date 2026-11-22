@@ -211,6 +211,7 @@ Solid style meets these first:
 | `Component state and lifecycle belong to the basename module and the Rust model` | The view imports a Solid primitive other than `Show`, `Switch`, `Match`, `useContext`, `mergeProps` and `createMemo`. Move `createSignal` and effects to `Name.ts`; take `onMount` and `onCleanup` from `@pocketjs/framework/solid/lifecycle` |
 | `<Name> has no native runtime` | The components module supplies `View`, `Text`, `Image`, `ActionHandler`, `AxisHandler`, `MotionHandler` and `For` to AOT views. `Screen`, `FocusScope`, `Portal` and the other guest components are rejected |
 | `Read props as props.x; destructuring is outside the view subset` | `const { label } = props` in the component body |
+| `app.tsx does not import its model app.ts` | The application sets `model: "compiled"`, `app.ts` exists, and no view imports `./app`, as a type or as a value. Import from `./app` in the view |
 | `Child component imports require the .tsx extension` | `import Row from "./Row"`. The extensionless path names the model module |
 | `Text and interpolation must appear inside Text` | A string or `{value()}` is a child of a `View` |
 | `Boolean text is outside the view subset; use a string ternary` | `{flag()}` inside `Text`. Write `{flag() ? "ON" : "OFF"}` |
