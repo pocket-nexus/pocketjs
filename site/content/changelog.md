@@ -524,9 +524,7 @@ neither advertises a production capability from a build alone.
 - **The site is one design system across a nine-chapter homepage.** Shared
   tokens, chrome and base stylesheets replace the per-page CSS, the landing
   carries compatibility receipts, and an icon family covers every surface from
-  the favicon to the Safari bookmark and the iOS home screen. A new post
-  derives the [agent-native runtime for embedded
-  systems](/blog/agent-native-runtime-embedded-systems/).
+  the favicon to the Safari bookmark and the iOS home screen.
 
 ## 0.10.1 — August 16, 2026
 

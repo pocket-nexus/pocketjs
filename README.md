@@ -309,7 +309,6 @@ links to the project, and most to the story of how it was built.
 | [**PSPMAN**](https://www.obsoletesony.com/pspman) | PSP | A Walkman-inspired music player by ObsoleteSony: local FLAC and MP3, album art and cassette mode |
 | [**Pocket Character**](https://github.com/pocket-nexus/pocket-character) | Mac | A rigged VRM companion in a transparent always-on-top window, rendering skinned 3D at 60 fps in one process and 118 MB, against 8 processes and 2184 MB for an Electron build of the same idea. [Story](https://pocketjs.pocket.nexus/blog/pocket-character/) |
 | [**Pocket DevTools**](https://pocketjs.pocket.nexus/blog/time-travel-devtools/) | every backend | Time-travel debugging over a USB cable at 2 bytes per frame. The inspector highlight is emitted by the core into the draw list, so it renders on the device |
-| [**Pocket Pi**](https://github.com/pocket-nexus/pocket-pi) | QuickJS guest | A coding agent running inside the QuickJS guest environment, with no Node underneath |
 
 <p align="center">
   <a href="https://github.com/pocket-nexus/pocket-voxel"><img src="./site/assets/blog/voxel-psp-pallet-town.png" width="720" alt="Pocket Voxel on a real PSP: Pallet Town as a voxel diorama with gabled roofs, carved bushes, flowers, an NPC and the player on the path, in per-tile color." /></a>

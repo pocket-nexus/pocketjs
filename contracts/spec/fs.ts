@@ -31,8 +31,8 @@
 // principle as db's "open(name) is the only path to a database" and its
 // ATTACH refusal). Hosts MUST NOT follow a symlink out of the root: the
 // guest cannot create symlinks through this API, but a host-side actor may
-// have (on Pocket Pi the device agent owns the whole workspace and every
-// app root under it — that asymmetry is host layout policy, above this
+// have (a host may give a device agent the whole workspace with every app
+// root under it — that asymmetry is host layout policy, above this
 // boundary, see docs/FS.md), so the reference core lstat-checks every
 // segment.
 //
