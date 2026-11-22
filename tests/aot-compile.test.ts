@@ -121,7 +121,7 @@ import {label} from './App';
       expect(readFileSync(join(out, "include.rs"), "utf8")).toContain(`{ let id = ui.core_mut().upload_img_entry(include_bytes!("images/image-0.img")); assert!(id >= 0); ui.register_image("logo.png", id); }`);
       const entry = readFileSync(join(out, "images/image-0.img"));
       expect([entry.readUInt16LE(0), entry.readUInt16LE(2), entry[4], entry[5], entry.length]).toEqual([64, 64, PSM.PSM_4444, IMG_FLAG_LINEAR, 8 + 64 * 64 * 2]);
-      expect(new Uint8Array(entry)).toEqual(encodeImageEntry(decodePng(readFileSync(join(project, "logo@2x.png"))), PSM.PSM_4444, IMG_FLAG_LINEAR));
+      expect(entry.equals(encodeImageEntry(decodePng(readFileSync(join(project, "logo@2x.png"))), PSM.PSM_4444, IMG_FLAG_LINEAR))).toBe(true);
       expect(result.dependencies).toContain(join(project, "logo@2x.png"));
       expect(result.dependencies).toContain(join(project, "images.json"));
       const dependencies = JSON.parse(readFileSync(result.dependencyManifest, "utf8"));
