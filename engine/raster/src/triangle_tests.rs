@@ -1,6 +1,6 @@
 extern crate std;
 
-use super::{orient, TriangleRow};
+use super::{edge_bias, orient, TriangleRow};
 use std::vec::Vec;
 
 /// The previous per-pixel traversal is an independent oracle: compare both
@@ -15,6 +15,7 @@ fn compare(mut points: [(i64, i64); 3], y: i32, min_x: i32, max_x: i32) {
         points.swap(1, 2);
     }
     let [a, b, c] = points;
+    let bias = [edge_bias(b, c), edge_bias(c, a), edge_bias(a, b)];
     let expected: Vec<_> = (min_x..max_x)
         .filter_map(|x| {
             let sx = 2 * x as i64 + 1;
@@ -24,7 +25,11 @@ fn compare(mut points: [(i64, i64); 3], y: i32, min_x: i32, max_x: i32) {
                 orient(c.0, c.1, a.0, a.1, sx, sy),
                 orient(a.0, a.1, b.0, b.1, sx, sy),
             ];
-            weights.iter().all(|&w| w >= 0).then_some((x, weights))
+            weights
+                .iter()
+                .zip(bias)
+                .all(|(&w, bias)| w >= bias)
+                .then_some((x, weights))
         })
         .collect();
     let actual: Vec<_> = TriangleRow::new(a, b, c, y, min_x, max_x).collect();
@@ -69,6 +74,58 @@ fn clipped_random_triangle_rows_preserve_coverage_and_weights() {
             compare(points, y, -16, 32);
         }
     }
+}
+
+#[test]
+fn triangles_sharing_an_edge_cover_each_pixel_centre_once() {
+    // Quads fanned into two triangles, with diagonals that run through
+    // pixel centres: every centre inside the quad belongs to exactly one
+    // triangle, including the centres on the shared diagonal and on the
+    // shared edges of neighbouring quads.
+    let quads: [[(i64, i64); 4]; 4] = [
+        [(0, 0), (8, 0), (8, 8), (0, 8)],
+        [(8, 0), (0, 0), (0, 8), (8, 8)],
+        [(4, 0), (8, 4), (4, 8), (0, 4)],
+        [(1, 0), (10, 3), (7, 12), (-2, 9)],
+    ];
+    for quad in quads {
+        let quad = quad.map(|(x, y)| (2 * x, 2 * y));
+        let mut hits = std::collections::BTreeMap::<(i32, i32), u32>::new();
+        for tri in [[quad[0], quad[1], quad[2]], [quad[0], quad[2], quad[3]]] {
+            let mut tri = tri;
+            if orient(tri[0].0, tri[0].1, tri[1].0, tri[1].1, tri[2].0, tri[2].1) < 0 {
+                tri.swap(1, 2);
+            }
+            for y in -4..16 {
+                for (x, _) in TriangleRow::new(tri[0], tri[1], tri[2], y, -4, 16) {
+                    *hits.entry((x, y)).or_default() += 1;
+                }
+            }
+        }
+        assert!(!hits.is_empty());
+        assert!(
+            hits.values().all(|&n| n == 1),
+            "quad {quad:?} covers {:?} twice",
+            hits.iter().filter(|(_, &n)| n > 1).collect::<Vec<_>>()
+        );
+    }
+    // Two 4x4 squares sharing the edge x = 4 (doubled coordinate 8) tile
+    // the row without a gap or an overlap.
+    let mut row = Vec::new();
+    for tri in [
+        [(0, 0), (8, 0), (8, 8)],
+        [(0, 0), (8, 8), (0, 8)],
+        [(8, 0), (16, 0), (16, 8)],
+        [(8, 0), (16, 8), (8, 8)],
+    ] {
+        let mut tri = tri;
+        if orient(tri[0].0, tri[0].1, tri[1].0, tri[1].1, tri[2].0, tri[2].1) < 0 {
+            tri.swap(1, 2);
+        }
+        row.extend(TriangleRow::new(tri[0], tri[1], tri[2], 1, -4, 16).map(|(x, _)| x));
+    }
+    row.sort();
+    assert_eq!(row, (0..8).collect::<Vec<_>>());
 }
 
 #[test]

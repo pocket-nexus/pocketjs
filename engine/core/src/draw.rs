@@ -12,9 +12,12 @@
 //! Axis-aligned content uses RECT/GRAD_RECT/TEX_QUAD; ROTATED solid/gradient
 //! boxes are corner-transformed, Sutherland-Hodgman-clipped and emitted as
 //! TRI ops. v1 degradations (documented):
-//!   - rotated, skewed or mirrored IMAGE quads become clipped TEX_TRI fans;
-//!   - rotated glyph cells stay upright and unscaled; axis-aligned scales
-//!     use clipped, tinted atlas TEX_QUADs. Unscaled cells whose top-left leaves the
+//!   - rotated, skewed or mirrored IMAGE quads and glyph cells become clipped
+//!     TEX_TRI fans; glyph cells sample the shared coverage pages tinted with
+//!     the text color. Axis-aligned scales use clipped, tinted page TEX_QUADs.
+//!     Transformed glyph cells outside the clip rect are dropped; the rest
+//!     are clipped to the viewport and the overflow SCISSOR clips their
+//!     pixels. Identity-scale GLYPH_RUN cells whose top-left leaves the
 //!     screen range or whose cell leaves the clip rect are dropped;
 //!   - rounded corners and shadows are emitted for axis-aligned boxes as
 //!     deterministic alpha-covered RECT spans; rotated rounded boxes use a
@@ -102,8 +105,8 @@ impl Affine {
 // projected through the root's perspective distance about the root center,
 // and the projected quads are painter-sorted by camera-space depth before
 // being clipped and emitted as TRIs. Glyph runs project their anchor and draw
-// upright/unscaled (same contract as 2D rotation); images and box decoration
-// (radius/border/shadow) are not part of the 3D contract.
+// upright/unscaled; images and box decoration (radius/border/shadow) are not
+// part of the 3D contract.
 
 /// Row-major 3x4 affine 3D matrix (the w row is implicitly [0,0,0,1] — all
 /// composed ops are affine; perspective happens at projection time).
@@ -766,11 +769,23 @@ fn local_affine(l: &crate::tree::LayoutRect, r: &style::Resolved) -> Affine {
 /// AABB (intersected with the screen) of a local rect under `world` —
 /// conservative integer bounds: floor mins, ceil maxes.
 fn world_aabb_of(screen: (f32, f32), world: &Affine, w: f32, h: f32) -> Clip {
+    let c = affine_aabb(world, [0.0, 0.0, w, h]);
+    Clip {
+        x0: floorf(clampf(c.x0, 0.0, screen.0)),
+        y0: floorf(clampf(c.y0, 0.0, screen.1)),
+        x1: ceilf(clampf(c.x1, 0.0, screen.0)),
+        y1: ceilf(clampf(c.y1, 0.0, screen.1)),
+    }
+}
+
+/// Unclamped screen AABB of the local rect [x0, y0, x1, y1] under `world`.
+fn affine_aabb(world: &Affine, rect: [f32; 4]) -> Clip {
+    let [x0, y0, x1, y1] = rect;
     let pts = [
-        world.apply(0.0, 0.0),
-        world.apply(w, 0.0),
-        world.apply(w, h),
-        world.apply(0.0, h),
+        world.apply(x0, y0),
+        world.apply(x1, y0),
+        world.apply(x1, y1),
+        world.apply(x0, y1),
     ];
     let mut c = Clip {
         x0: pts[0].0,
@@ -784,12 +799,7 @@ fn world_aabb_of(screen: (f32, f32), world: &Affine, w: f32, h: f32) -> Clip {
         c.x1 = c.x1.max(x);
         c.y1 = c.y1.max(y);
     }
-    Clip {
-        x0: floorf(clampf(c.x0, 0.0, screen.0)),
-        y0: floorf(clampf(c.y0, 0.0, screen.1)),
-        x1: ceilf(clampf(c.x1, 0.0, screen.0)),
-        y1: ceilf(clampf(c.y1, 0.0, screen.1)),
-    }
+    c
 }
 
 /// A screen point mapped into a node's local space under an invertible
@@ -3327,8 +3337,8 @@ impl<'a> Walker<'a> {
         }
     }
 
-    /// Emit an image TEX_QUAD (axis-aligned only; rotated images are
-    /// conservatively culled — no textured-triangle op in the DrawList v1).
+    /// Emit an image TEX_QUAD for an axis-aligned world; any other 2D affine
+    /// (rotated, skewed, mirrored) emits clipped TEX_TRIs.
     #[allow(clippy::too_many_arguments)]
     fn emit_tex_quad(
         &self,
@@ -3350,27 +3360,17 @@ impl<'a> Walker<'a> {
         if !world.is_axis_aligned() {
             // Rotated image: transform corners with their UVs, clip, fan into
             // TEX_TRIs (affine screen-space sampling).
-            let corners = [
-                (0.0, 0.0, fu0, fv0),
-                (w, 0.0, fu1, fv0),
-                (w, h, fu1, fv1),
-                (0.0, h, fu0, fv1),
-            ];
-            let poly: [ClipVert; 4] = core::array::from_fn(|i| {
-                let (lx, ly, u, v) = corners[i];
-                let (sx, sy) = world.apply(lx, ly);
-                ClipVert {
-                    x: sx,
-                    y: sy,
-                    color: [255.0; 4],
-                    u,
-                    v,
-                }
-            });
             let modulate = scale_alpha(0xffff_ffff, op);
-            clip_fan(&poly, clip, |a, b, c| {
-                emit_tex_tri(dl, tex, modulate, a, b, c, clip, self.screen)
-            });
+            emit_affine_tex(
+                dl,
+                world,
+                [0.0, 0.0, w, h],
+                tex,
+                modulate,
+                clip,
+                [fu0, fv0, fu1, fv1],
+                self.screen,
+            );
             return;
         }
         let (sx0, sy0) = world.apply(0.0, 0.0);
@@ -3557,12 +3557,82 @@ impl<'a> Walker<'a> {
                     self.paint_cache.layouts = layouts;
                     return;
                 }
+            } else if !world.is_axis_aligned() {
+                // Screen AABB of the transformed run bounds, widened by a
+                // pixel for vertex rounding.
+                let b = affine_aabb(world, entry.bounds);
+                if b.x1 + 1.0 <= clip.x0
+                    || b.x0 - 1.0 >= clip.x1
+                    || b.y1 + 1.0 <= clip.y0
+                    || b.y0 - 1.0 >= clip.y1
+                {
+                    self.glyph_scratch = scratch;
+                    self.paint_cache.layouts = layouts;
+                    return;
+                }
             }
             &entry.glyphs
         } else {
             &scratch
         };
-        if world.is_axis_aligned() && (world.a != 1.0 || world.d != 1.0) {
+        if !world.is_axis_aligned() {
+            // Rotated, skewed or mirrored: each cell is a quad on its glyph
+            // page with the same UVs as the axis-aligned TEX_QUAD, its
+            // corners transformed, clipped and fanned into TEX_TRIs tinted
+            // with the run color. The quad stays on the cell: the shared
+            // bilinear sampler clamps a sample below the first texel centre
+            // of a page toward the second texel, so UVs reaching into the
+            // border of a cell on a page edge would sample ink outside the
+            // glyph. Cells outside the clip rect are dropped; the rest are
+            // clipped to the viewport only, for the reason given for scaled
+            // cells below (a cut at a moving inner clip re-rounds the
+            // triangle and resamples ink that stays visible).
+            let mut page: Option<GlyphSampler> = None;
+            let viewport = Clip::viewport(self.screen);
+            let glyph_clip = if self.in_3d { clip } else { &viewport };
+            for g in glyphs {
+                let rect = [g.x, g.y, g.x + cell_w, g.y + cell_h];
+                let b = affine_aabb(world, rect);
+                if b.x1 <= clip.x0
+                    || b.x0 >= clip.x1
+                    || b.y1 <= clip.y0
+                    || b.y0 >= clip.y1
+                    || !atlas.stream_visible(g.codepoint, g.gid)
+                {
+                    continue;
+                }
+                if !page.as_ref().is_some_and(|page| page.contains(g.gid)) {
+                    page = glyph_page(
+                        self.paint_cache,
+                        self.textures,
+                        self.tex_free,
+                        atlas,
+                        self.font_revisions[slot as usize],
+                        g.gid,
+                    );
+                }
+                let Some(page) = page.as_ref() else {
+                    continue;
+                };
+                if !crate::touch_texture(&self.textures[..], page.handle, self.frame) {
+                    continue;
+                }
+                emit_affine_tex(
+                    dl,
+                    world,
+                    rect,
+                    page.handle,
+                    color,
+                    glyph_clip,
+                    page.uv(g.gid),
+                    self.screen,
+                );
+            }
+            self.glyph_scratch = scratch;
+            self.paint_cache.layouts = layouts;
+            return;
+        }
+        if world.a != 1.0 || world.d != 1.0 {
             let mut page: Option<GlyphSampler> = None;
             // The 2D overflow stack already clips pixels with SCISSOR. Keep
             // full glyph endpoints inside the viewport: reconstructing UVs
@@ -3768,6 +3838,46 @@ fn lerp_vert(a: &ClipVert, b: &ClipVert, t: f32) -> ClipVert {
         u: a.u + (b.u - a.u) * t,
         v: a.v + (b.v - a.v) * t,
     }
+}
+
+/// Emit the local rect `rect` = [x0, y0, x1, y1] under a non-axis-aligned
+/// `world` as TEX_TRIs: corners carry `uv` = [u0, v0, u1, v1], the quad is
+/// Sutherland-Hodgman-clipped against `clip` with UVs interpolated through
+/// the cut, and the result is fanned (2 TEX_TRIs unclipped, at most 6
+/// clipped).
+#[allow(clippy::too_many_arguments)]
+fn emit_affine_tex(
+    dl: &mut DrawList,
+    world: &Affine,
+    rect: [f32; 4],
+    tex: u32,
+    modulate: u32,
+    clip: &Clip,
+    uv: [f32; 4],
+    screen: (f32, f32),
+) {
+    let [x0, y0, x1, y1] = rect;
+    let [u0, v0, u1, v1] = uv;
+    let corners = [
+        (x0, y0, u0, v0),
+        (x1, y0, u1, v0),
+        (x1, y1, u1, v1),
+        (x0, y1, u0, v1),
+    ];
+    let poly: [ClipVert; 4] = core::array::from_fn(|i| {
+        let (lx, ly, u, v) = corners[i];
+        let (sx, sy) = world.apply(lx, ly);
+        ClipVert {
+            x: sx,
+            y: sy,
+            color: [255.0; 4],
+            u,
+            v,
+        }
+    });
+    clip_fan(&poly, clip, |a, b, c| {
+        emit_tex_tri(dl, tex, modulate, a, b, c, clip, screen)
+    });
 }
 
 /// Emit one TEX_TRI op (degenerate triangles after rounding are dropped).
