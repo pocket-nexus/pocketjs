@@ -76,6 +76,8 @@ export function analyzeModel(entry: string, options: AnalyzeModelOptions = {}): 
   collect(entry); for (const factory of options.factories ?? []) collect(resolve(factory));
   const componentNames = options.componentNames ?? [options.name ?? "App", ...(options.factories ?? []).map(file => typeName(basename(file, ".ts")))];
   const env = options.environment ?? createTypeEnvironment(files, entry), checker = env.checker, mapper = options.mapper ?? new TypeMapper(checker, options.strict ?? false, componentNames, env.locationOf);
+  // A shared view program holds the views and the modules they import, under the views' spelling.
+  for (const file of reachable) if (!env.program.getSourceFile(file)) fail(location(file, source(file)), "no view imports this model module, directly or through another module");
   const result: ModelProgram = { version: 1, modules: [], types: mapper.declarations, diagnostics: mapper.diagnostics, recursionLimit: options.recursionLimit ?? 256 };
   const declaration = (t: AotType) => t.kind === "named" ? result.types.find(definition => definition.name === t.name) : undefined;
   const scalarBase = (t: AotType): AotType => { const definition=declaration(t);return definition?.kind==="newtype"?scalarBase(definition.base):t; };

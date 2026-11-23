@@ -7,7 +7,7 @@ import { analyzeModel } from "./aot-model-frontend.ts";
 import { generateModelJavaScript } from "./aot-model-js.ts";
 import { analyzeVueAot } from "./aot-frontend.ts";
 import { checkSolidAotGraph } from "./aot-solid-browser.ts";
-import { validateViewModelBindings } from "./aot-model-view.ts";
+import { modelFile, validateViewModelBindings } from "./aot-model-view.ts";
 
 import { modelConfiguration } from "./aot-model-config.ts";
 export { modelConfiguration } from "./aot-model-config.ts";
@@ -40,9 +40,7 @@ function vueEntries(entry: string, sources: ReadonlyMap<string, string>): string
 export function attachCompiledModel(program: AotProgram, entry: string, strict = false, sources?: ReadonlyMap<string, string>): AotProgram {
   const config = modelConfiguration(entry);
   if (config.mode !== "compiled") return program;
-  const rootPath = entry.replace(/\.(tsx|vue)$/, ".ts");
-  const root = existsSync(rootPath) ? realpathSync(rootPath) : rootPath;
-  const model = program.model ?? analyzeModel(root, { strict, sources, name: program.root, recursionLimit: config.recursionLimit,
+  const model = program.model ?? analyzeModel(modelFile(entry), { strict, sources, name: program.root, recursionLimit: config.recursionLimit,
     componentNames: program.components.map(component => component.name),
     factories: program.components.filter(c => c.factory).map(c => {
       const path = resolve(dirname(c.file), c.factory!.module);
@@ -56,7 +54,6 @@ export function attachCompiledModel(program: AotProgram, entry: string, strict =
   for (const component of program.components) {
     let factoryFile = component.factory && resolve(dirname(component.file), component.factory.module);
     if (factoryFile && !factoryFile.endsWith(".ts")) factoryFile += ".ts";
-    if (factoryFile && existsSync(factoryFile)) factoryFile = realpathSync(factoryFile);
     const region = model.modules.find(module => module.kind !== "pure" && (component.root ? module.kind === "root" : module.file === factoryFile));
     if (!region) continue;
     region.name = component.name;
