@@ -1,7 +1,7 @@
-/* site/assets/arcade.css — the Arcade look: candy pixels on the plum ground.
-   Loaded after every other stylesheet (appended to landing.css for the
-   homepage, linked after site.css and home.css elsewhere), so it restyles the
-   shared chrome, the landing sections, docs and blog in one place. Every rule
+/* site/assets/arcade.css — the retired Arcade look: candy pixels on the plum
+   ground. No page of this site loads it; skills/pocketjs-video-outro keeps it
+   as the reference for the video end card. When it was loaded, it came after
+   every other stylesheet and restyled the chrome, docs and blog. Every rule
    is scoped under :root, which puts it one class above the base rule it
    restyles.
    - Headlines: Press Start 2P, split per letter at build time (site/candy.ts)
