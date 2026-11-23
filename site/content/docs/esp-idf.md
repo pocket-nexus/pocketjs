@@ -432,6 +432,43 @@ firmware image; an AOT guest rejects a bundle's JavaScript payload.
 
 **The repository contains no ESP32 AOT program and no CI job for this path.**
 Device timing, pixels and input are the product's acceptance checks.
+[M5Stack firmware](#m5stack-firmware) holds AOT programs for ESP32-P4 and
+ESP32-S3 boards.
+
+## M5Stack firmware
+
+[pocket-nexus/m5stack-firmware](https://github.com/pocket-nexus/m5stack-firmware)
+is the reference firmware for M5Stack boards. **Each application is one set of
+Solid TSX views and TypeScript models that builds in JS mode (a bundle in the
+QuickJS guest) and in AOT mode (MicroTS-generated Rust, no JavaScript
+engine).** Kconfig selects the mode: `CONFIG_M5_POCKET_APP_MODE_JS` or
+`CONFIG_M5_POCKET_APP_MODE_AOT`.
+
+| Board | SoC | Display | Application | Modes |
+| --- | --- | --- | --- | --- |
+| Tab5 | ESP32-P4, 32 MB PSRAM | 720×1280 MIPI-DSI, touch | Factory demo recreation | JS, AOT |
+| StopWatch (C152) | ESP32-S3, 8 MB PSRAM | 466×466 round AMOLED, touch | Factory demo recreation | JS, AOT |
+| StickS3 (K150) | ESP32-S3, 8 MB PSRAM | 135×240 IPS | Seven sensor, key and audio demos | JS, AOT |
+| AtomS3, AtomS3R | ESP32-S3, no PSRAM used | 128×128 IPS | Factory demo recreation | AOT |
+
+**The AtomS3 builds AOT mode only: with 512 KB of SRAM and no PSRAM, it runs
+out of internal RAM while the QuickJS guest boots.**
+
+The repository's layers map onto this page:
+
+| Path | Responsibility |
+| --- | --- |
+| `platforms/esp-idf/m5_bsp_<board>` | Power, buses, panel, touch, keys, sensors and audio; returns ESP-IDF handles and does not depend on PocketJS |
+| `platforms/esp-idf/m5_pocket_app` | Display and input drivers over those handles, the frame task, and a device bridge that carries named values and string requests between `main` and the application's `device.ts` |
+| `programs/<board>/main` | Board bring-up, sensor publishing and request handling |
+| `programs/<board>/aot` | The AOT library crate described in [Native AOT applications](#native-aot-applications) |
+| `third_party/pocketjs` | PocketJS as a git submodule; the firmware builds the runtime archive from its sources |
+
+Each [release](https://github.com/pocket-nexus/m5stack-firmware/releases)
+ships one merged flash image per board and mode, written at offset `0x0` with
+esptool. The repository's README lists the toolchain versions, the build and
+flash commands for both modes, image sizes per mode and the known differences
+from the factory firmware.
 
 ## Validation
 
