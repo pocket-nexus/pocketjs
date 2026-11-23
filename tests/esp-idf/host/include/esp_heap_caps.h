@@ -4,6 +4,7 @@
 #define MALLOC_CAP_INTERNAL 2
 #define MALLOC_CAP_8BIT 4
 #define MALLOC_CAP_DMA 8
+#define MALLOC_CAP_DEFAULT 16
 void *heap_caps_malloc(size_t size, unsigned caps);
 void *heap_caps_aligned_alloc(size_t alignment, size_t size, unsigned caps);
 void heap_caps_free(void *pointer);

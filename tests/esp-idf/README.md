@@ -9,7 +9,7 @@ GPIO configuration, panel setup and package storage.
 | --- | --- | --- |
 | `pocket_runtime` | One native program archive, six allocator/log hooks and memory package source | P4, S3 |
 | `pocket_guest_quickjs` | QuickJS allocation, cancellation and generated guest bindings | P4, S3 |
-| `pocket_display_esp_lcd` | RGB565 SPI/I80 GRAM output with one or two DMA strip buffers | P4, S3 |
+| `pocket_display_esp_lcd` | RGB565 SPI/I80 GRAM output: DMA strip buffers, or frame buffers presented behind the panel's scan | P4, S3 |
 | `pocket_render_esp_ppa` | P4 FILL, A8 BLEND and SRM operations | P4 |
 | `pocket_runner` | Optional owner task using the shared tick schedule | P4, S3 |
 

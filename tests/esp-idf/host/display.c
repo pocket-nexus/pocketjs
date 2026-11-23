@@ -1,4 +1,6 @@
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "pocket/display_esp_lcd.h"
@@ -78,6 +80,70 @@ BaseType_t xSemaphoreTake(SemaphoreHandle_t s, TickType_t timeout) {
   return pdTRUE;
 }
 TickType_t xTaskGetTickCount(void) { return ticks; }
+/* Staged presentation runs a presenter task (display_staged.c). The strip
+ * path creates none of these objects. */
+BaseType_t xSemaphoreGive(SemaphoreHandle_t s) {
+  (void)s;
+  abort();
+}
+QueueHandle_t xQueueCreate(UBaseType_t length, UBaseType_t size) {
+  (void)length;
+  (void)size;
+  abort();
+}
+BaseType_t xQueueSend(QueueHandle_t q, const void *item, TickType_t timeout) {
+  (void)q;
+  (void)item;
+  (void)timeout;
+  abort();
+}
+BaseType_t xQueueReceive(QueueHandle_t q, void *item, TickType_t timeout) {
+  (void)q;
+  (void)item;
+  (void)timeout;
+  abort();
+}
+void vQueueDelete(QueueHandle_t q) {
+  (void)q;
+  abort();
+}
+BaseType_t xTaskCreatePinnedToCore(void (*entry)(void *), const char *name,
+                                   uint32_t stack, void *context,
+                                   UBaseType_t priority, TaskHandle_t *out,
+                                   BaseType_t core) {
+  (void)entry;
+  (void)name;
+  (void)stack;
+  (void)context;
+  (void)priority;
+  (void)out;
+  (void)core;
+  abort();
+}
+void vTaskDelete(TaskHandle_t task) {
+  (void)task;
+  abort();
+}
+UBaseType_t uxTaskPriorityGet(TaskHandle_t task) {
+  (void)task;
+  abort();
+}
+int64_t esp_timer_get_time(void) { abort(); }
+esp_err_t esp_timer_create(const esp_timer_create_args_t *args,
+                           esp_timer_handle_t *out) {
+  (void)args;
+  (void)out;
+  abort();
+}
+esp_err_t esp_timer_start_once(esp_timer_handle_t timer, uint64_t us) {
+  (void)timer;
+  (void)us;
+  abort();
+}
+esp_err_t esp_timer_delete(esp_timer_handle_t timer) {
+  (void)timer;
+  abort();
+}
 static pocket_rect region(uint32_t y) {
   return (pocket_rect){.struct_size = sizeof(pocket_rect),
                        .x = 0,

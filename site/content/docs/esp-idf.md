@@ -231,6 +231,13 @@ other buffer's transfer keeps streaming. A wait longer than 1000 ms returns
 `POCKET_STATUS_FAILED` and keeps that buffer reserved until its transfer
 lands.
 
+**Staged presentation** (`transfer_rows > 0`) renders the frame into a
+full-height buffer, which may be PSRAM (`buffer_caps`), and sends its flushed
+rows from a presenter task through two DMA transfer buffers. With
+`wait_refresh`, the panel's tearing-effect report, a row is sent after the
+panel's scan has passed it, so one refresh shows the rows of one frame. Flush
+and wait return at once; acquire blocks until a render buffer is free.
+
 The display reports panel identity and generation to retain damage history.
 Call `pocket_display_esp_lcd_invalidate` after a panel reset or external write,
 while no runtime call is active. It drains pending transfers and makes the
