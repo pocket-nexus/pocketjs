@@ -191,12 +191,25 @@ pocket compile --config apps/ipodnano-hero/pocket.host.config.ts --project-root 
 An AOT application's `app` section sets `aot` to `true`. **`--aot` generates sources and assets without
 running Cargo or producing JavaScript or a bundle.** The output
 includes Rust modules, `include.rs`, styles, font and image assets, layer
-metadata, and `dependencies.json` with a depfile. Relative includes let the
+metadata, and `dependencies.json` with a depfile. `include.rs` declares
+`mod generated`, `TICK_HZ` and two pairs of loaders that take
+`&mut microts::Ui`: `load_fonts` and `load_images` copy the font atlases and
+images into the heap, and `load_fonts_in_place` and `load_images_in_place`
+read them from the `include_bytes!` data
+([ESP-IDF](/docs/esp-idf/#memory-and-stack)). Relative includes let the
 program's build consume the directory after relocation. GBA and iPod nano
 program builds use this source-generation path before their native build.
 
-The compiler requires its prebuilt Wasm layout oracle; a missing oracle is an
-error. `--aot` is a `compile` option and cannot be combined with `--output`.
+**The compiler reads its Wasm layout oracle, `platforms/web/pocketjs.wasm`
+in the `@pocketjs/framework` directory, and does not build it.** The npm
+package ships the file. A source checkout, including one pinned as a Git
+submodule, produces it with `bun tools/wasm.ts` run in the checkout, which
+needs the `wasm32-unknown-unknown` Rust target
+(`rustup target add wasm32-unknown-unknown`). A missing oracle is an error:
+in a checkout, the directory that contains `programs/web/wasm/Cargo.toml`, the
+message names `bun tools/wasm.ts`; in an installed package, which ships the
+`.wasm` without that crate, it names reinstalling the package.
+`--aot` is a `compile` option and cannot be combined with `--output`.
 The application's `app.tickHz` and `app.theme` apply to the generated
 animation data. **The faces `app.fonts` names are baked into the `font-N.bin`
 atlases, and the layout oracle measures with those atlases**;

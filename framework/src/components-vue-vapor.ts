@@ -61,7 +61,7 @@ export interface ViewProps extends Omit<MicroTsViewProps, "style"> {
   children?: VNodeChild;
 }
 
-export interface TextProps extends MicroTsTextProps {
+export interface TextProps extends Omit<MicroTsTextProps, "style"> {
   class?: string;
   className?: string;
   style?: StyleObject;
@@ -280,7 +280,7 @@ function primitive<P extends object = Record<string, unknown>>(tag: "view" | "te
 
 type PrimitiveExtras = { children?: VNodeChild; nodeRef?: NodeRef; className?: string | (() => string) };
 export const View = primitive<MicroTsViewProps & PrimitiveExtras>("view");
-export const Text = primitive<MicroTsTextProps & PrimitiveExtras & { style?: StyleObject | (() => StyleObject) }>("text");
+export const Text = primitive<MicroTsTextProps & PrimitiveExtras>("text");
 export const Image = primitive<MicroTsImageProps & PrimitiveExtras & { style?: StyleObject | (() => StyleObject) }>("image");
 export const Sprite = primitive("image");
 

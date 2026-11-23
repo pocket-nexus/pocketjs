@@ -1,5 +1,5 @@
 import ts from "typescript";
-import { MICROTS_BUILTINS, parseMicroTsColor } from "../../contracts/spec/microts.ts";
+import { MICROTS_BUILTINS, MICROTS_STYLE_PROPS, microTsStyleProps, parseMicroTsColor, type MicroTsElement } from "../../contracts/spec/microts.ts";
 import { BOOL, STRING, I32, F64, sameType, type AotExpr, type AotType, type AotFunction, type AotConstant, type BindingScope, type SourceLocation, type AotTypeDeclaration } from "./aot-ir.ts";
 import { fail, exactIntegerLiteral, type TypeMapper, type TypeEnvironment } from "./aot-types.ts";
 
@@ -326,6 +326,26 @@ export function requireType(expr: AotExpr, expected: AotType, ctx: ExpressionCon
   if (sameType(expr.type, expected)) return;
   if (expected.kind === "option" && (expr.type.kind === "undefined" || sameType(expr.type, expected.value))) return;
   fail(expr.loc, `Type mismatch: expected ${describe(expected)}, received ${describe(expr.type)}`);
+}
+/** The style property `name` on a host element, or a diagnostic at `loc` when the element's style does not admit it. */
+export function elementStyleProp(element: MicroTsElement, name: string, loc: SourceLocation): (typeof MICROTS_STYLE_PROPS)[keyof typeof MICROTS_STYLE_PROPS] {
+  const spec = MICROTS_STYLE_PROPS[name as keyof typeof MICROTS_STYLE_PROPS]; if (!spec) fail(loc, `Unknown numeric style property ${name}`);
+  const admitted = microTsStyleProps(element);
+  if (admitted && !admitted.includes(name as keyof typeof MICROTS_STYLE_PROPS)) fail(loc, `${element} style accepts ${admitted.join(" and ")}; ${name} is not a ${element} style property`);
+  return spec;
+}
+/** An Image src that changes at runtime: a ternary whose leaves are image names, so the compiler knows every image it bakes. */
+export function imageSource(value: AotExpr, loc: SourceLocation): AotExpr {
+  const leaves = (e: AotExpr): boolean => e.kind === "conditional" ? leaves(e.consequent) && leaves(e.alternate) : e.kind === "literal" && typeof e.value === "string" && e.value !== "";
+  if (value.kind !== "conditional" || !leaves(value)) fail(loc, "src requires a string literal attribute or a ternary with string literal leaves");
+  return value;
+}
+/** Every image name a static or conditional src can select. */
+export function imageNames(src: string | undefined, dynamic: AotExpr | undefined): string[] {
+  const names: string[] = src ? [src] : [];
+  const visit = (e: AotExpr): void => { if (e.kind === "conditional") { visit(e.consequent); visit(e.alternate); } else if (e.kind === "literal" && typeof e.value === "string") names.push(e.value); };
+  if (dynamic) visit(dynamic);
+  return names;
 }
 export function describe(type: AotType): string {
   if (type.kind === "number" || type.kind === "named") return type.name;

@@ -32,6 +32,7 @@ import { createTouchHitFacts, __packTouch, __packTouchWide } from "../../framewo
 import { unpack } from "../../framework/compiler/pak.ts";
 import type { AxisDelta } from "../../framework/src/relative-axis.ts";
 import type { MotionState } from "../../framework/src/motion.ts";
+import { missingHostWasm } from "../../tools/wasm.ts";
 
 const ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url))); // PocketJS/
 const DIST = join(ROOT, "dist/");
@@ -499,7 +500,7 @@ export async function bootBundle(options: BundleOptions): Promise<BundleWorld> {
   const hz = normalizeHz(options.hz ?? TICKS_PER_SECOND);
   if (hz !== (options.hz ?? TICKS_PER_SECOND)) throw new Error(`sim: hz=${options.hz} does not divide ${TICKS_PER_SECOND}`);
   const wasmPath = options.wasm ?? WASM_PATH;
-  if (!existsSync(wasmPath)) throw new Error(`sim: the wasm core is missing: ${wasmPath}`);
+  if (!existsSync(wasmPath)) throw new Error(`sim: ${missingHostWasm("the wasm core", options.wasm === undefined ? undefined : { option: "wasm", path: wasmPath })}`);
   if (!existsSync(options.js)) throw new Error(`sim: the bundle is missing: ${options.js}`);
   const app = options.app ?? options.js.replace(/^.*[\\/]/, "").replace(/\.js$/, "");
   const viewport = options.viewport ?? {};

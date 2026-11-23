@@ -1,30 +1,36 @@
-/* site/assets/tokens.css — the design system's single source of truth.
-   Every page loads these: the homepage through assets/landing.css (tokens +
-   chrome + landing, concatenated by site/build.ts) and every other page
-   through assets/site.css, where tailwind.css maps them onto @theme so
-   utilities and components resolve to the same values. */
+/* site/assets/tokens.css — the design system's values. Every page loads them:
+   the homepage and the /for/ pages through assets/landing.css (tokens + chrome +
+   landing, concatenated by site/build.ts), every other page through
+   assets/site.css, where tailwind.css maps them onto @theme so utilities and
+   components resolve to the same values. */
 :root{
-  --bg:#171226; --bg-2:#1c1630; --panel:#231b3b; --panel-2:#2b2148;
-  --line:rgba(255,255,255,.10); --line-2:rgba(255,255,255,.19);
-  --ink:#fcf6ff; --ink-2:#cbbde2; --muted:#8e80ac;
-  /* the lavender ramp the plum ground resolves to as it lightens */
-  --tint-1:#efe6ff; --tint-2:#bcaadd; --tint-3:#7a6c99;
-  /* the three arcade hues, in the order a headline runs through them */
-  --spectrum:linear-gradient(100deg,#ffd23f,#ff5f9e 52%,#3fd0e8);
-  --spectrum-lit:linear-gradient(100deg,#ffe07a,#ff5f9e 46%,#6fe0f2);
-  --accent:#ffd23f; --accent-2:#ff7fb4; --accent-3:#3fd0e8;
-  /* chart marks: validated for the plum surface (lightness band, chroma, CVD, contrast) */
+  color-scheme:dark;
+  /* ground and surfaces: a near-black ground, two raised surfaces, hairlines */
+  --bg:#0b0a10; --bg-2:#13111b; --panel:#17151f; --panel-2:#1f1c29;
+  --line:rgba(255,255,255,.08); --line-2:rgba(255,255,255,.16);
+  /* text: primary, secondary, muted */
+  --ink:#f6f3fb; --ink-2:#a9a3b8; --muted:#766f8a;
+  /* the light ramp the ground resolves to as it lightens */
+  --tint-1:#ece8f4; --tint-2:#b9b3c7; --tint-3:#6f6982;
+  /* the mark's three hues: yellow shell, pink lens and key, cyan key */
+  --accent:#ffd23f; --accent-2:#ff5f9e; --accent-3:#3fd0e8;
+  --spectrum:linear-gradient(90deg,#ffd23f,#ff5f9e 55%,#3fd0e8);
+  --spectrum-lit:var(--spectrum);
+  /* chart marks */
   --c1:#3fd0e8; --c2:#a98bff; --c3:#ffd23f; --c1-deep:#2597ac;
-  --track:rgba(255,255,255,.12);
+  --track:rgba(255,255,255,.10);
   /* the same hues as rgb triplets, so rgba() tints stay one edit away */
-  --accent-rgb:255,210,63; --accent-2-rgb:255,127,180; --accent-3-rgb:63,208,232;
-  --tint-1-rgb:239,230,255; --ink-2-rgb:203,189,226;
+  --accent-rgb:255,210,63; --accent-2-rgb:255,95,158; --accent-3-rgb:63,208,232;
+  --tint-1-rgb:236,232,244; --ink-2-rgb:169,163,184;
   --c1-rgb:63,208,232; --c3-rgb:255,210,63;
-  --shade-rgb:14,9,26;
+  --shade-rgb:6,5,10;
   /* surfaces the ground alone cannot name */
-  --plate:#1e1733; --term:#150f26;
-  --btn-a:#ffdc63; --btn-b:#ffc01f; --btn-ink:#2a1b10;
-  --px:"VT323",ui-monospace,monospace;
-  --sans:"IBM Plex Sans",-apple-system,system-ui,sans-serif;
-  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  --plate:#13111b; --term:#0d0c12;
+  --btn-a:#ffd23f; --btn-b:#ffd23f; --btn-ink:#1b1405;
+  /* type: Inter Tight for display, Inter for text, the system monospace for code */
+  --disp:"Inter Tight",system-ui,-apple-system,sans-serif;
+  --sans:"Inter",system-ui,-apple-system,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+  --px:var(--disp);
+  --math:"STIX Two Text","Times New Roman",serif;
 }

@@ -1,16 +1,18 @@
 <script setup lang="ts">
-import CandyText from "../components/CandyText.vue";
+// 404: the router renders this for any path without a route.
 </script>
 
 <template>
-  <section class="wrap grid place-items-center py-28 text-center">
-    <div class="hue-pink plate px-10 pt-9 pb-12">
-      <CandyText tag="h1" text="404" class="block text-[3rem] leading-none" />
-      <p class="relative z-10 mt-6 font-round text-lg font-semibold text-ink-2">This page compiled to nothing.</p>
-    </div>
-    <div class="mt-12 flex flex-wrap justify-center gap-4">
-      <RouterLink to="/" class="btn btn-primary">Home</RouterLink>
-      <RouterLink to="/docs/microts" class="btn">Docs</RouterLink>
+  <section class="relative">
+    <div class="glow" aria-hidden="true" />
+    <div class="wrap relative grid place-items-center py-32 text-center max-[640px]:py-24">
+      <div class="kick">Error 404</div>
+      <h1 class="h-hero grad mt-5 pb-[0.06em]">404</h1>
+      <p class="mt-6 text-[19px] text-ink-2">This page compiled to nothing.</p>
+      <div class="mt-9 flex flex-wrap justify-center gap-3">
+        <RouterLink to="/" class="btn btn-pri">Home</RouterLink>
+        <RouterLink to="/docs/microts" class="btn">Docs</RouterLink>
+      </div>
     </div>
   </section>
 </template>

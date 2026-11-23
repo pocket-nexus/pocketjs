@@ -14,6 +14,7 @@
 /* ---- theme: utilities resolve to the tokens, never to their own copies ---- */
 @theme inline {
   --font-sans: var(--sans);
+  --font-display: var(--disp);
   --font-mono: var(--mono);
   --font-px: var(--px);
   --font-math: var(--math);
@@ -37,15 +38,14 @@
   --color-brand-2: var(--accent);
   --color-brand-3: var(--accent-3);
 
-  /* Docs chrome reaches for slate by name in a dozen places. The ground is
-     plum, so the scale is redefined here as the matching lavender ramp rather
-     than left as Tailwind's cool grey, which reads dirty over this bg. */
-  --color-slate-100: #fcf6ff;
-  --color-slate-200: #ded2f2;
-  --color-slate-300: var(--ink-2);
-  --color-slate-400: #ab9ccb;
+  /* Docs chrome reaches for slate by name in a dozen places; the scale resolves
+     to the ground's own greys so text and rules match the homepage. */
+  --color-slate-100: var(--ink);
+  --color-slate-200: #d9d4e3;
+  --color-slate-300: #bdb7ca;
+  --color-slate-400: var(--ink-2);
   --color-slate-500: var(--muted);
-  --color-slate-600: #6f6389;
+  --color-slate-600: #5d576e;
 }
 
 /* ---- base: chrome.css sets the ground; this adds prose-only defaults ------ */
@@ -54,31 +54,31 @@
   body {
     background: var(--bg);
     background-image:
-      radial-gradient(ellipse 55% 34% at 50% -6%, rgba(var(--accent-rgb), 0.1), transparent),
-      radial-gradient(ellipse 58% 40% at 50% -4%, rgba(var(--accent-2-rgb), 0.06), transparent),
-      radial-gradient(ellipse 40% 30% at 90% 14%, rgba(var(--accent-3-rgb), 0.05), transparent);
+      radial-gradient(520px 260px at 20% -60px, rgba(var(--accent-rgb), 0.08), transparent 70%),
+      radial-gradient(520px 260px at 80% -60px, rgba(var(--accent-3-rgb), 0.07), transparent 70%);
+    background-repeat: no-repeat;
     color: var(--ink-2);
     font-family: var(--sans);
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
   }
-  /* the same fine horizontal grain the homepage sits behind */
-  body::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    z-index: 100;
-    background: repeating-linear-gradient(0deg, rgba(var(--shade-rgb), 0.10) 0 1px, transparent 1px 4px);
-  }
+  h1, h2, h3, h4 { font-family: var(--disp); letter-spacing: -0.02em; }
   a { color: inherit; text-decoration: none; }
   ::selection { background: color-mix(in oklab, var(--accent) 82%, transparent); color: #2a1b10; }
 }
 
-/* prose links carry the accent the rest of the system uses for references */
+/* prose: Inter Tight headings in the primary ink, cyan links like the homepage */
 @layer components {
-  .prose a { color: var(--accent-3); font-weight: 500; }
-  .prose a:hover { color: var(--accent); }
+  /* docs and blog markup use prose-invert, which reads the invert variables */
+  .prose { --tw-prose-invert-body: var(--ink-2); --tw-prose-invert-headings: var(--ink); --tw-prose-invert-bold: var(--ink);
+    --tw-prose-invert-quotes: var(--ink-2); --tw-prose-invert-counters: var(--muted); --tw-prose-invert-bullets: var(--muted);
+    --tw-prose-invert-hr: var(--line); --tw-prose-invert-th-borders: var(--line-2); --tw-prose-invert-td-borders: var(--line);
+    --tw-prose-invert-links: var(--accent-3); --tw-prose-invert-code: var(--ink); }
+  .prose :where(h1, h2, h3, h4) { font-family: var(--disp); letter-spacing: -0.025em; color: var(--ink); }
+  .prose :where(h1) { font-weight: 800; }
+  .prose :where(h2) { font-weight: 700; }
+  .prose a { color: var(--accent-3); font-weight: 500; text-decoration: none; border-bottom: 1px solid rgba(var(--accent-3-rgb), 0.35); }
+  .prose a:hover { color: var(--ink); border-bottom-color: var(--ink); }
   .prose :where(code):not(:where(pre *)) { color: var(--accent-2); }
 }
 
@@ -434,3 +434,8 @@
     display: block;
   }
 }
+
+/* The typography plugin wraps inline code in backticks from its utilities
+   layer; this unlayered rule outranks it. */
+.prose :where(code):not(:where(pre code))::before,
+.prose :where(code):not(:where(pre code))::after { content: none; }

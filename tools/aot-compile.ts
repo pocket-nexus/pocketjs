@@ -3,6 +3,8 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "no
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import ts from "typescript";
 import { analyzeAot, buildAot, type AotBuildResult } from "../microts/compiler/aot-build.ts";
+import { AotCompileError, type AotNode, type SourceLocation } from "../microts/compiler/aot-ir.ts";
+import { imageNames } from "../microts/compiler/aot-expressions.ts";
 import { getSolidAotDependencyVersions } from "../microts/compiler/aot-solid-frontend.ts";
 import { getAotDependencyVersions } from "../microts/compiler/aot-frontend.ts";
 import { bakeAtlases } from "../framework/compiler/bake-font.ts";
@@ -16,6 +18,7 @@ import { loadHostConfig, profileRegistry } from "./profile-resolver.ts";
 import { POCKET_PROFILES } from "../hosts/index.ts";
 import { registerApplication } from "../microts/compiler/aot-model-config.ts";
 import type { LayerDeclarations } from "../microts/compiler/aot-paint-plan.ts";
+import { HOST_WASM, missingHostWasm } from "./wasm.ts";
 
 const ROOT = resolve(import.meta.dir, "..");
 const sha = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
@@ -72,11 +75,12 @@ function componentEntry(entry: string): string {
   return [...roots][0]!;
 }
 
+/** Visit every object below `value`; a `dynamicSrc` selects image names, not displayed text, so the walk stops there. */
 function walk(value: unknown, visitor: (value: Record<string, unknown>) => void): void {
   if (!value || typeof value !== "object") return;
   if (Array.isArray(value)) { value.forEach(item => walk(item, visitor)); return; }
   visitor(value as Record<string, unknown>);
-  Object.values(value).forEach(item => walk(item, visitor));
+  Object.entries(value).forEach(([key, item]) => { if (key !== "dynamicSrc") walk(item, visitor); });
 }
 
 /** Rust, font and image generation only. Firmware compilation belongs to the program. */
@@ -107,9 +111,13 @@ export async function compileAot(options: AotCompileOptions): Promise<AotCompile
   program.components.forEach(item => collect(item.file));
   program.model?.modules.forEach(item => collect(item.file));
   inputs.optional(resolve(projectRoot, "tsconfig.json"));
-  const images = new Set<string>(), codepoints = new Set<number>();
+  // Each image name maps to the first element that can select it.
+  const images = new Map<string, SourceLocation>(), codepoints = new Set<number>();
   const collectResources = (node: Record<string, unknown>) => {
-    if (node.kind === "element" && typeof node.src === "string") images.add(node.src);
+    if (node.kind === "element") {
+      const element = node as Extract<AotNode, { kind: "element" }>;
+      for (const name of imageNames(element.src, element.dynamicSrc?.expression)) if (!images.has(name)) images.set(name, element.loc);
+    }
     const strings = node.kind === "literal" && typeof node.value === "string" ? [node.value] :
       node.kind === "element" && node.text ? ((node.text as { parts: unknown[] }).parts.filter(value => typeof value === "string") as string[]) : [];
     for (const string of strings) for (const character of string) codepoints.add(character.codePointAt(0)!);
@@ -124,8 +132,8 @@ export async function compileAot(options: AotCompileOptions): Promise<AotCompile
   fontConfig.codepoints.forEach(point => codepoints.add(point));
   const fonts = await bakeAtlases({ slots: program.styles.usedFontSlots, codepoints, rasterDensity: plan.viewport.rasterDensity,
     ...appFontFaces(plan.app.fonts, projectRoot, fontRead), fallbackTtfs: fontConfig.fallbackTtfs, onRead: fontRead });
-  const wasmPath = resolve(options.wasmPath ?? resolve(ROOT, "platforms/web/pocketjs.wasm"));
-  if (!existsSync(wasmPath)) throw new Error(`AOT: prebuilt layout oracle not found: ${wasmPath}; install/build the compiler's wasm asset before compilation`);
+  const wasmPath = resolve(options.wasmPath ?? HOST_WASM);
+  if (!existsSync(wasmPath)) throw new Error(`AOT: ${missingHostWasm("the layout oracle", options.wasmPath === undefined ? undefined : { option: "wasmPath", path: wasmPath })}`);
   inputs.add(wasmPath);
   const declarationsPath = resolve(dirname(component), "gba-layers.json");
   const spriteLayers = plan.profile.platform === "gba";
@@ -144,23 +152,27 @@ export async function compileAot(options: AotCompileOptions): Promise<AotCompile
     mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, data); sources.set(name, from);
   };
   for (const font of fonts) write(`font-${font.slot}.bin`, font.bytes, [...fontSources].sort());
-  const imageCode: string[] = [];
+  const imageCode: string[] = [], imageInPlaceCode: string[] = [];
   // The guest build's image baking (raster-assets.ts): the @Nx sibling, images.json format and sampling, and the IMG entry's size check.
   const imageManifest = resolve(dirname(component), "images.json");
   const imageMeta = readImageManifest(imageManifest, inputs);
-  for (const [index, name] of [...images].sort().entries()) {
-    if (!/\.(?:png|svg)$/i.test(name)) throw new Error(`AOT: unsupported image ${JSON.stringify(name)}`);
+  for (const [index, name] of [...images.keys()].sort().entries()) {
+    const imageError = (message: string) => new AotCompileError([{ ...images.get(name)!, severity: "error", message }]);
+    if (!/\.(?:png|svg)$/i.test(name)) throw imageError(`unsupported image ${JSON.stringify(name)}; an image asset is a .png or .svg file`);
     const candidates = [resolve(dirname(component), name), resolve(projectRoot, "assets/images", name), resolve(ROOT, "assets/images", name), resolve(ROOT, "assets", name)];
     candidates.forEach(path => inputs.optional(path));
     const source = candidates.find(path => existsSync(path) && statSync(path).isFile());
-    if (!source) throw new Error(`AOT: image ${JSON.stringify(name)} not found`);
+    if (!source) throw imageError(`image ${JSON.stringify(name)} not found; searched ${candidates.join(", ")}`);
     const loaded = loadRasterImage(source, plan.viewport.rasterDensity, inputs);
     const file = `images/image-${index}.img`;
     write(file, encodeStaticImage(loaded.image, imageMeta[name]), [...new Set([source, loaded.source]), ...(existsSync(imageManifest) ? [imageManifest] : []),
       ...settingsFiles, ...(options.dependencyFiles ?? []).map(path => resolve(path))]);
     imageCode.push(`{ let id = ui.core_mut().upload_img_entry(include_bytes!(${JSON.stringify(file)})); assert!(id >= 0); ui.register_image(${JSON.stringify(name)}, id); }`);
+    imageInPlaceCode.push(`{ let bytes: &'static [u8] = include_bytes!(${JSON.stringify(file)}); let id = ui.core_mut().upload_img_entry_from(alloc::rc::Rc::new(bytes), 0..bytes.len()); assert!(id >= 0); ui.register_image(${JSON.stringify(name)}, id); }`);
   }
-  write("include.rs", `#[path = "mod.rs"]\nmod generated;\n/// The compiled package rate, core ticks per virtual second (plan.profile.tickHz).\n#[allow(dead_code)]\npub const TICK_HZ: u32 = ${tickHz};\n#[allow(dead_code)]\nfn load_fonts(${fonts.length ? "ui" : "_"}: &mut microts::Ui) {\n${fonts.map(font => `assert!(ui.core_mut().load_font_atlas(include_bytes!("font-${font.slot}.bin")));`).join("\n")}\n}\n#[allow(dead_code)]\nfn load_images(${imageCode.length ? "ui" : "_"}: &mut microts::Ui) {\n${imageCode.join("\n")}\n}\n`);
+  write("include.rs", `#[path = "mod.rs"]\nmod generated;\n/// The compiled package rate, core ticks per virtual second (plan.profile.tickHz).\n#[allow(dead_code)]\npub const TICK_HZ: u32 = ${tickHz};\n#[allow(dead_code)]\nfn load_fonts(${fonts.length ? "ui" : "_"}: &mut microts::Ui) {\n${fonts.map(font => `assert!(ui.core_mut().load_font_atlas(include_bytes!("font-${font.slot}.bin")));`).join("\n")}\n}\n#[allow(dead_code)]\nfn load_images(${imageCode.length ? "ui" : "_"}: &mut microts::Ui) {\n${imageCode.join("\n")}\n}\n` +
+    `/// load_fonts without the copy: each atlas reads its coverage cells from the include_bytes! data.\n#[allow(dead_code)]\nfn load_fonts_in_place(${fonts.length ? "ui" : "_"}: &mut microts::Ui) {\n${fonts.map(font => `{ let bytes: &'static [u8] = include_bytes!("font-${font.slot}.bin"); assert!(ui.core_mut().load_font_atlas_shared(alloc::rc::Rc::new(bytes), 0..bytes.len())); }`).join("\n")}\n}\n` +
+    `/// load_images without the copy: each texture decodes from the include_bytes! data when a frame first draws it, and set_texture_budget releases it again.\n#[allow(dead_code)]\nfn load_images_in_place(${imageInPlaceCode.length ? "ui" : "_"}: &mut microts::Ui) {\n${imageInPlaceCode.join("\n")}\n}\n`);
   write("layers.json", JSON.stringify({ viewport: plan.viewport.logical, tickRate: tickHz, settleFrames: 40, layers: result.layout.regions.flatMap(region => region.layers) }, null, 2) + "\n");
   await inputs.compiler([resolve(ROOT, "tools/aot-compile.ts")], ROOT);
   const allInputs = inputs.paths();

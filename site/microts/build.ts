@@ -116,7 +116,6 @@ export async function buildApp(opts: { dev: boolean; commit: string }): Promise<
 /** Static files: the site's public/, shared Pocket brand assets, the devices' shells and the generated retro assets. */
 export async function copyStatic(): Promise<void> {
   cpSync(join(SITE, "public"), OUT, { recursive: true });
-  for (const f of ["press-start-2p-latin.woff2", "OFL-PressStart2P.txt"]) cpSync(join(ROOT, "site/assets/fonts", f), join(OUT, "fonts", f));
   cpSync(join(ROOT, "site/pocket3d/mark.svg"), join(OUT, "pocket3d-mark.svg"));
   cpSync(join(RETRO_OUT, "public"), join(OUT, "retro"), { recursive: true });
   await copyShells(OUT);

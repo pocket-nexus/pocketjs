@@ -395,7 +395,7 @@ watch(
   place-items: center;
   border-radius: 22%;
   color: rgb(60 60 66 / 0.55);
-  font: 700 calc(var(--unit) * 40) / 1 var(--font-round);
+  font: 700 calc(var(--unit) * 40) / 1 var(--font-disp);
 }
 /* (the left one's caption toward the left edge, the right one's toward the right: what is in the middle of a case's corner stays in sight) */
 .dev-named[data-control="l"] {

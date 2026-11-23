@@ -4,11 +4,11 @@ import ts from "typescript";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import { BTN } from "../../contracts/spec/spec.ts";
-import { MICROTS_BUILTINS, MICROTS_RELATIVE_AXES, MICROTS_STYLE_PROPS } from "../../contracts/spec/microts.ts";
+import { MICROTS_BUILTINS, MICROTS_RELATIVE_AXES } from "../../contracts/spec/microts.ts";
 import { MOTION_DEFAULT_MIN_QUALITY, MOTION_MIN_QUALITIES, MOTION_VALUES, motionEvent } from "./aot-motion.ts";
 import { BOOL, I32, STRING, sameType, type AotComponent, type AotEvent, type AotExpr, type AotHandler, type AotNode, type AotProgram, type AotType, type SourceLocation } from "./aot-ir.ts";
 import { createTypeEnvironment, fail, location, typeName, TypeMapper } from "./aot-types.ts";
-import { displayable, expression, narrowed, numeric, requireType, type ExpressionContext } from "./aot-expressions.ts";
+import { displayable, elementStyleProp, expression, imageSource, narrowed, numeric, requireType, type ExpressionContext } from "./aot-expressions.ts";
 import { addAotContractBinding, solidTypeAlias } from "./aot-contract.ts";
 import { analyzeViewModel, viewModelModule, validateViewModelBindings } from "./aot-model-view.ts";
 import { attachAotModel } from "./aot-ir.ts";
@@ -619,7 +619,7 @@ export function analyzeSolidAot(entry: string, options: AnalyzeSolidAotOptions =
         }
         if (imp?.module !== COMPONENTS || !["View", "Text", "Image"].includes(kind ?? "")) fail(loc(tag), `Element ${tag.text} is not an imported host primitive or child component`);
         const host: Extract<AotNode,{kind:"element"}> = { kind: "element", id: component.nodeCount++, tag: kind as "View"|"Text"|"Image", style: -1, props: [], focusable: false, events: [], children: [], loc: loc(node) };
-        only(attributes, kind === "View" ? ["class", "style", "focusable", "debugName", "onPress", "ref"] : kind === "Image" ? ["class", "src", "ref"] : ["class", "ref"], kind!);
+        only(attributes, kind === "View" ? ["class", "style", "focusable", "debugName", "onPress", "ref"] : kind === "Image" ? ["class", "src", "ref"] : ["class", "style", "ref"], kind!);
         for (const [name, attribute] of attributes) {
           if (name === "ref") {
             const value = attrExpr(attribute);
@@ -637,7 +637,7 @@ export function analyzeSolidAot(entry: string, options: AnalyzeSolidAotOptions =
             const object = attrExpr(attribute); if (!ts.isObjectLiteralExpression(object)) fail(loc(object), "style requires an object literal");
             for (const property of object.properties) {
               if (!ts.isPropertyAssignment(property) || !ts.isIdentifier(property.name) && !ts.isStringLiteral(property.name)) fail(loc(property), "style uses named properties without spread, computed keys or shorthand");
-              const name = property.name.text, spec = MICROTS_STYLE_PROPS[name as keyof typeof MICROTS_STYLE_PROPS]; if (!spec) fail(loc(property), `Unknown numeric style property ${name}`);
+              const name = property.name.text, spec = elementStyleProp(host.tag, name, loc(property));
               const expected: AotType = spec.unit ? mapper.unit(spec.unit) : { kind: "number", name: spec.type };
               let value = expr(property.initializer, ctx);
               const literalArithmetic = (e: AotExpr): boolean => e.kind === "literal" || e.kind === "unary" && literalArithmetic(e.operand) || e.kind === "binary" && literalArithmetic(e.left) && literalArithmetic(e.right);
@@ -648,10 +648,11 @@ export function analyzeSolidAot(entry: string, options: AnalyzeSolidAotOptions =
             }
           } else if (name === "focusable") { if (attribute.initializer) fail(loc(attribute), "focusable accepts only the bare attribute"); host.focusable = true; }
           else if (name === "onPress") host.events.push({ name: "press", handler: handler(attrExpr(attribute), ctx) });
+          else if (name === "src" && attribute.initializer && !ts.isStringLiteral(attribute.initializer)) host.dynamicSrc = { id: component.memoCount++, expression: imageSource(attrValue(attribute, ctx), loc(attribute)) };
           else { if (!attribute.initializer || !ts.isStringLiteral(attribute.initializer)) fail(loc(attribute), `${name} requires a static string literal`); if (name === "src") host.src = attribute.initializer.text; else host.debugName = attribute.initializer.text; }
         }
         if (host.events.length && !host.focusable) fail(loc(node), "onPress requires a focusable View");
-        if (kind === "Image") { if (!host.src || nodes.length) fail(loc(node), "Image requires a static src asset name and has no children"); }
+        if (kind === "Image") { if (!host.src && !host.dynamicSrc || nodes.length) fail(loc(node), "Image requires a src asset name and has no children"); }
         else if (kind === "Text") {
           const parts: (string | AotExpr)[] = [];
           const add = (value: string | AotExpr) => { if (typeof value === "string" && !value) return; if (typeof value === "string" && typeof parts.at(-1) === "string") parts[parts.length - 1] = (parts.at(-1) as string) + value; else parts.push(value); };

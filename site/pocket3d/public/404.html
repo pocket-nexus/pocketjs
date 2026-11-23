@@ -5,48 +5,30 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Not found · Pocket3D</title>
 <meta name="robots" content="noindex">
-<meta name="theme-color" content="#171226">
+<meta name="theme-color" content="#0b0a10">
 <meta name="color-scheme" content="dark">
 <link rel="icon" href="/favicon.svg?v=2" type="image/svg+xml">
 <link rel="icon" href="/favicon.ico?v=2" sizes="48x48">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&text=NOTCMPILED.&display=swap">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@600&family=IBM+Plex+Sans:wght@400&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@800&family=Inter:wght@400;600&display=swap">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
-body{min-height:100dvh;display:grid;place-items:center;padding:24px;text-align:center;color:#fcf6ff;
-  font:16px/1.5 "IBM Plex Sans",system-ui,sans-serif;-webkit-font-smoothing:antialiased;
-  background:radial-gradient(70% 50% at 50% 110%,rgba(255,95,158,.14),transparent 70%),
-    radial-gradient(circle,rgba(203,189,226,.085) 1.1px,transparent 1.6px) 0 0/24px 24px,#171226}
+body{min-height:100dvh;display:grid;place-items:center;padding:24px;text-align:center;color:#f6f3fb;
+  font:17px/1.6 Inter,system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased;
+  background:radial-gradient(480px 300px at 38% 30%,rgba(255,210,63,.13),transparent 70%),
+    radial-gradient(480px 300px at 64% 62%,rgba(255,95,158,.10),transparent 70%),#0b0a10}
 main{display:flex;flex-direction:column;align-items:center;gap:18px}
-svg{width:112px;height:112px;overflow:visible}
-/* --u steps the outline, the extrusion and the drop: 3px, and one cell of the face's 1/8 em grid where
-   that is smaller, so the copies stay joined to the letter */
-h1{--u:min(3px,.125em);font:400 clamp(19px,5.2vw,40px)/1.6 "Press Start 2P",ui-monospace,monospace;text-transform:uppercase;color:#ff5f9e;
-  text-shadow:0 var(--u) 0 #c23a73,0 calc(var(--u)*2) 0 #c23a73,
-    var(--u) 0 0 #221338,calc(var(--u)*-1) 0 0 #221338,0 calc(var(--u)*-1) 0 #221338,
-    var(--u) calc(var(--u)*-1) 0 #221338,calc(var(--u)*-1) calc(var(--u)*-1) 0 #221338,
-    var(--u) var(--u) 0 #221338,calc(var(--u)*-1) var(--u) 0 #221338,
-    var(--u) calc(var(--u)*2) 0 #221338,calc(var(--u)*-1) calc(var(--u)*2) 0 #221338,
-    var(--u) calc(var(--u)*3) 0 #221338,calc(var(--u)*-1) calc(var(--u)*3) 0 #221338,0 calc(var(--u)*3) 0 #221338,
-    calc(var(--u)*-1) calc(var(--u)*4) 0 #0a0614,0 calc(var(--u)*4) 0 #0a0614,var(--u) calc(var(--u)*4) 0 #0a0614}
-@media (max-width:560px){
-  h1{text-shadow:0 var(--u) 0 #c23a73,
-    var(--u) 0 0 #221338,calc(var(--u)*-1) 0 0 #221338,0 calc(var(--u)*-1) 0 #221338,
-    var(--u) calc(var(--u)*-1) 0 #221338,calc(var(--u)*-1) calc(var(--u)*-1) 0 #221338,
-    var(--u) var(--u) 0 #221338,calc(var(--u)*-1) var(--u) 0 #221338,
-    var(--u) calc(var(--u)*2) 0 #221338,calc(var(--u)*-1) calc(var(--u)*2) 0 #221338,0 calc(var(--u)*2) 0 #221338,
-    calc(var(--u)*-1) calc(var(--u)*3) 0 #0a0614,0 calc(var(--u)*3) 0 #0a0614,var(--u) calc(var(--u)*3) 0 #0a0614}
-}
-p{color:#cbbde2;max-width:26em}
-a{display:inline-flex;align-items:center;gap:8px;height:48px;padding:0 22px;border-radius:999px;text-decoration:none;
-  background:linear-gradient(180deg,#ffdc63,#ffc01f);color:#2a1b10;font:600 16px/1 Fredoka,system-ui,sans-serif;
-  border:2.5px solid #221338;box-shadow:0 5px 0 #0a0614,inset 0 2px 0 rgba(255,255,255,.6)}
-a:hover{transform:translateY(-2px) rotate(-1.5deg)}
-a:focus-visible{outline:3px solid #3fd0e8;outline-offset:5px}
+svg{width:96px;height:96px;overflow:visible;margin-bottom:6px}
+h1{font:800 clamp(44px,9vw,72px)/1 "Inter Tight",system-ui,sans-serif;letter-spacing:-.045em;
+  background:linear-gradient(90deg,#ffe98a,#ffd23f 35%,#ffb45c 65%,#ff5f9e);-webkit-background-clip:text;background-clip:text;color:transparent;padding-bottom:.06em}
+p{color:#a9a3b8;max-width:26em}
+a{display:inline-flex;align-items:center;margin-top:10px;padding:13px 22px;border-radius:999px;text-decoration:none;
+  background:#ffd23f;color:#1b1405;font:600 15px/1.2 Inter,system-ui,sans-serif;transition:background-color .15s}
+a:hover{background:#ffdc63}
+a:focus-visible{outline:2px solid #ffd23f;outline-offset:3px}
 </style>
 </head>
 <body>

@@ -38,7 +38,9 @@ export const MICROTS_ELEMENTS = {
     attributes: ["class", "style", "focusable", "debug-name"],
     events: ["press"],
   },
-  Text: { nodeType: NODE_TYPE.text, attributes: ["class"], events: [] },
+  /** Text's `style` takes the props the core's text paint reads that change
+   *  no measured size, so a layout computed at compile time stays valid. */
+  Text: { nodeType: NODE_TYPE.text, attributes: ["class", "style"], styleProps: ["textColor", "opacity"], events: [] },
   Image: { nodeType: NODE_TYPE.image, attributes: ["class", "src"], events: [] },
 } as const;
 
@@ -49,6 +51,13 @@ export const MICROTS_STYLE_PROPS = Object.fromEntries(
     return [name, { id, type: kind === VALUE_KIND.f32 ? "f32" : kind === VALUE_KIND.color ? "u32" : "i32", ...(unit ? { unit } : {}) }];
   }),
 ) as { [P in keyof typeof PROP]: { id: (typeof PROP)[P]; type: "f32" | "i32" | "u32"; unit?: MicroTsUnitType } };
+
+export type MicroTsElement = keyof typeof MICROTS_ELEMENTS;
+/** The style props an element's `style` admits; undefined admits every MICROTS_STYLE_PROPS entry. */
+export function microTsStyleProps(element: MicroTsElement): readonly (keyof typeof MICROTS_STYLE_PROPS)[] | undefined {
+  const spec = MICROTS_ELEMENTS[element];
+  return "styleProps" in spec ? spec.styleProps : undefined;
+}
 
 export const MICROTS_BUILTINS = {
   len: { parameters: ["string | T[]"], result: "i32", numeric: "none" },
@@ -146,10 +155,12 @@ export function generateMicroTsComponentTypes(): string {
   for (const [name, prop] of Object.entries(MICROTS_STYLE_PROPS)) lines.push(`  ${name}?: ${prop.unit ? prop.unit === "Color" ? "Color" : `${prop.unit} | MicroTsIntegerInput` : prop.type === "f32" ? "MicroTsFloatInput" : prop.type};`);
   lines.push("}");
   for (const [element, spec] of Object.entries(MICROTS_ELEMENTS)) {
+    const styleProps = microTsStyleProps(element as MicroTsElement);
+    if (styleProps) lines.push(`export type MicroTs${element}StyleProps = Pick<MicroTsStyleProps, ${styleProps.map(name => JSON.stringify(name)).join(" | ")}>;`);
     lines.push(`export interface MicroTs${element}${element === "View" ? "Base" : ""}Props {`);
     for (const attribute of spec.attributes) {
       if (attribute === "focusable") continue;
-      const type = attribute === "style" ? "MicroTsStyleProps" : "string";
+      const type = attribute === "style" ? styleProps ? `MicroTs${element}StyleProps` : "MicroTsStyleProps" : "string";
       lines.push(`  ${JSON.stringify(attribute)}?: MicroTsValue<${type}>;`);
     }
     lines.push("}");

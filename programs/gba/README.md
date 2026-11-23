@@ -16,7 +16,7 @@ bun tools/pocket.ts compile --config apps/gba-hero/pocket.host.config.ts --proje
 
 The directory contains `mod.rs`, the generated model and view modules, `include.rs`, font atlases, image entries in the pak IMG layout, `styles.bin`, and `layers.json`. `include.rs` uses paths relative to its own directory, so the directory can move before a firmware build. `dependencies.json` maps outputs to their input files and records SHA-256 hashes; `dependencies.d` provides Make-compatible inputs, including the host contract, the application's host config, source graph, fonts, images, and compiler layout oracle.
 
-The compiler consumes the distribution's prebuilt `platforms/web/pocketjs.wasm` for layout baking. A missing oracle is an error; source generation does not install or build a toolchain. `build.ts` uses this generator, then performs the program's native build.
+The compiler consumes the distribution's prebuilt `platforms/web/pocketjs.wasm` for layout baking. A missing oracle is an error that names its remedy: `bun tools/wasm.ts` in a source checkout (needs `rustup target add wasm32-unknown-unknown`), reinstalling the package in an npm install. Source generation does not install or build a toolchain. `build.ts` uses this generator, then performs the program's native build.
 
 ## Build
 
@@ -58,7 +58,7 @@ A **layer** is the nearest element with a `debugName` above anything that still 
 | `color` | `focus:`/`active:` variants that change `bgColor` | the endpoints and one sample per 30 Hz tick a `transition-colors` can show | `resolved_style().bg_color`, nearest sample |
 | `text` | a `Text` with interpolated parts | one glyph per character the parts' types can produce (`i32`: digits and minus); the static prefix is in the background | `node_text()`, one object per glyph of the tail, advanced in quarter pixels |
 
-`translateX`/`translateY` bindings on a root move its sprites; they bake no states. Anything else (a dynamic class, a keyframe timeline, a binding on another prop, a `<For>`) is a compile error naming the node. Declarations the plan cannot infer — a size range without a literal target, a string-typed text's glyph set and length — go in an optional `apps/<app>/gba-layers.json` keyed by layer name.
+`translateX`/`translateY` bindings on a root move its sprites; they bake no states. Anything else (a dynamic class, a conditional `src`, a keyframe timeline, a binding on another prop, a `<For>`) is a compile error naming the node. Declarations the plan cannot infer — a size range without a literal target, a string-typed text's glyph set and length — go in an optional `apps/<app>/gba-layers.json` keyed by layer name.
 
 **Each sprite carries the background it was baked on.** Layers paint in document order. The baker captures every layer alone first; a layer that paints where a lower layer does is then re-baked with that layer visible, so its pixels hold the real blend (the message text over the button's shadow). The packer rejects the case this cannot cover: a lower layer whose pixels under an upper layer differ between its own states. Later layers take the lower OAM indices, so they draw on top.
 

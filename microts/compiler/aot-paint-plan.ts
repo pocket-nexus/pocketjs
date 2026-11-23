@@ -163,6 +163,7 @@ export function planPaint(input: PaintPlanInput): DynamicLayer[] {
     }
     const own: Found[] = [];
     if (node.dynamicStyle) fail(node.loc, `${describe(node)}: a dynamic class is not a sprite layer recipe; use a <Show> branch per alternative`);
+    if (node.dynamicSrc) fail(node.loc, `${describe(node)}: a conditional src is not a sprite layer recipe; use a <Show> branch per image`);
     for (const binding of node.props) {
       if (isConstant(binding.value)) continue;
       if (binding.prop === PROP.translateX || binding.prop === PROP.translateY) own.push({ kind: "translate", node, path });
