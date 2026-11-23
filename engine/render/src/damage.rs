@@ -396,7 +396,7 @@ impl<const MAX_REGIONS: usize> DamageTracker<MAX_REGIONS> {
         let updated = self.updated_textures(ui, target);
         let full = updated.is_none();
         let updated = updated.unwrap_or_default();
-        if !full && updated.is_empty() && same_words(&self.words, words) {
+        if !full && updated.is_empty() && self.words == words {
             return Ok(DamagePlan::empty(screen));
         }
         decode_ops_into(ui, words, screen, &mut self.pending_ops)?;
@@ -434,6 +434,19 @@ impl<const MAX_REGIONS: usize> DamageTracker<MAX_REGIONS> {
 
     /// Record the DrawList after its [`DamagePlan`] has been rendered.
     pub fn commit(&mut self, ui: &impl RenderResources, words: &[u32], target: DamageTarget) {
+        // The snapshot already holds this list for this target and these
+        // resources, and no texture changed since: its words, decoded
+        // operations and texture revisions stay as they are. A frame that
+        // draws what the previous one drew ends here.
+        if self.valid
+            && self.target == target
+            && self.resource_revision == ui.resource_revision()
+            && self.raster_revision == ui.raster_revision()
+            && self.words == words
+        {
+            self.pending = false;
+            return;
+        }
         // Decoded bounds depend on the target and on resources such as font
         // metrics as well as on the words: unchanged words decoded under
         // other resources must not be kept.
@@ -557,7 +570,8 @@ fn draw_list_damage<const MAX_REGIONS: usize>(
     current: &[u32],
     screen: DamageRect,
 ) -> Result<DamagePlan<MAX_REGIONS>, DamageError> {
-    if same_words(previous, current) {
+    // Whole lists: one slice comparison. `same_words` is for one operation.
+    if previous == current {
         return Ok(DamagePlan::empty(screen));
     }
 
