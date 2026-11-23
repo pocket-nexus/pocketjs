@@ -70,7 +70,8 @@ export function generateModelJavaScript(program: ModelProgram, module: ModelModu
       case "index": return `((a,i)=>Number.isInteger(i)&&i>=0&&i<a.length?a[i]:${defaultValue(e.type)})(${expr(e.object)},${expr(e.index)})`;
       case "copy": return `${stdAlias}.copy(${expr(e.value)})`;
       case "cast": return numeric(expr(e.value), e.type);
-      case "unary": return numeric(`(${e.operator}${expr(e.operand)})`, e.type);
+      // The space keeps `-` before a negative operand from reading as `--`.
+      case "unary": return numeric(`(${e.operator} ${expr(e.operand)})`, e.type);
       case "binary": {
         // Newtypes compute in their base number type.
         const base = baseType(e.type);
