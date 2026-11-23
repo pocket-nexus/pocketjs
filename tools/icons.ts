@@ -113,7 +113,7 @@ const POCKET3D_CARD = `(async () => {
   await document.fonts.ready;
   await Promise.all([...document.images].map((image) => image.decode()));
   await new Promise((r) => setTimeout(r, 300));
-  return document.fonts.check('150px "Titan One"', "Pocket3D") && document.fonts.check('600 42px Fredoka', "Create");
+  return document.fonts.check('800 168px "Inter Tight"', "Pocket3D") && document.fonts.check('500 40px Inter', "Create");
 })()`;
 FAMILIES.pocket3d = {
   out: `${ROOT}site/pocket3d/public/`,
