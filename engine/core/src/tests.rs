@@ -1054,6 +1054,410 @@ fn arcs_draw_under_rotation() {
     }
 }
 
+/// 8x8-cell test font with line height 8 whose glyph coverage comes from
+/// `coverage(gid, row, col)`; `glyphs` = (codepoint, gid, advance).
+fn coverage_atlas(
+    glyphs: &[(u32, u16, u8)],
+    coverage: impl Fn(u16, usize, usize) -> u8,
+) -> Vec<u8> {
+    let mut blob = encode_atlas(0, 8, 8, 7, 8, glyphs.len() as u16, glyphs);
+    let at = blob.len() - glyphs.len() * 64;
+    for (i, byte) in blob[at..].iter_mut().enumerate() {
+        *byte = coverage((i / 64) as u16, i % 64 / 8, i % 8);
+    }
+    blob
+}
+
+/// An absolutely positioned text node at (`x`, `y`).
+fn placed_text(ui: &mut Ui, text: &str, x: f64, y: f64, props: &[(u8, f64)]) -> i32 {
+    let t = ui.create_node(spec::NodeType::Text as u8);
+    ui.set_text(t, text);
+    ui.set_prop(
+        t,
+        spec::prop::POS_TYPE,
+        spec::PosType::Absolute as u32 as f64,
+    );
+    ui.set_prop(t, spec::prop::INSET_L, x);
+    ui.set_prop(t, spec::prop::INSET_T, y);
+    for &(p, v) in props {
+        ui.set_prop(t, p, v);
+    }
+    t
+}
+
+fn render_frame(ui: &mut Ui) -> (Vec<u32>, Vec<u8>) {
+    let words = ui.draw().words.clone();
+    validate_drawlist(&words);
+    let mut frame = alloc::vec![0u8; spec::SCREEN_W as usize * spec::SCREEN_H as usize * 4];
+    pocket_raster::render(ui, &words, &mut frame);
+    (words, frame)
+}
+
+fn rgb_at(frame: &[u8], x: usize, y: usize) -> [u8; 3] {
+    let at = (y * spec::SCREEN_W as usize + x) * 4;
+    [frame[at], frame[at + 1], frame[at + 2]]
+}
+
+/// Offsets of every TEX_TRI op in a validated list.
+fn tex_tri_ops(words: &[u32]) -> Vec<usize> {
+    let mut at = Vec::new();
+    let mut i = 0;
+    while i < words.len() {
+        i += match words[i] {
+            spec::draw_op::RECT => 4,
+            spec::draw_op::GRAD_RECT => 6,
+            spec::draw_op::GLYPH_RUN => 3 + 2 * (words[i + 1] >> 16) as usize,
+            spec::draw_op::TEX_QUAD => 9,
+            spec::draw_op::SCISSOR => 3,
+            spec::draw_op::SCISSOR_POP => 1,
+            spec::draw_op::TRI => 7,
+            spec::draw_op::TEX_TRI => {
+                at.push(i);
+                12
+            }
+            other => panic!("unexpected draw op {other}"),
+        };
+    }
+    at
+}
+
+#[test]
+fn glyphs_turn_and_scale_with_a_rotated_run() {
+    // One 8x8 glyph inked in its top four rows, scaled 2x and turned 90
+    // degrees clockwise about the cell centre (104, 104): the 16x16 screen
+    // cell [96, 112)^2 carries the ink in its right half. A rotated run
+    // used to draw the 1x cell upright at the transformed anchor.
+    let mut ui = Ui::new();
+    assert!(
+        ui.load_font_atlas(&coverage_atlas(&[('A' as u32, 0, 8)], |_, row, _| {
+            if row < 4 {
+                255
+            } else {
+                0
+            }
+        }))
+    );
+    let color = abgr(60, 120, 180, 255);
+    let t = placed_text(
+        &mut ui,
+        "A",
+        100.0,
+        100.0,
+        &[
+            (spec::prop::WIDTH, 8.0),
+            (spec::prop::HEIGHT, 8.0),
+            (spec::prop::TEXT_COLOR, color as f64),
+            (spec::prop::SCALE, 2.0),
+            (spec::prop::OPACITY, 0.5),
+        ],
+    );
+    ui.insert_before(spec::ROOT_ID, t, 0);
+    ui.tick();
+    // Axis-aligned scale: one tinted TEX_QUAD from the glyph page.
+    let words = ui.draw().words.clone();
+    let counts = validate_drawlist(&words);
+    assert_eq!(counts[spec::draw_op::TEX_QUAD as usize], 1);
+    let quad = words
+        .iter()
+        .position(|&w| w == spec::draw_op::TEX_QUAD)
+        .unwrap();
+    let (page, tint) = (words[quad + 1], words[quad + 8]);
+    assert_eq!(tint & 0x00ff_ffff, color & 0x00ff_ffff);
+    assert!(
+        (127..=128).contains(&(tint >> 24)),
+        "opacity scales the tint alpha"
+    );
+
+    ui.set_prop(t, spec::prop::ROTATE, 90.0);
+    let (words, _) = render_frame(&mut ui);
+    let counts = validate_drawlist(&words);
+    assert_eq!(counts[spec::draw_op::GLYPH_RUN as usize], 0);
+    assert_eq!(counts[spec::draw_op::TEX_QUAD as usize], 0);
+    let tris = tex_tri_ops(&words);
+    assert_eq!(tris.len(), 2, "an unclipped cell is two triangles");
+    for &i in &tris {
+        assert_eq!(words[i + 1], page, "same shared glyph page");
+        assert_eq!(words[i + 11], tint, "same tint as the TEX_QUAD path");
+        // The quad is the turned cell: corners on [96, 112]^2.
+        for v in 0..3 {
+            let (x, y) = decode_xy(words[i + 2 + v * 3]);
+            assert!([96, 112].contains(&x) && [96, 112].contains(&y));
+        }
+    }
+
+    ui.set_prop(t, spec::prop::OPACITY, 1.0);
+    let (_, frame) = render_frame(&mut ui);
+    for (x, y) in [(106, 97), (106, 104), (110, 110)] {
+        assert_eq!(
+            rgb_at(&frame, x, y),
+            [60, 120, 180],
+            "ink missing at ({x},{y})"
+        );
+    }
+    for (x, y) in [(101, 97), (101, 104), (98, 110), (106, 94), (114, 104)] {
+        assert_eq!(
+            rgb_at(&frame, x, y),
+            [0, 0, 0],
+            "ink outside the turned cell at ({x},{y})"
+        );
+    }
+}
+
+#[test]
+fn rotated_and_mirrored_runs_match_their_upright_run() {
+    // Two right-aligned lines with tracking and a line height above the
+    // cell. Turned 180 degrees about the box centre (120, 112) the run must
+    // be the upright run's pixels point-reflected; mirrored by scale-x -1,
+    // reflected about x = 120. Glyph coverage is an asymmetric gradient,
+    // so a misplaced, unturned or unmirrored cell shows.
+    let mut ui = Ui::new();
+    assert!(ui.load_font_atlas(&coverage_atlas(
+        &[('A' as u32, 0, 7), ('B' as u32, 1, 6)],
+        |gid, row, col| {
+            let v = (row * 8 + col) as u8 * 4;
+            if gid == 0 {
+                v
+            } else {
+                255 - v
+            }
+        },
+    )));
+    let t = placed_text(
+        &mut ui,
+        "AB\nBAB",
+        100.0,
+        100.0,
+        &[
+            (spec::prop::WIDTH, 40.0),
+            (spec::prop::TEXT_COLOR, abgr(255, 255, 255, 255) as f64),
+            (spec::prop::TRACKING, 1.0),
+            (spec::prop::LINE_HEIGHT, 12.0),
+            (spec::prop::TEXT_ALIGN, spec::TextAlign::Right as u32 as f64),
+        ],
+    );
+    ui.insert_before(spec::ROOT_ID, t, 0);
+    ui.tick();
+    assert_eq!(ui.layout_of(t).unwrap(), (100.0, 100.0, 40.0, 24.0));
+    let (words, upright) = render_frame(&mut ui);
+    assert_eq!(
+        validate_drawlist(&words)[spec::draw_op::GLYPH_RUN as usize],
+        1
+    );
+    let inked = (100..140)
+        .flat_map(|x| (100..124).map(move |y| (x, y)))
+        .filter(|&(x, y)| rgb_at(&upright, x, y) != [0, 0, 0])
+        .count();
+    assert!(inked > 100, "the upright run draws ink");
+
+    type Reflect = fn(usize, usize) -> (usize, usize);
+    let cases: [(u8, f64, f64, Reflect); 2] = [
+        (spec::prop::ROTATE, 180.0, 0.0, |x, y| (239 - x, 223 - y)),
+        (spec::prop::SCALE_X, -1.0, 1.0, |x, y| (239 - x, y)),
+    ];
+    for (prop, value, reset, reflect) in cases {
+        ui.set_prop(t, prop, value);
+        let (words, turned) = render_frame(&mut ui);
+        let counts = validate_drawlist(&words);
+        assert_eq!(counts[spec::draw_op::GLYPH_RUN as usize], 0);
+        assert_eq!(counts[spec::draw_op::TEX_TRI as usize], 10, "5 cells");
+        for x in 96..144 {
+            for y in 96..128 {
+                let (rx, ry) = reflect(x, y);
+                let (a, b) = (rgb_at(&upright, x, y), rgb_at(&turned, rx, ry));
+                for c in 0..3 {
+                    assert!(
+                        a[c].abs_diff(b[c]) <= 2,
+                        "prop {prop}={value}: ({x},{y}) {a:?} vs ({rx},{ry}) {b:?}"
+                    );
+                }
+            }
+        }
+        ui.set_prop(t, prop, reset);
+    }
+}
+
+#[test]
+fn skewed_glyphs_slant() {
+    // A glyph inked in its left column only, skewed 45 degrees about the
+    // cell centre (104, 104): the column's top row moves 4 px left and its
+    // bottom row 4 px right.
+    let mut ui = Ui::new();
+    assert!(
+        ui.load_font_atlas(&coverage_atlas(&[('A' as u32, 0, 8)], |_, _, col| {
+            if col == 0 {
+                255
+            } else {
+                0
+            }
+        }))
+    );
+    let t = placed_text(
+        &mut ui,
+        "A",
+        100.0,
+        100.0,
+        &[
+            (spec::prop::WIDTH, 8.0),
+            (spec::prop::HEIGHT, 8.0),
+            (spec::prop::TEXT_COLOR, abgr(255, 255, 255, 255) as f64),
+            (spec::prop::SKEW_X, 45.0),
+        ],
+    );
+    ui.insert_before(spec::ROOT_ID, t, 0);
+    ui.tick();
+    let (words, frame) = render_frame(&mut ui);
+    assert_eq!(
+        validate_drawlist(&words)[spec::draw_op::TEX_TRI as usize],
+        2
+    );
+    let ink = |x: usize, y: usize| rgb_at(&frame, x, y)[0] > 0;
+    // Top row y = 100 holds the column near x = 96, bottom row y = 107
+    // near x = 103.
+    assert!((95..99).any(|x| ink(x, 100)) && !(101..110).any(|x| ink(x, 100)));
+    assert!((102..106).any(|x| ink(x, 107)) && !(94..101).any(|x| ink(x, 107)));
+}
+
+#[test]
+fn rotated_glyphs_clip_to_the_overflow_box_and_the_viewport() {
+    // Cells outside the clip rect are dropped; the others are clipped to the
+    // viewport and drawn inside the overflow box's SCISSOR, which clips
+    // their pixels.
+    let mut ui = Ui::new();
+    assert!(ui.load_font_atlas(&coverage_atlas(&[('A' as u32, 0, 8)], |_, _, _| 255)));
+    let props = [
+        (spec::prop::TEXT_COLOR, abgr(255, 255, 255, 255) as f64),
+        (spec::prop::SCALE, 2.0),
+        (spec::prop::ROTATE, 30.0),
+    ];
+    // An overflow-hidden 20x20 box at (100, 100) holding a run that leaves
+    // it.
+    let clip = ui.create_node(0);
+    for (p, v) in [
+        (spec::prop::WIDTH, 20.0),
+        (spec::prop::HEIGHT, 20.0),
+        (spec::prop::POS_TYPE, spec::PosType::Absolute as u32 as f64),
+        (spec::prop::INSET_L, 100.0),
+        (spec::prop::INSET_T, 100.0),
+        (spec::prop::OVERFLOW, spec::Overflow::Hidden as u8 as f64),
+    ] {
+        ui.set_prop(clip, p, v);
+    }
+    let inner = placed_text(&mut ui, "AAAAAAAA", -6.0, 2.0, &props);
+    ui.insert_before(clip, inner, 0);
+    ui.insert_before(spec::ROOT_ID, clip, 0);
+    // A run crossing the viewport's top-left corner.
+    let corner = placed_text(&mut ui, "AAAA", -10.0, -6.0, &props);
+    ui.insert_before(spec::ROOT_ID, corner, 1);
+    ui.tick();
+    let (words, frame) = render_frame(&mut ui);
+    let scissor = words
+        .iter()
+        .position(|&w| w == spec::draw_op::SCISSOR)
+        .unwrap();
+    let pop = words
+        .iter()
+        .position(|&w| w == spec::draw_op::SCISSOR_POP)
+        .unwrap();
+    assert_eq!(decode_xy(words[scissor + 1]), (100, 100));
+    assert_eq!(decode_wh(words[scissor + 2]), (20, 20));
+    let tris = tex_tri_ops(&words);
+    let (inside, outside): (Vec<usize>, Vec<usize>) =
+        tris.iter().partition(|&&i| i > scissor && i < pop);
+    assert_eq!(inside.len(), 4, "two of the eight cells reach the box");
+    assert!(outside.len() > 2);
+    // Ink inside the box, none in the 10 px ring around it, which the
+    // unclipped run covers in part.
+    let ink = |frame: &[u8], inside: bool| {
+        (90..130)
+            .flat_map(|x| (90..130).map(move |y| (x, y)))
+            .filter(|&(x, y)| {
+                let in_box = (100..120).contains(&x) && (100..120).contains(&y);
+                in_box == inside && rgb_at(frame, x, y) != [0, 0, 0]
+            })
+            .count()
+    };
+    assert!(ink(&frame, true) > 0);
+    assert_eq!(ink(&frame, false), 0);
+    // The corner run keeps its on-screen part (validate_drawlist checked
+    // that every vertex is inside the viewport).
+    assert_eq!(rgb_at(&frame, 1, 1), [255, 255, 255]);
+    ui.set_prop(
+        clip,
+        spec::prop::OVERFLOW,
+        spec::Overflow::Visible as u8 as f64,
+    );
+    let (_, unclipped) = render_frame(&mut ui);
+    assert!(ink(&unclipped, false) > 0);
+}
+
+#[test]
+fn moving_inner_clip_does_not_resample_visible_rotated_glyph_ink() {
+    for density in [1, 2] {
+        for rotate in [3.0, 17.0, 30.0] {
+            let mut ui = Ui::new_with_raster_density(density);
+            let mut atlas = encode_atlas_version_density(
+                spec::font_atlas::VERSION,
+                density as u8,
+                0,
+                8,
+                8,
+                7,
+                8,
+                1,
+                &[('A' as u32, 0, 8)],
+            );
+            for (i, coverage) in atlas[24..].iter_mut().enumerate() {
+                *coverage = (i % 8 * 31) as u8;
+            }
+            assert!(ui.load_font_atlas(&atlas));
+            let parent = ui.create_node(0);
+            for (p, v) in [(spec::prop::WIDTH, 24.0), (spec::prop::HEIGHT, 16.0)] {
+                ui.set_prop(parent, p, v);
+            }
+            let text = ui.create_node(spec::NodeType::Text as u8);
+            ui.set_text(text, "AA");
+            for (p, v) in [
+                (spec::prop::WIDTH, 16.0),
+                (spec::prop::HEIGHT, 8.0),
+                (spec::prop::ROTATE, rotate),
+                (spec::prop::TRANSLATE_X, 3.37),
+                (spec::prop::TRANSLATE_Y, 4.0),
+            ] {
+                ui.set_prop(text, p, v);
+            }
+            ui.insert_before(parent, text, 0);
+            ui.insert_before(spec::ROOT_ID, parent, 0);
+            ui.tick();
+            let (_, reference) = render_frame(&mut ui);
+            let (pixels, _) = reference.as_chunks::<4>();
+            assert!(pixels.iter().any(|pixel| pixel[..] != reference[..4]));
+            ui.set_prop(
+                parent,
+                spec::prop::OVERFLOW,
+                spec::Overflow::Hidden as u8 as f64,
+            );
+            for width in 8..16 {
+                ui.set_prop(parent, spec::prop::WIDTH, width as f64);
+                let (_, pixels) = render_frame(&mut ui);
+                for y in 0..16 {
+                    for x in 0..width {
+                        let at = (y * spec::SCREEN_W as usize + x) * 4;
+                        assert_eq!(
+                            &pixels[at..at + 4],
+                            &reference[at..at + 4],
+                            "density={density} rotate={rotate} clip={width} pixel={x},{y}"
+                        );
+                    }
+                    for x in width..24 {
+                        let at = (y * spec::SCREEN_W as usize + x) * 4;
+                        assert_eq!(&pixels[at..at + 4], &reference[..4]);
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[test]
 fn rounded_corner_masks_follow_raster_density_without_changing_layout() {
     let mut ui = Ui::new_with_raster_density(2);
@@ -4404,8 +4808,6 @@ fn tracked_and_transformed_runs_use_the_baked_pair_on_both_sides() {
     // pair (transformed subtree), so the box AND the glyphs are atlas
     // metrics. Never native box + baked glyphs.
     let rotated = ui.create_node(spec::NodeType::Text as u8);
-    // Small explicit width keeps the rotated cells on-screen (off-screen
-    // cells are dropped, which would empty the run).
     ui.set_prop(rotated, spec::prop::WIDTH, 20.0);
     ui.set_prop(rotated, spec::prop::ROTATE, 45.0);
     ui.set_text(rotated, "AB");
@@ -4423,11 +4825,15 @@ fn tracked_and_transformed_runs_use_the_baked_pair_on_both_sides() {
     let words = ui.draw().words.clone();
     let counts = validate_drawlist(&words);
     assert_eq!(counts[spec::draw_op::TEXT_RUN as usize], 0);
-    assert_eq!(counts[spec::draw_op::GLYPH_RUN as usize], 2);
+    assert_eq!(counts[spec::draw_op::GLYPH_RUN as usize], 1);
     assert_eq!(
         counts[spec::draw_op::TEX_QUAD as usize],
         1,
         "scaled baked glyph uses a textured cell"
+    );
+    assert!(
+        counts[spec::draw_op::TEX_TRI as usize] >= 4,
+        "rotated baked glyphs use textured triangles"
     );
     // Column layout: width cross-stretches, so the measurement provider is
     // observable through the main-axis HEIGHT. All three leaves measured
@@ -4507,7 +4913,7 @@ fn provider_re_decides_within_the_same_draw_after_a_paint_only_transform() {
     ui.tick();
     let counts = validate_drawlist(&ui.draw().words.clone());
     assert_eq!(counts[spec::draw_op::TEXT_RUN as usize], 0);
-    assert_eq!(counts[spec::draw_op::GLYPH_RUN as usize], 1);
+    assert!(counts[spec::draw_op::TEX_TRI as usize] > 0);
     assert_eq!(
         ui.layout_of(t).unwrap().3,
         10.0,
@@ -4520,6 +4926,7 @@ fn provider_re_decides_within_the_same_draw_after_a_paint_only_transform() {
     let counts = validate_drawlist(&ui.draw().words.clone());
     assert_eq!(counts[spec::draw_op::TEXT_RUN as usize], 1);
     assert_eq!(counts[spec::draw_op::GLYPH_RUN as usize], 0);
+    assert_eq!(counts[spec::draw_op::TEX_TRI as usize], 0);
     assert_eq!(ui.layout_of(t).unwrap().3, 12.0, "box re-measured natively");
 }
 
