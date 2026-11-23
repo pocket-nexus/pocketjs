@@ -156,7 +156,20 @@ The provider wraps the complete root view; nested overrides are rejected.
 
 Static `class` strings and ternaries with full class literal leaves become
 style IDs. A `StyleClass` prop forwards a compiled class selection to a child.
-`style` accepts an object of numeric host properties. See
+`style` accepts an object of numeric host properties on `View`; **on `Text` it
+accepts `textColor` and `opacity`**, the paint properties that change no
+measured size. `Image` takes `src="name.png"` or a ternary whose leaves are
+string literals; the compiler bakes and registers every leaf, and rejects a
+`src` that reads a string value. The image does not size the node's layout
+box. On a sprite-layer host (GBA), a ternary `src` and a runtime `Text`
+`style` binding are compile errors; use a `<Show>` branch per alternative.
+
+```tsx
+<Text style={{ textColor: percent() < 20 ? "#dc2626" : "#0f172a" }}>{percent()}%</Text>
+<Image class="w-6 h-6" src={charging() ? "battery-charging.png" : "battery.png"} />
+```
+
+See
 [TypeScript support](/docs/typescript-support/#numbers) for numeric types,
 units and arithmetic, and the [expression comparison](/docs/typescript-support/#view-and-model-expressions)
 for built-ins and optional array indexing.
@@ -220,6 +233,8 @@ Solid style meets these first:
 | `Child component imports require the .tsx extension` | `import Row from "./Row"`. The extensionless path names the model module |
 | `Text and interpolation must appear inside Text` | A string or `{value()}` is a child of a `View` |
 | `Boolean text is outside the view subset; use a string ternary` | `{flag()}` inside `Text`. Write `{flag() ? "ON" : "OFF"}` |
+| `src requires a string literal attribute or a ternary with string literal leaves` | `src={icon()}` reads a string value. Name every image as a leaf: `src={on() ? "on.png" : "off.png"}` |
+| `Text style accepts textColor and opacity` | A `Text` `style` names a layout or font property. Use classes, or put the property on a parent `View` |
 | `onPress requires a focusable View` | The `View` lacks the bare `focusable` attribute. An `ActionHandler` binds a named button without it |
 | `Cannot find module 'solid-js'` or `'@pocketjs/framework/animation'` | A project outside a framework checkout lacks the package under `node_modules`. Declare `solid-js` and `@pocketjs/framework` in the project's `package.json`, as `pocket create` writes them |
 

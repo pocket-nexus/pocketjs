@@ -296,6 +296,32 @@ export function planLayout(program: AotProgram, component: AotComponent, expande
     }
   };
   find(expanded, true, false);
+  // A sprite-layer host shows a background baked once plus the sprite layers
+  // planned inside layout-baked pages; paint that changes elsewhere would
+  // stay frozen in the background.
+  if (environment?.spriteLayers) {
+    const reject = (loc: SourceLocation, message: string): never => { throw new AotCompileError([{ ...loc, severity: "error", message: `gba layers: ${message}` }]); };
+    const live = (nodes: AotNode[]): void => {
+      for (const node of nodes) {
+        if (node.kind === "element") {
+          if (roots.some(root => root.node === node)) continue;
+          const name = node.debugName ? `${node.tag} "${node.debugName}"` : `<${node.tag}>`;
+          if (node.dynamicSrc) reject(node.loc, `${name}: a conditional src outside a layout-baked page has no sprite layer; use a <Show> branch per image inside one`);
+          const binding = node.tag === "Text" ? node.props.find(p => p.value.kind !== "literal" && constantNumber(p.value) === null) : undefined;
+          if (binding) reject(node.loc, `${name}: a runtime ${binding.name} binding outside a layout-baked page has no sprite layer`);
+          live(node.children);
+        } else if (node.kind === "if") for (const branch of node.branches) live(branch.children);
+        else if (node.kind === "for" || node.kind === "input") live(node.children);
+        else if (node.kind === "slot") live(node.fallback);
+        else if (node.kind === "component") {
+          node.slots.forEach(slot => live(slot.children));
+          if (!visited.has(node.component)) { visited.add(node.component); live(program.components.find(item => item.name === node.component)?.nodes ?? []); }
+        }
+      }
+    };
+    const visited = new Set<string>();
+    live(expanded);
+  }
   if (!roots.length) return plan;
   if (!environment) fail(roots[0]!.node.loc, "the build has no layout environment (viewport, font atlases and pocketjs.wasm); pass buildAot({ layoutEnvironment })");
   const writes = modelWrites(program.model);
