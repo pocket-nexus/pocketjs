@@ -401,7 +401,7 @@ its own stack for the Runtime.
 
 **The generated `load_fonts` and `load_images` copy their data into the
 heap.** `Ui::load_font_atlas` parses each atlas into an owned buffer and
-`upload_texture` copies the pixels, while the `include_bytes!` originals stay
+`upload_img_entry` copies the pixels, while the `include_bytes!` originals stay
 in flash. A library that needs the atlases in place writes its own loader
 over `load_font_atlas_shared`. A `DisplayOutput` that keeps a full frame, as
 the iPod nano program's does, holds two bytes per RGB565 pixel: 153,600 bytes

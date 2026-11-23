@@ -44,7 +44,7 @@ import { buildWorker } from "./build-worker.ts";
 import { existsSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { resolve as resolvePath, join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { IMG_FLAG_LINEAR, PSM } from "../contracts/spec/spec.ts";
+import { PSM } from "../contracts/spec/spec.ts";
 import {
   FRAMEWORKS,
   frameworkVariantPath,
@@ -66,16 +66,15 @@ import { registerAnimationTheme, setAnimationTickRate } from "../framework/compi
 import { compileClasses, generateStylesModule, suspectClassLiteral, unknownUtilities } from "../framework/compiler/tailwind.ts";
 import { bakeAtlases } from "../framework/compiler/bake-font.ts";
 import { readFontConfig } from "../framework/compiler/font-config.ts";
-import { bakeSvg } from "../framework/compiler/bake-svg.ts";
 import {
-  assertDensityVariantDimensions,
   densityVariantPath,
+  encodeStaticImage,
+  loadRasterImage,
+  readImageManifest,
 } from "../framework/compiler/raster-assets.ts";
 import {
   PAK_DTYPE,
   KEY_STYLES,
-  decodePng,
-  encodeImageEntry,
   encodeSpriteEntry,
   keyFont,
   keyImage,
@@ -449,16 +448,8 @@ const spriteMeta: Record<string, SpriteMeta> = existsSync(spriteManifestPath)
 // Optional per-app static-image meta: <appDir>/images.json maps an asset
 // name to { linear?, psm? }. `linear` bakes IMG_FLAG_LINEAR so the core
 // samples it bilinearly (rotated or scaled art); psm 2
-// selects PSM_4444. Absent file or name = today's defaults, byte-identical.
-interface ImageMeta {
-  linear?: boolean;
-  psm?: number;
-}
-const imageManifestPath = join(appDir, "images.json");
-buildInputs.optional(imageManifestPath);
-const imageMeta: Record<string, ImageMeta> = existsSync(imageManifestPath)
-  ? (JSON.parse(await Bun.file(imageManifestPath).text()) as Record<string, ImageMeta>)
-  : {};
+// selects PSM_4444. Absent file or name = PSM_8888, nearest sampling.
+const imageMeta = readImageManifest(join(appDir, "images.json"), buildInputs);
 const imageNames = classStrings.filter((s) => /^[\w./-]+\.(?:png|svg)$/i.test(s));
 for (const name of imageNames) {
   const candidates = [join(appDir, name), join(ROOT, "assets/images/", name), join(ROOT, "assets/", name)];
@@ -466,32 +457,24 @@ for (const name of imageNames) {
   const found = candidates.find((c) => existsSync(c));
   let img;
   if (found) {
+    // Static images and sprite atlases share the same @Nx convention. A
+    // sprite's frame grid stays logical because every atlas dimension is
+    // scaled by the same integer density.
+    const loaded = loadRasterImage(found, rasterDensity, buildInputs);
+    img = loaded.image;
     if (/\.svg$/i.test(found)) {
-      img = bakeSvg(await Bun.file(found).text(), rasterDensity);
       console.log(
         `  image: ${name} <- ${found} (${img.width}x${img.height}, svg @${rasterDensity}x)`,
       );
+    } else if (loaded.base) {
+      console.log(
+        `  image: ${name} <- ${loaded.source} (${img.width}x${img.height}, @${rasterDensity}x for ${loaded.base.width}x${loaded.base.height})`,
+      );
     } else {
-      const base = decodePng(new Uint8Array(await Bun.file(found).arrayBuffer()));
-      // Static images and sprite atlases share the same @Nx convention. A
-      // sprite's frame grid stays logical because every atlas dimension is
-      // scaled by the same integer density.
-      const variant = densityVariantPath(found, rasterDensity);
-      buildInputs.optional(variant);
-      if (variant !== found && existsSync(variant)) {
-        const highDensity = decodePng(new Uint8Array(await Bun.file(variant).arrayBuffer()));
-        assertDensityVariantDimensions(base, highDensity, rasterDensity, found, variant);
-        img = highDensity;
-        console.log(
-          `  image: ${name} <- ${variant} (${img.width}x${img.height}, @${rasterDensity}x for ${base.width}x${base.height})`,
-        );
-      } else {
-        img = base;
-        console.log(
-          `  image: ${name} <- ${found} (${img.width}x${img.height}` +
-            `${rasterDensity > 1 ? `, 1x fallback (no ${variant})` : ""})`,
-        );
-      }
+      console.log(
+        `  image: ${name} <- ${found} (${img.width}x${img.height}` +
+          `${rasterDensity > 1 ? `, 1x fallback (no ${densityVariantPath(found, rasterDensity)})` : ""})`,
+      );
     }
   } else {
     img = placeholderImage();
@@ -517,13 +500,12 @@ for (const name of imageNames) {
     console.log(`  sprite: ${name} (${sp.frames} frames, ${sp.cols} cols, step ${sp.step}, psm ${sp.psm ?? PSM.PSM_8888})`);
   } else {
     const meta = imageMeta[name];
-    const flags = meta?.linear ? IMG_FLAG_LINEAR : 0;
     blobs.push({
       key: keyImage(name),
       dtype: PAK_DTYPE.u8,
-      data: encodeImageEntry(img, meta?.psm ?? PSM.PSM_8888, flags),
+      data: encodeStaticImage(img, meta),
     });
-    if (flags) console.log(`  image: ${name} sampled linear (images.json)`);
+    if (meta?.linear) console.log(`  image: ${name} sampled linear (images.json)`);
   }
 }
 

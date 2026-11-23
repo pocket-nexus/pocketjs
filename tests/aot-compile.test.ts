@@ -7,6 +7,10 @@ import { resolveAppPlan } from "../framework/compiler/app-plan.ts";
 import { profileRegistry } from "../tools/profile-resolver.ts";
 import { POCKET_PROFILES } from "../hosts/index.ts";
 import { analyzeAot } from "../microts/compiler/aot-build.ts";
+import { parsePocketProfile } from "../framework/src/profile.ts";
+import { decodePng, encodeImageEntry } from "../framework/compiler/pak.ts";
+import { IMG_FLAG_LINEAR, PSM } from "../contracts/spec/spec.ts";
+import { encodePNG } from "../tools/png.ts";
 const gba = POCKET_PROFILES["gba"];
 
 const ROOT = resolve(import.meta.dir, "..");
@@ -48,7 +52,7 @@ describe("AOT application artifact", () => {
         expect(generated).toContain("mod.rs");
         expect(generated).toContain("app_model.rs");
         expect(generated.some(file => /font-\d+\.bin$/.test(file))).toBe(true);
-        expect(generated.filter(file => file.endsWith(".rgba"))).toHaveLength(9);
+        expect(generated.filter(file => file.endsWith(".img"))).toHaveLength(9);
         expect(generated.some(file => /\.(?:js|pocket|wasm|elf|gba|a|rock)$/.test(file))).toBe(false);
         expect(readFileSync(join(out, "include.rs"), "utf8")).not.toContain(directory);
         const dependencies = JSON.parse(readFileSync(join(out, "dependencies.json"), "utf8"));
@@ -93,6 +97,43 @@ import {label} from './App';
       expect(result.dependencies).toContain(join(project, "main.ts"));
       expect(result.dependencies).toContain(configPath);
       expect(result.files).toContain(join(project, "out/include.rs"));
+    } finally { rmSync(project, { recursive: true, force: true }); }
+  }, 120_000);
+
+  test("images bake from the guest build's inputs: @Nx sibling, images.json format and sampling, texture size check", async () => {
+    const project = temporary();
+    try {
+      const profile = parsePocketProfile({ format: "pocket-host/2", id: "aot-density-2", platform: "esp-idf", form: "takeover", cadences: [30],
+        display: { logicalViewports: [[160, 120]], presentations: ["native"], rasterDensity: 2, animation: "repaint" },
+        panel: { primary: [320, 240] }, capabilities: ["input.buttons", "text.glyphs.baked"] });
+      const app = { id: "dev.test.aot-images", title: "AOT images", version: "1.0.0", features: ["text.glyphs.baked"],
+        entry: "app.tsx", framework: "solid", aot: true, viewport: { logical: [160, 120], presentation: "native" } } as const;
+      const resolved = resolveAppPlan(app, { target: profile.id }, profileRegistry(profile));
+      if (!resolved.ok) throw new Error(JSON.stringify(resolved.diagnostics));
+      const png = (path: string, width: number, height: number, value: number) =>
+        writeFileSync(join(project, path), encodePNG(new Uint8Array(width * height * 4).fill(value), width, height));
+      writeFileSync(join(project, "app.tsx"), `import {Image, View} from '@pocketjs/framework/solid/components';\nexport default function App(){return <View class="w-full h-full"><Image class="w-8 h-8" src="logo.png"/></View>}`);
+      png("logo.png", 32, 32, 0x40);
+      png("logo@2x.png", 64, 64, 0xc0);
+      writeFileSync(join(project, "images.json"), JSON.stringify({ "logo.png": { psm: PSM.PSM_4444, linear: true } }));
+      const out = join(project, "out");
+      const result = await compileAot({ plan: resolved.plan, projectRoot: project, outdir: out });
+      expect(readFileSync(join(out, "include.rs"), "utf8")).toContain(`{ let id = ui.core_mut().upload_img_entry(include_bytes!("images/image-0.img")); assert!(id >= 0); ui.register_image("logo.png", id); }`);
+      const entry = readFileSync(join(out, "images/image-0.img"));
+      expect([entry.readUInt16LE(0), entry.readUInt16LE(2), entry[4], entry[5], entry.length]).toEqual([64, 64, PSM.PSM_4444, IMG_FLAG_LINEAR, 8 + 64 * 64 * 2]);
+      expect(entry.equals(encodeImageEntry(decodePng(readFileSync(join(project, "logo@2x.png"))), PSM.PSM_4444, IMG_FLAG_LINEAR))).toBe(true);
+      expect(result.dependencies).toContain(join(project, "logo@2x.png"));
+      expect(result.dependencies).toContain(join(project, "images.json"));
+      const dependencies = JSON.parse(readFileSync(result.dependencyManifest, "utf8"));
+      expect(dependencies.outputs.find((output: { file: string }) => output.file === "images/image-0.img").sources)
+        .toEqual(expect.arrayContaining([join(project, "logo.png"), join(project, "logo@2x.png"), join(project, "images.json")]));
+      expect(readFileSync(join(out, "dependencies.d"), "utf8")).toContain(join(project, "logo@2x.png"));
+
+      png("logo@2x.png", 60, 60, 0xc0);
+      await expect(compileAot({ plan: resolved.plan, projectRoot: project, outdir: out })).rejects.toThrow(`density asset ${join(project, "logo@2x.png")} is 60x60; expected 64x64`);
+      rmSync(join(project, "logo@2x.png"));
+      png("logo.png", 100, 60, 0x40);
+      await expect(compileAot({ plan: resolved.plan, projectRoot: project, outdir: out })).rejects.toThrow("pak image: dims must be pow2 <= 512, got 100x60");
     } finally { rmSync(project, { recursive: true, force: true }); }
   }, 120_000);
 
