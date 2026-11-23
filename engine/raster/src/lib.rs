@@ -150,10 +150,33 @@ fn fill_opaque_span<const ARGB: bool>(span: &mut [u8], r: u32, g: u32, b: u32) {
 
 /// Opaque framebuffer target. `blend` performs integer src-over compositing;
 /// concrete targets differ only in storage format.
+///
+/// The span methods write consecutive pixels of one row and equal one
+/// `blend` call per pixel. A target maps the span to its storage once, so
+/// the interpreter's loops pay no address arithmetic or format dispatch per
+/// pixel.
 trait RenderTarget {
     fn pixel_len(&self) -> usize;
     fn blend(&mut self, offset: usize, r: u32, g: u32, b: u32, a: u32);
     fn fill_opaque(&mut self, start: usize, len: usize, r: u32, g: u32, b: u32);
+
+    /// Blend one colour over `len` pixels from `start`.
+    #[inline]
+    fn blend_fill(&mut self, start: usize, len: usize, r: u32, g: u32, b: u32, a: u32) {
+        for offset in start..start + len {
+            self.blend(offset, r, g, b, a);
+        }
+    }
+
+    /// Blend `colors` (`r | g << 8 | b << 16 | a << 24`, the DrawList colour
+    /// word) over the pixels from `start`.
+    #[inline]
+    fn blend_span(&mut self, start: usize, colors: &[u32]) {
+        for (index, &color) in colors.iter().enumerate() {
+            let (r, g, b, a) = channels(color);
+            self.blend(start + index, r, g, b, a);
+        }
+    }
 
     #[inline]
     fn clear_black(&mut self) {
@@ -164,6 +187,28 @@ trait RenderTarget {
 
 struct RgbaTarget<'a, const ARGB: bool> {
     bytes: &'a mut [u8],
+}
+
+/// `RgbaTarget::blend` on one pixel's bytes.
+#[inline]
+fn blend_rgba_pixel<const ARGB: bool>(pixel: &mut [u8; 4], r: u32, g: u32, b: u32, a: u32) {
+    let (ri, gi, bi, ai) = if ARGB { (2, 1, 0, 3) } else { (0, 1, 2, 3) };
+    if a >= 255 {
+        pixel[ri] = r as u8;
+        pixel[gi] = g as u8;
+        pixel[bi] = b as u8;
+        pixel[ai] = 255;
+        return;
+    }
+    if a == 0 {
+        return;
+    }
+    let ia = 255 - a;
+    let mix = |s: u32, d: u8| ((s * a + d as u32 * ia + 127) / 255) as u8;
+    pixel[ri] = mix(r, pixel[ri]);
+    pixel[gi] = mix(g, pixel[gi]);
+    pixel[bi] = mix(b, pixel[bi]);
+    pixel[ai] = 255;
 }
 
 impl<const ARGB: bool> RenderTarget for RgbaTarget<'_, ARGB> {
@@ -204,6 +249,23 @@ impl<const ARGB: bool> RenderTarget for RgbaTarget<'_, ARGB> {
         let byte_start = start * 4;
         fill_opaque_span::<ARGB>(&mut self.bytes[byte_start..byte_start + len * 4], r, g, b);
     }
+
+    #[inline]
+    fn blend_fill(&mut self, start: usize, len: usize, r: u32, g: u32, b: u32, a: u32) {
+        let span = &mut self.bytes[start * 4..(start + len) * 4];
+        for pixel in span.as_chunks_mut::<4>().0.iter_mut() {
+            blend_rgba_pixel::<ARGB>(pixel, r, g, b, a);
+        }
+    }
+
+    #[inline]
+    fn blend_span(&mut self, start: usize, colors: &[u32]) {
+        let span = &mut self.bytes[start * 4..(start + colors.len()) * 4];
+        for (pixel, &color) in span.as_chunks_mut::<4>().0.iter_mut().zip(colors) {
+            let (r, g, b, a) = channels(color);
+            blend_rgba_pixel::<ARGB>(pixel, r, g, b, a);
+        }
+    }
 }
 
 /// RGBA8 target that keeps coverage. The colour bytes are premultiplied: they
@@ -212,6 +274,24 @@ impl<const ARGB: bool> RenderTarget for RgbaTarget<'_, ARGB> {
 /// `a + da × (1 − a)` with the same rounding.
 struct PremultipliedTarget<'a> {
     bytes: &'a mut [u8],
+}
+
+/// `PremultipliedTarget::blend` on one pixel's bytes.
+#[inline]
+fn blend_premultiplied_pixel(pixel: &mut [u8; 4], r: u32, g: u32, b: u32, a: u32) {
+    if a >= 255 {
+        *pixel = [r as u8, g as u8, b as u8, 255];
+        return;
+    }
+    if a == 0 {
+        return;
+    }
+    let ia = 255 - a;
+    let mix = |s: u32, d: u8| ((s * a + d as u32 * ia + 127) / 255) as u8;
+    pixel[0] = mix(r, pixel[0]);
+    pixel[1] = mix(g, pixel[1]);
+    pixel[2] = mix(b, pixel[2]);
+    pixel[3] = mix(255, pixel[3]);
 }
 
 impl RenderTarget for PremultipliedTarget<'_> {
@@ -250,6 +330,23 @@ impl RenderTarget for PremultipliedTarget<'_> {
     fn fill_opaque(&mut self, start: usize, len: usize, r: u32, g: u32, b: u32) {
         let byte_start = start * 4;
         fill_opaque_span::<false>(&mut self.bytes[byte_start..byte_start + len * 4], r, g, b);
+    }
+
+    #[inline]
+    fn blend_fill(&mut self, start: usize, len: usize, r: u32, g: u32, b: u32, a: u32) {
+        let span = &mut self.bytes[start * 4..(start + len) * 4];
+        for pixel in span.as_chunks_mut::<4>().0.iter_mut() {
+            blend_premultiplied_pixel(pixel, r, g, b, a);
+        }
+    }
+
+    #[inline]
+    fn blend_span(&mut self, start: usize, colors: &[u32]) {
+        let span = &mut self.bytes[start * 4..(start + colors.len()) * 4];
+        for (pixel, &color) in span.as_chunks_mut::<4>().0.iter_mut().zip(colors) {
+            let (r, g, b, a) = channels(color);
+            blend_premultiplied_pixel(pixel, r, g, b, a);
+        }
     }
 
     /// The clear of this target is transparent: nothing is covered yet.
@@ -328,6 +425,24 @@ impl RenderTarget for Rgb565Target<'_> {
     fn fill_opaque(&mut self, start: usize, len: usize, r: u32, g: u32, b: u32) {
         self.pixels[start..start + len].fill(pack_rgb565(r, g, b));
     }
+
+    #[inline]
+    fn blend_fill(&mut self, start: usize, len: usize, r: u32, g: u32, b: u32, a: u32) {
+        for pixel in &mut self.pixels[start..start + len] {
+            blend_rgb565_pixel(pixel, r, g, b, a);
+        }
+    }
+
+    #[inline]
+    fn blend_span(&mut self, start: usize, colors: &[u32]) {
+        for (pixel, &color) in self.pixels[start..start + colors.len()]
+            .iter_mut()
+            .zip(colors)
+        {
+            let (r, g, b, a) = channels(color);
+            blend_rgb565_pixel(pixel, r, g, b, a);
+        }
+    }
 }
 
 impl Rgb565WindowTarget<'_> {
@@ -343,6 +458,18 @@ impl Rgb565WindowTarget<'_> {
             "raster write escaped the compact RGB565 window"
         );
         (y - self.origin_y) * self.width + (x - self.origin_x)
+    }
+
+    /// `local_offset` of the first of `len` pixels that lie in one window row.
+    #[inline]
+    fn span_offset(&self, start: usize, len: usize) -> usize {
+        let full_x = start % self.full_stride;
+        let local = self.local_offset(start);
+        assert!(
+            len <= self.origin_x + self.width - full_x,
+            "raster span crossed a compact RGB565 window row"
+        );
+        local
     }
 }
 
@@ -371,6 +498,32 @@ impl RenderTarget for Rgb565WindowTarget<'_> {
         );
         self.pixels[local..local + len].fill(pack_rgb565(r, g, b));
     }
+
+    #[inline]
+    fn blend_fill(&mut self, start: usize, len: usize, r: u32, g: u32, b: u32, a: u32) {
+        if len == 0 {
+            return;
+        }
+        let local = self.span_offset(start, len);
+        for pixel in &mut self.pixels[local..local + len] {
+            blend_rgb565_pixel(pixel, r, g, b, a);
+        }
+    }
+
+    #[inline]
+    fn blend_span(&mut self, start: usize, colors: &[u32]) {
+        if colors.is_empty() {
+            return;
+        }
+        let local = self.span_offset(start, colors.len());
+        for (pixel, &color) in self.pixels[local..local + colors.len()]
+            .iter_mut()
+            .zip(colors)
+        {
+            let (r, g, b, a) = channels(color);
+            blend_rgb565_pixel(pixel, r, g, b, a);
+        }
+    }
 }
 
 /// Fill an already-clipped span rect with one flat color.
@@ -387,10 +540,9 @@ fn fill_rect<T: RenderTarget>(target: &mut T, stride: i32, c: Clip, color: u32) 
         }
         return;
     }
+    let row_pixels = (c.x1 - c.x0) as usize;
     for y in c.y0..c.y1 {
-        for x in c.x0..c.x1 {
-            target.blend((y * stride + x) as usize, r, g, b, a);
-        }
+        target.blend_fill((y * stride + c.x0) as usize, row_pixels, r, g, b, a);
     }
 }
 

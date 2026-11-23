@@ -8,8 +8,8 @@ use pocket_drivers::{
 use pocket_spec::{draw_op, psm};
 
 use super::{
-    blend_rgb565_pixel, clear_black_rect, fill_opaque_span, pack_rgb565, render_scaled_clipped,
-    Clip, RenderTarget, RgbaTarget, MAX_RENDER_SCALE,
+    blend_rgb565_pixel, blend_rgba_pixel, channels, clear_black_rect, fill_opaque_span,
+    pack_rgb565, render_scaled_clipped, Clip, RenderTarget, RgbaTarget, MAX_RENDER_SCALE,
 };
 
 const FORMATS: &[PixelFormat] = &[
@@ -483,6 +483,11 @@ struct SurfaceTarget<'a> {
     stride: usize,
     bytes_per_pixel: usize,
     geometry: Geometry,
+    /// The full-viewport offsets of the region's first pixel and of the
+    /// pixel after its last one, when the region holds whole viewport rows
+    /// without row padding (a strip of a strip display). An offset then maps
+    /// to its byte by one subtraction; other layouts divide by the width.
+    rows: Option<(usize, usize)>,
 }
 
 impl<'a> SurfaceTarget<'a> {
@@ -490,16 +495,34 @@ impl<'a> SurfaceTarget<'a> {
         let format = surface.format();
         let stride = surface.stride_bytes();
         let bytes_per_pixel = format.bits_per_pixel() / 8;
+        let width = geometry.width as usize;
+        let region = geometry.region;
+        let rows = (region.x0 == 0 && region.x1 == geometry.width && stride == width * bytes_per_pixel)
+            .then(|| (region.y0 as usize * width, region.y1 as usize * width));
         Self {
             pixels: surface.pixels_mut(),
             format,
             stride,
             bytes_per_pixel,
             geometry,
+            rows,
         }
     }
 
+    /// Byte offset of the pixel at `full_offset`. Panics unless `length`
+    /// pixels from it lie in one row of the acquired region.
+    #[inline]
     fn local_offset(&self, full_offset: usize, length: usize) -> usize {
+        if let Some((first, end)) = self.rows {
+            let width = self.geometry.width as usize;
+            assert!(
+                full_offset >= first
+                    && full_offset < end
+                    && (length <= 1 || length <= width - full_offset % width),
+                "raster write escaped the acquired surface"
+            );
+            return (full_offset - first) * self.bytes_per_pixel;
+        }
         let y = full_offset / self.geometry.width as usize;
         let x = full_offset % self.geometry.width as usize;
         let region = self.geometry.region;
@@ -515,11 +538,27 @@ impl<'a> SurfaceTarget<'a> {
     }
 }
 
+/// `blend_rgb565_pixel` on the two little-endian bytes of one pixel.
+#[inline]
+fn blend_rgb565_bytes(pixel: &mut [u8; 2], r: u32, g: u32, b: u32, a: u32) {
+    if a >= 255 {
+        *pixel = pack_rgb565(r, g, b).to_le_bytes();
+        return;
+    }
+    if a == 0 {
+        return;
+    }
+    let mut value = u16::from_le_bytes(*pixel);
+    blend_rgb565_pixel(&mut value, r, g, b, a);
+    *pixel = value.to_le_bytes();
+}
+
 impl RenderTarget for SurfaceTarget<'_> {
     fn pixel_len(&self) -> usize {
         self.geometry.width as usize * self.geometry.height as usize
     }
 
+    #[inline]
     fn blend(&mut self, offset: usize, r: u32, g: u32, b: u32, a: u32) {
         let local = self.local_offset(offset, 1);
         match self.format {
@@ -555,6 +594,64 @@ impl RenderTarget for SurfaceTarget<'_> {
             }
             PixelFormat::Rgba8888 => fill_opaque_span::<false>(span, r, g, b),
             PixelFormat::Argb8888 => fill_opaque_span::<true>(span, r, g, b),
+            _ => unreachable!("surface format validated before rendering"),
+        }
+    }
+
+    // The span methods resolve the row and the pixel format once; the loops
+    // below hold one format's blend each.
+
+    fn blend_fill(&mut self, start: usize, len: usize, r: u32, g: u32, b: u32, a: u32) {
+        if len == 0 || a == 0 {
+            return;
+        }
+        let local = self.local_offset(start, len);
+        let span = &mut self.pixels[local..local + len * self.bytes_per_pixel];
+        match self.format {
+            PixelFormat::Rgb565 => {
+                for pixel in span.as_chunks_mut::<2>().0.iter_mut() {
+                    blend_rgb565_bytes(pixel, r, g, b, a);
+                }
+            }
+            PixelFormat::Rgba8888 => {
+                for pixel in span.as_chunks_mut::<4>().0.iter_mut() {
+                    blend_rgba_pixel::<false>(pixel, r, g, b, a);
+                }
+            }
+            PixelFormat::Argb8888 => {
+                for pixel in span.as_chunks_mut::<4>().0.iter_mut() {
+                    blend_rgba_pixel::<true>(pixel, r, g, b, a);
+                }
+            }
+            _ => unreachable!("surface format validated before rendering"),
+        }
+    }
+
+    fn blend_span(&mut self, start: usize, colors: &[u32]) {
+        if colors.is_empty() {
+            return;
+        }
+        let local = self.local_offset(start, colors.len());
+        let span = &mut self.pixels[local..local + colors.len() * self.bytes_per_pixel];
+        match self.format {
+            PixelFormat::Rgb565 => {
+                for (pixel, &color) in span.as_chunks_mut::<2>().0.iter_mut().zip(colors) {
+                    let (r, g, b, a) = channels(color);
+                    blend_rgb565_bytes(pixel, r, g, b, a);
+                }
+            }
+            PixelFormat::Rgba8888 => {
+                for (pixel, &color) in span.as_chunks_mut::<4>().0.iter_mut().zip(colors) {
+                    let (r, g, b, a) = channels(color);
+                    blend_rgba_pixel::<false>(pixel, r, g, b, a);
+                }
+            }
+            PixelFormat::Argb8888 => {
+                for (pixel, &color) in span.as_chunks_mut::<4>().0.iter_mut().zip(colors) {
+                    let (r, g, b, a) = channels(color);
+                    blend_rgba_pixel::<true>(pixel, r, g, b, a);
+                }
+            }
             _ => unreachable!("surface format validated before rendering"),
         }
     }
