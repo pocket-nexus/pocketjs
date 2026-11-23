@@ -40,9 +40,10 @@ selects one native model implementation for the application.
 **The compiler reads no file to find these settings.** The build driver
 registers each application's `aot`, `model`, `recursionLimit`, `framework`
 and entry with `registerApplication` (`microts/compiler/aot-model-config.ts`)
-before compiling, keyed by the application directory: `pocket compile` and
-`tools/build.ts` from the host config or the build plan, the browser builds
-and the tests from their own data. Model lowering looks up the nearest
+before compiling, keyed by the real path of the application directory, so a
+project reached through a symbolic link is one application: `pocket compile`
+and `tools/build.ts` from the host config or the build plan, the browser
+builds and the tests from their own data. Model lowering looks up the nearest
 registered directory above a source file; a file outside every registered
 application compiles as an ordinary guest module.
 

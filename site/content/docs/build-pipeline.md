@@ -29,11 +29,11 @@ task segments.
 compile, the build driver registers each application's `aot`, `model`,
 `recursionLimit`, `framework`, entry, theme and tick rate with
 `registerApplication` (`microts/compiler/aot-model-config.ts`), keyed by the
-application directory; model lowering and the AOT frontends look up the
-nearest registered directory above a source file. `tools/build.ts --plan
---config=<file>` registers the config's `app` section and **rejects a plan
-whose model settings differ from it**; without `--config`, it registers the
-plan's settings for the entry's directory. Before pass 1 it sets the
+real path of the application directory; model lowering and the AOT frontends
+look up the nearest registered directory above a source file. `tools/build.ts
+--plan --config=<file>` registers the config's `app` section and **rejects a
+plan whose model settings differ from it**; without `--config`, it registers
+the plan's settings for the entry's directory. Before pass 1 it sets the
 application's theme and tick rate to the ones its style table bakes with, so
 **AOT admission in the guest build accepts the same class literals as
 `pocket compile --aot`**. Pass 1 registers the host config nearest each

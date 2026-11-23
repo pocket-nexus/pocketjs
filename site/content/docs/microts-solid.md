@@ -57,8 +57,13 @@ view contract and leaves the native model implementation to Rust.
 
 `Counter.tsx` imports its model from `./Counter`. Use one `Counter.ts` or
 `Counter.d.ts`, never both. Child view imports include the `.tsx` extension.
-A declaration module supplies signal defaults for browser previews; these
-mocks do not implement the Rust application's logic.
+**In an `aot: true` application, `./Counter` names the model from every
+module**: the entry or a `.ts` module that imports it receives `Counter.ts`,
+not the view, in the type check and in both build passes. An import written
+as `./Counter.tsx` or `./Counter.ts` names that file.
+A declaration module supplies signal defaults for browser previews, one
+module shared by every importer of `./Counter`; these mocks do not implement
+the Rust application's logic.
 
 ```ts
 // Counter.ts
@@ -211,6 +216,7 @@ Solid style meets these first:
 | `Component state and lifecycle belong to the basename module and the Rust model` | The view imports a Solid primitive other than `Show`, `Switch`, `Match`, `useContext`, `mergeProps` and `createMemo`. Move `createSignal` and effects to `Name.ts`; take `onMount` and `onCleanup` from `@pocketjs/framework/solid/lifecycle` |
 | `<Name> has no native runtime` | The components module supplies `View`, `Text`, `Image`, `ActionHandler`, `AxisHandler`, `MotionHandler` and `For` to AOT views. `Screen`, `FocusScope`, `Portal` and the other guest components are rejected |
 | `Read props as props.x; destructuring is outside the view subset` | `const { label } = props` in the component body |
+| `app.tsx does not import its model app.ts` | The application sets `model: "compiled"`, `app.ts` exists, and no view imports `./app`, as a type or as a value. Import from `./app` in the view |
 | `Child component imports require the .tsx extension` | `import Row from "./Row"`. The extensionless path names the model module |
 | `Text and interpolation must appear inside Text` | A string or `{value()}` is a child of a `View` |
 | `Boolean text is outside the view subset; use a string ternary` | `{flag()}` inside `Text`. Write `{flag() ? "ON" : "OFF"}` |

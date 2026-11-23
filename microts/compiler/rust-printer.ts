@@ -81,13 +81,18 @@ class Printer {
     switch (e.kind) {
       case "path": out = path(e.path) + (e.typeArgs?.length ? `::<${e.typeArgs.map(type).join(", ")}>` : ""); break;
       case "qualifiedPath": out = `<${type(e.type)}>::${rustIdentifier(e.member)}`; break;
-      case "literal": out = literal(e.value, e.suffix, e.rawNumber); break;
+      // A negative number literal is a negation: a method call binds tighter than its sign.
+      case "literal": out = literal(e.value, e.suffix, e.rawNumber); if (out.startsWith("-")) p = 12; break;
       case "call": out = `${this.expression(e.callee, 14)}(${e.args.map(a => this.expression(a)).join(", ")})`; p = 14; break;
       case "method": out = `${this.expression(e.object, 14)}.${rustIdentifier(e.method)}${e.typeArgs?.length ? `::<${e.typeArgs.map(type).join(", ")}>` : ""}(${e.args.map(a => this.expression(a)).join(", ")})`; p = 14; break;
       case "field": out = `${this.expression(e.object, 14)}.${typeof e.field === "number" ? e.field : rustIdentifier(e.field)}`; p = 14; break;
       case "index": out = `${this.expression(e.object, 14)}[${this.expression(e.index)}]`; p = 14; break;
       case "ref": out = `&${e.mutable ? "mut " : ""}${this.expression(e.expr, 12)}`; p = 12; break;
-      case "unary": out = `${e.operator}${this.expression(e.expr, 12)}`; p = 12; break;
+      case "unary": {
+        // `--x` is two negations to rustc and draws the double_negations lint.
+        const operand = this.expression(e.expr, 12);
+        out = e.operator === "-" && operand.startsWith("-") ? `-(${operand})` : `${e.operator}${operand}`; p = 12; break;
+      }
       case "binary": p = precedence[e.operator] ?? 1; out = `${this.expression(e.left, p)} ${e.operator} ${this.expression(e.right, p + 1)}`; break;
       case "cast": p = 11; out = `${this.expression(e.expr, p)} as ${type(e.type)}`; break;
       case "tuple": out = `(${e.elements.map(a => this.expression(a)).join(", ")}${e.elements.length === 1 ? "," : ""})`; break;

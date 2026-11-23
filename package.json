@@ -149,6 +149,7 @@
     "./model/animation": "./framework/src/model-animation.ts",
     "./physics": "./framework/src/physics.ts",
     "./game2d": "./framework/src/game2d/index.ts",
+    "./ui": "./framework/src/pocketui/index.ts",
     "./solid": "./framework/src/index.ts",
     "./solid/components": "./framework/src/components.ts",
     "./solid/lifecycle": "./framework/src/lifecycle.ts",

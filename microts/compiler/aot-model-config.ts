@@ -6,7 +6,8 @@
 // from the host config or the build plan, the browser builds and the tests
 // from their own data. A lookup walks up from a source file to the nearest
 // registered application directory.
-import { dirname, resolve } from "node:path";
+import { existsSync, realpathSync } from "node:fs";
+import { basename, dirname, resolve } from "node:path";
 import type { AnimationTheme } from "../../contracts/spec/animation-theme.ts";
 
 export interface ApplicationSettings {
@@ -36,7 +37,17 @@ export interface ModelConfiguration {
   readonly tickHz: number;
 }
 
+/** Applications by the real path of their directory: a directory reached
+ *  through a symbolic link and its target are one application. */
 const applications = new Map<string, ModelConfiguration>();
+
+/** `path` with the symbolic links of its existing prefix resolved. */
+function realPath(path: string): string {
+  const absolute = resolve(path);
+  if (existsSync(absolute)) return realpathSync(absolute);
+  const parent = dirname(absolute);
+  return parent === absolute ? absolute : resolve(realPath(parent), basename(absolute));
+}
 
 /** Register (or replace) the settings of the application at `settings.directory`. */
 export function registerApplication(settings: ApplicationSettings): ModelConfiguration {
@@ -52,7 +63,7 @@ export function registerApplication(settings: ApplicationSettings): ModelConfigu
     ...(settings.entry !== undefined ? { entry: resolve(directory, settings.entry) } : {}),
     ...(settings.theme !== undefined ? { theme: settings.theme } : {}),
   };
-  applications.set(directory, configuration);
+  applications.set(realPath(directory), configuration);
   return configuration;
 }
 
@@ -61,7 +72,7 @@ export function registerApplication(settings: ApplicationSettings): ModelConfigu
  *  application's config states (a low-level build's --hz) passes its own, so
  *  AOT admission bakes the class literals the same way. */
 export function setApplicationAnimation(directory: string, animation: { theme?: AnimationTheme; tickHz: number }): ModelConfiguration {
-  const registered = applications.get(resolve(directory));
+  const registered = applications.get(realPath(directory));
   if (!registered) throw new Error(`${resolve(directory)}: no application is registered here`);
   return registerApplication({ directory, aot: registered.aot, model: registered.mode, recursionLimit: registered.recursionLimit,
     framework: registered.framework, entry: registered.entry, theme: animation.theme, tickHz: animation.tickHz });
@@ -69,19 +80,19 @@ export function setApplicationAnimation(directory: string, animation: { theme?: 
 
 /** Forget the application registered at `directory`. */
 export function unregisterApplication(directory: string): void {
-  applications.delete(resolve(directory));
+  applications.delete(realPath(directory));
 }
 
 /** The settings registered at exactly `directory`, if any. */
 export function registeredApplication(directory: string): ModelConfiguration | undefined {
-  return applications.get(resolve(directory));
+  return applications.get(realPath(directory));
 }
 
 /** The settings of the application `file` belongs to: the nearest registered
  *  directory above it. A file outside every application compiles as an
  *  ordinary guest module. */
 export function modelConfiguration(file: string): ModelConfiguration {
-  for (let directory = dirname(resolve(file)); ; directory = dirname(directory)) {
+  for (let directory = dirname(realPath(file)); ; directory = dirname(directory)) {
     const registered = applications.get(directory);
     if (registered) return registered;
     if (dirname(directory) === directory) return { mode: "rust", recursionLimit: 256, tickHz: 60 };
