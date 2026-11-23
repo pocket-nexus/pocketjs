@@ -139,6 +139,35 @@ import {label} from './App';
     } finally { rmSync(project, { recursive: true, force: true }); }
   }, 120_000);
 
+  test("every leaf of a conditional src is baked and registered; a missing leaf is an error at its element", async () => {
+    const project = temporary();
+    try {
+      const profile = parsePocketProfile({ format: "pocket-host/2", id: "aot-src", platform: "esp-idf", form: "takeover", cadences: [30],
+        display: { logicalViewports: [[240, 160]], presentations: ["native"], rasterDensity: 1, animation: "repaint" },
+        panel: { primary: [240, 160] }, capabilities: ["input.buttons", "text.glyphs.baked"] });
+      const app = { id: "dev.test.aot-src", title: "AOT src", version: "1.0.0", features: ["text.glyphs.baked"], entry: "app.tsx", framework: "solid",
+        aot: true, model: "compiled", viewport: { fixed: { logical: [240, 160], presentation: "native" } } } as const;
+      const resolved = resolveAppPlan(app, { target: profile.id }, profileRegistry(profile));
+      if (!resolved.ok) throw new Error(JSON.stringify(resolved.diagnostics));
+      writeFileSync(join(project, "app.ts"), `import { createSignal } from "solid-js";\nimport type { i32 } from "@pocketjs/framework/solid/std";\nexport const [level, setLevel] = createSignal<i32>(0);\n`);
+      writeFileSync(join(project, "app.tsx"), `import { Image, Text, View } from "@pocketjs/framework/solid/components";\nimport { level } from "./app";\nexport default function App() {\n  return <View class="w-full h-full">\n    <Image class="w-4 h-4" src={level() > 1 ? "full.png" : level() > 0 ? "half.png" : "empty.png"} />\n    <Image class="w-4 h-4" src="logo.png" />\n    <Text>A</Text>\n  </View>;\n}\n`);
+      for (const name of ["empty.png", "full.png", "half.png", "logo.png"]) writeFileSync(join(project, name), encodePNG(new Uint8Array(16 * 16 * 4).fill(0x80), 16, 16));
+      const out = join(project, "out");
+      const result = await compileAot({ plan: resolved.plan, projectRoot: project, outdir: out });
+      const include = readFileSync(join(out, "include.rs"), "utf8");
+      ["empty.png", "full.png", "half.png", "logo.png"].forEach((name, index) =>
+        expect(include).toContain(`{ let id = ui.core_mut().upload_img_entry(include_bytes!("images/image-${index}.img")); assert!(id >= 0); ui.register_image(${JSON.stringify(name)}, id); }`));
+      expect(files(join(out, "images")).map(path => relative(out, path)).sort()).toEqual(["images/image-0.img", "images/image-1.img", "images/image-2.img", "images/image-3.img"]);
+      expect(result.dependencies).toContain(join(project, "half.png"));
+      // A sprite-layer host bakes its background once: the changing image would stay frozen in it.
+      const sprites = resolveAppPlan(app, { target: "gba" }, profileRegistry(gba));
+      if (!sprites.ok) throw new Error(JSON.stringify(sprites.diagnostics));
+      await expect(compileAot({ plan: sprites.plan, projectRoot: project, outdir: join(project, "gba") })).rejects.toThrow(`${join(project, "app.tsx")}:5:5: error: gba layers: <Image>: a conditional src outside a layout-baked page has no sprite layer`);
+      rmSync(join(project, "half.png"));
+      await expect(compileAot({ plan: resolved.plan, projectRoot: project, outdir: out })).rejects.toThrow(`${join(project, "app.tsx")}:5:5: error: image "half.png" not found`);
+    } finally { rmSync(project, { recursive: true, force: true }); }
+  }, 120_000);
+
   test("custom app theme and application tick rate are isolated across compilations", async () => {
     const project = temporary();
     try {

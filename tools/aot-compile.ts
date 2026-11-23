@@ -3,6 +3,8 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "no
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import ts from "typescript";
 import { analyzeAot, buildAot, type AotBuildResult } from "../microts/compiler/aot-build.ts";
+import { AotCompileError, type AotNode, type SourceLocation } from "../microts/compiler/aot-ir.ts";
+import { imageNames } from "../microts/compiler/aot-expressions.ts";
 import { getSolidAotDependencyVersions } from "../microts/compiler/aot-solid-frontend.ts";
 import { getAotDependencyVersions } from "../microts/compiler/aot-frontend.ts";
 import { bakeAtlases } from "../framework/compiler/bake-font.ts";
@@ -73,11 +75,12 @@ function componentEntry(entry: string): string {
   return [...roots][0]!;
 }
 
+/** Visit every object below `value`; a `dynamicSrc` selects image names, not displayed text, so the walk stops there. */
 function walk(value: unknown, visitor: (value: Record<string, unknown>) => void): void {
   if (!value || typeof value !== "object") return;
   if (Array.isArray(value)) { value.forEach(item => walk(item, visitor)); return; }
   visitor(value as Record<string, unknown>);
-  Object.values(value).forEach(item => walk(item, visitor));
+  Object.entries(value).forEach(([key, item]) => { if (key !== "dynamicSrc") walk(item, visitor); });
 }
 
 /** Rust, font and image generation only. Firmware compilation belongs to the program. */
@@ -108,9 +111,13 @@ export async function compileAot(options: AotCompileOptions): Promise<AotCompile
   program.components.forEach(item => collect(item.file));
   program.model?.modules.forEach(item => collect(item.file));
   inputs.optional(resolve(projectRoot, "tsconfig.json"));
-  const images = new Set<string>(), codepoints = new Set<number>();
+  // Each image name maps to the first element that can select it.
+  const images = new Map<string, SourceLocation>(), codepoints = new Set<number>();
   const collectResources = (node: Record<string, unknown>) => {
-    if (node.kind === "element" && typeof node.src === "string") images.add(node.src);
+    if (node.kind === "element") {
+      const element = node as Extract<AotNode, { kind: "element" }>;
+      for (const name of imageNames(element.src, element.dynamicSrc?.expression)) if (!images.has(name)) images.set(name, element.loc);
+    }
     const strings = node.kind === "literal" && typeof node.value === "string" ? [node.value] :
       node.kind === "element" && node.text ? ((node.text as { parts: unknown[] }).parts.filter(value => typeof value === "string") as string[]) : [];
     for (const string of strings) for (const character of string) codepoints.add(character.codePointAt(0)!);
@@ -149,12 +156,13 @@ export async function compileAot(options: AotCompileOptions): Promise<AotCompile
   // The guest build's image baking (raster-assets.ts): the @Nx sibling, images.json format and sampling, and the IMG entry's size check.
   const imageManifest = resolve(dirname(component), "images.json");
   const imageMeta = readImageManifest(imageManifest, inputs);
-  for (const [index, name] of [...images].sort().entries()) {
-    if (!/\.(?:png|svg)$/i.test(name)) throw new Error(`AOT: unsupported image ${JSON.stringify(name)}`);
+  for (const [index, name] of [...images.keys()].sort().entries()) {
+    const imageError = (message: string) => new AotCompileError([{ ...images.get(name)!, severity: "error", message }]);
+    if (!/\.(?:png|svg)$/i.test(name)) throw imageError(`unsupported image ${JSON.stringify(name)}; an image asset is a .png or .svg file`);
     const candidates = [resolve(dirname(component), name), resolve(projectRoot, "assets/images", name), resolve(ROOT, "assets/images", name), resolve(ROOT, "assets", name)];
     candidates.forEach(path => inputs.optional(path));
     const source = candidates.find(path => existsSync(path) && statSync(path).isFile());
-    if (!source) throw new Error(`AOT: image ${JSON.stringify(name)} not found`);
+    if (!source) throw imageError(`image ${JSON.stringify(name)} not found; searched ${candidates.join(", ")}`);
     const loaded = loadRasterImage(source, plan.viewport.rasterDensity, inputs);
     const file = `images/image-${index}.img`;
     write(file, encodeStaticImage(loaded.image, imageMeta[name]), [...new Set([source, loaded.source]), ...(existsSync(imageManifest) ? [imageManifest] : []),

@@ -80,8 +80,10 @@ export interface MicroTsViewBaseProps {
   "debug-name"?: MicroTsValue<string>;
 }
 export type MicroTsViewProps = MicroTsViewBaseProps & ({ focusable: true; onPress?: () => void } | { focusable?: false; onPress?: never });
+export type MicroTsTextStyleProps = Pick<MicroTsStyleProps, "textColor" | "opacity">;
 export interface MicroTsTextProps {
   "class"?: MicroTsValue<string>;
+  "style"?: MicroTsValue<MicroTsTextStyleProps>;
 }
 export interface MicroTsImageProps {
   "class"?: MicroTsValue<string>;

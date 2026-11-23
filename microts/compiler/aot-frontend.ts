@@ -10,11 +10,11 @@ import { analyzeViewModel, viewModelModule, validateViewModelBindings } from "./
 import { attachAotModel } from "./aot-ir.ts";
 import { finalizeAotProgram } from "./aot-program.ts";
 import { PROP, BTN } from "../../contracts/spec/spec.ts";
-import { MICROTS_BUILTINS, MICROTS_ELEMENTS, MICROTS_STYLE_PROPS, MICROTS_INPUT_ELEMENTS, MICROTS_RELATIVE_AXES } from "../../contracts/spec/microts.ts";
+import { MICROTS_BUILTINS, MICROTS_ELEMENTS, MICROTS_INPUT_ELEMENTS, MICROTS_RELATIVE_AXES } from "../../contracts/spec/microts.ts";
 import { MOTION_DEFAULT_MIN_QUALITY, MOTION_MIN_QUALITIES, MOTION_VALUES, motionEvent } from "./aot-motion.ts";
 import { BOOL, I32, STRING, sameType, type AotProgram, type AotComponent, type AotType, type AotNode, type AotExpr, type AotHandler, type AotProp, type AotEvent, type SourceLocation } from "./aot-ir.ts";
 import { TypeMapper, createTypeEnvironment, location, fail, typeName } from "./aot-types.ts";
-import { expression, requireType, numeric, displayable, narrowed, type ExpressionContext } from "./aot-expressions.ts";
+import { elementStyleProp, expression, imageSource, requireType, numeric, displayable, narrowed, type ExpressionContext } from "./aot-expressions.ts";
 import { readSlotContract, readSlotBindings } from "./aot-slots.ts";
 import { constraintNeedsSource, genericParameters, genericSourceType, inferGenericArgument, inferGenericSource, preservesGenericStorage, satisfiesGenericConstraint, satisfiesGenericSourceConstraint, type GenericSourceArguments } from "./aot-generics.ts";
 import { analyzeContextStatement, vueContextCall } from "./aot-provide-inject.ts";
@@ -616,14 +616,15 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
               host.ref = value; continue;
             }
             if (name === "class" && tag) { classBinding = d.exp as SimpleExpressionNode; continue; }
-            if (name === "style" && tag === "View") {
+            if (name === "src" && tag === "Image") { host.dynamicSrc = { id: component.memoCount++, expression: imageSource(expr(d.exp as SimpleExpressionNode, context), tplLoc(d)) }; continue; }
+            if (name === "style" && (tag === "View" || tag === "Text")) {
               const value = d.exp as SimpleExpressionNode | undefined; if (!value) fail(tplLoc(d), ":style requires an object literal");
               const sf = ts.createSourceFile("style.ts", `(${value.content})`, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS), statement = sf.statements[0];
               const obj = statement && ts.isExpressionStatement(statement) && ts.isParenthesizedExpression(statement.expression) ? statement.expression.expression : undefined;
               if (!obj || !ts.isObjectLiteralExpression(obj)) fail(tplLoc(d), ":style requires an object literal");
               for (const p of obj.properties) {
                 if (!ts.isPropertyAssignment(p) || !ts.isIdentifier(p.name) && !ts.isStringLiteral(p.name)) fail(tplLoc(d), ":style uses static named numeric properties");
-                const name = p.name.text, spec = MICROTS_STYLE_PROPS[name as keyof typeof MICROTS_STYLE_PROPS]; if (!spec) fail(tplLoc(d), `Unknown numeric style property ${name}`);
+                const name = p.name.text, spec = elementStyleProp(tag, name, locAt(item, templateOffset + value.loc.start.offset + p.getStart(sf) - 1));
                 const valueLoc = tplLoc(value); valueLoc.offset += p.initializer.getStart(sf) - 1;
                 const expected: AotType = spec.unit ? mapper.unit(spec.unit) : { kind: "number", name: spec.type };
                 // First preserve integer arithmetic, then widen the complete host-attribute expression.
@@ -695,7 +696,8 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
         return [instance];
       }
       if (host.events.length && !host.focusable) fail(at, "@press requires a focusable View");
-      if (tag === "Image" && (!host.src || node.children.length)) fail(at, "Image requires a static src asset name and has no children");
+      if (tag === "Image" && (!host.src && !host.dynamicSrc || node.children.length)) fail(at, "Image requires a src asset name and has no children");
+      if (host.src && host.dynamicSrc) fail(at, "Image takes one src: a static src or a :src binding");
       if (classBinding) {
         const value = expr(classBinding, context);
         function styles(e: AotExpr): AotExpr {

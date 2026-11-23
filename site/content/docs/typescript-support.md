@@ -148,7 +148,8 @@ listed [below](#current-implementation-limits).
 ## View and model expressions
 
 The view column covers template/JSX binding expressions. View setup, event
-handlers, `:style`/`style` objects and slot syntax have designated forms in the
+handlers, `:style`/`style` objects, `:src`/`src` ternaries and slot syntax have
+designated forms in the
 [Vue reference](/docs/microts-reference/) and
 [Solid guide](/docs/microts-solid/).
 
