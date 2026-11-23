@@ -1,10 +1,14 @@
 // tests/build-font-flags.test.ts — `tools/build.ts --font-mono=` bakes the `font-mono` slots from the given face, as
-// `--font-regular=` / `--font-bold=` do for theirs; the other slots are untouched.
+// `--font-regular=` / `--font-bold=` do for theirs; the other slots are untouched. The flags serve an entry without an
+// app config: a plan or the entry's config names the faces with app.fonts, and passing a flag with either is an error.
 
 import { afterAll, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { resolveAppPlan } from "../framework/compiler/app-plan.ts";
+import { unpack } from "../framework/compiler/pak.ts";
+import { PORTABLE_APP } from "./app-fixtures.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 const FONTS = join(ROOT, "assets/fonts");
@@ -25,14 +29,22 @@ writeFileSync(
   ].join("\n"),
 );
 
+/** Runs tools/build.ts with `args`, writing into `outdir`. */
+function run(outdir: string, ...args: string[]) {
+  const child = Bun.spawnSync([process.execPath, "tools/build.ts", ...args, `--outdir=${outdir}`], { cwd: ROOT, stdout: "pipe", stderr: "pipe" });
+  return { exitCode: child.exitCode, log: child.stdout.toString() + child.stderr.toString() };
+}
+
 /** Builds the app into its own directory and returns the log and the pak. */
 function build(name: string, ...flags: string[]): { log: string; pak: Buffer } {
   const outdir = join(directory, name);
-  const run = Bun.spawnSync([process.execPath, "tools/build.ts", join(directory, "main.tsx"), `--project-root=${directory}`, `--outdir=${outdir}`, ...flags], { cwd: ROOT, stdout: "pipe", stderr: "pipe" });
-  const log = run.stdout.toString() + run.stderr.toString();
-  expect(run.exitCode, log).toBe(0);
+  const { exitCode, log } = run(outdir, join(directory, "main.tsx"), `--project-root=${directory}`, ...flags);
+  expect(exitCode, log).toBe(0);
   return { log, pak: readFileSync(join(outdir, "main.pak")) };
 }
+
+/** The font atlases of a pak, by key. */
+const atlases = (pak: Buffer) => new Map(unpack(pak).filter(item => item.key.startsWith("ui:font.")).map(item => [item.key, Buffer.from(item.data)]));
 
 /** The `font: slot …` lines of a build log, by slot. */
 function slots(log: string): Map<number, string> {
@@ -56,3 +68,32 @@ test("--font-mono replaces the face of the mono slots only", () => {
   for (const s of mono) expect(b.get(s)).not.toBe(a.get(s));
   for (const s of proportional) expect(b.get(s)).toBe(a.get(s));
 });
+
+test("a plan or an app config owns the faces; --font-* serve an entry without one", () => {
+  const face = join(FONTS, "W95FA.otf");
+  const flagged = build("flagged", `--font-regular=${face}`);
+  // An entry whose config names the face with app.fonts bakes the same atlases.
+  const project = join(directory, "configured");
+  mkdirSync(project);
+  copyFileSync(join(directory, "main.tsx"), join(project, "main.tsx"));
+  copyFileSync(face, join(project, "W95FA.otf"));
+  const app = { ...PORTABLE_APP, entry: "main.tsx", fonts: { regular: "W95FA.otf" } };
+  const configPath = join(project, "pocket.host.config.ts");
+  writeFileSync(configPath, `import { defineHostConfig } from "@pocketjs/framework/host-config";\nexport default defineHostConfig({ host: "psp", app: ${JSON.stringify(app)} });\n`);
+  const configured = run(join(project, "out"), join(project, "main.tsx"), `--project-root=${project}`);
+  expect(configured.exitCode, configured.log).toBe(0);
+  const expected = atlases(flagged.pak), actual = atlases(readFileSync(join(project, "out/main.pak")));
+  expect([...actual.keys()]).toEqual([...expected.keys()]);
+  for (const [key, bytes] of expected) expect(Buffer.compare(actual.get(key)!, bytes)).toBe(0);
+  // With the config, a flag is a second owner.
+  const both = run(join(project, "both"), join(project, "main.tsx"), `--project-root=${project}`, `--font-bold=${face}`);
+  expect(both.exitCode).not.toBe(0);
+  expect(both.log).toContain(`${configPath} owns the application's faces; name them with app.fonts`);
+  // So it is with a plan.
+  const resolved = resolveAppPlan(app, { target: "psp", configDirectory: project, projectRoot: project });
+  if (!resolved.ok) throw new Error(JSON.stringify(resolved.diagnostics));
+  writeFileSync(join(project, "plan.json"), JSON.stringify(resolved.plan));
+  const planned = run(join(project, "planned"), `--plan=${join(project, "plan.json")}`, `--project-root=${project}`, `--font-mono=${face}`);
+  expect(planned.exitCode).not.toBe(0);
+  expect(planned.log).toContain("--font-regular, --font-bold and --font-mono cannot override a ResolvedBuildPlan");
+}, 60_000);

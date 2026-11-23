@@ -9,7 +9,7 @@ import { getSolidAotDependencyVersions } from "../microts/compiler/aot-solid-fro
 import { getAotDependencyVersions } from "../microts/compiler/aot-frontend.ts";
 import { bakeAtlases } from "../framework/compiler/bake-font.ts";
 import { encodeStaticImage, loadRasterImage, readImageManifest } from "../framework/compiler/raster-assets.ts";
-import { readFontConfig } from "../framework/compiler/font-config.ts";
+import { appFontFaces, readFontConfig } from "../framework/compiler/font-config.ts";
 import { BuildInputs, depfile } from "../framework/compiler/build-inputs.ts";
 import { resolveAppPlan } from "../framework/compiler/app-plan.ts";
 import { verifyPlanHash, verifyPlanProfile, type ResolvedBuildPlan } from "../framework/compiler/plan.ts";
@@ -131,7 +131,7 @@ export async function compileAot(options: AotCompileOptions): Promise<AotCompile
   const fontConfig = readFontConfig(fontPath, fontRead);
   fontConfig.codepoints.forEach(point => codepoints.add(point));
   const fonts = await bakeAtlases({ slots: program.styles.usedFontSlots, codepoints, rasterDensity: plan.viewport.rasterDensity,
-    fallbackTtfs: fontConfig.fallbackTtfs, onRead: fontRead });
+    ...appFontFaces(plan.app.fonts, projectRoot, fontRead), fallbackTtfs: fontConfig.fallbackTtfs, onRead: fontRead });
   const wasmPath = resolve(options.wasmPath ?? HOST_WASM);
   if (!existsSync(wasmPath)) throw new Error(`AOT: ${missingHostWasm("the layout oracle", options.wasmPath === undefined ? undefined : { option: "wasmPath", path: wasmPath })}`);
   inputs.add(wasmPath);

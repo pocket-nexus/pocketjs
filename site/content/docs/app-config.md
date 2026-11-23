@@ -86,6 +86,7 @@ message lists each broken rule with its JSON Pointer under `/app`
 | `features` | no | Host capabilities this build turns on, below. Unique registered ids. |
 | `surfaces` | no | An auxiliary surface, below. |
 | `theme` | no | Animation content, below. |
+| `fonts` | no | The faces the glyph atlases are baked from, below. |
 | `aot` | no | `true` admits the Solid component graph to the AOT view subset; `pocket compile --aot` requires it. See [MicroTS](/docs/microts/). |
 | `model` | no | `rust` (default) or `compiled`: with `aot`, compile the `.ts` model beside the entry. `compiled` without `aot` is refused. |
 | `recursionLimit` | no | Positive integer, default 256. Development AOT builds enforce it; release builds omit the guard. |
@@ -301,6 +302,36 @@ The theme type is `AnimationTheme` from `@pocketjs/framework/host-config`.
 animation at `app.tickHz`.** A `.json` theme is imported with
 `with { type: "json" }`. See [Animation](/docs/animation/).
 
+### app.fonts
+
+`fonts` names the face each kind of font slot is baked from: `regular` for
+the regular-weight slots, `bold` for the `font-bold` slots and `mono` for the
+`font-mono` slots. Each value is a `.ttf` or `.otf` file **relative to the
+config file**, with no leading slash, `..` segment or backslash. An absent
+field keeps the default face: Inter Regular, Inter Bold or JetBrains Mono.
+
+```ts
+app: {
+  entry: "main.tsx",
+  framework: "solid",
+  viewport: { logical: [240, 240], presentation: "native" },
+  features: ["text.glyphs.baked"],
+  fonts: { regular: "fonts/Montserrat-Regular.ttf", bold: "fonts/Montserrat-Bold.ttf" },
+},
+```
+
+**`pocket compile` and `pocket compile --aot` bake the atlases from the same
+faces**, and the AOT layout oracle measures `layout-baked` text with those
+atlases. The plan carries the paths relative to the project root, so a changed
+declaration changes `planHash`. **Each named file is a build input whether or
+not a slot of its kind is used:** the depfile and the AOT `dependencies.json`
+and `dependencies.d` list it, so a changed file rebuilds the bundle or the
+generated sources. A named file that is missing or unreadable fails the build
+with an error naming its path; a file that does not parse as TrueType or
+OpenType fails when a used slot loads it. The sizes and the mono slots come
+from the slot table ([Styling](/docs/styling/#text)). A `fallback` face in
+`fonts.json` supplies the code points the selected face does not map.
+
 ### app.tickHz
 
 A host presents the application at the largest cadence the rate is a whole
@@ -394,15 +425,15 @@ registry)` (`framework/compiler/app-plan.ts`, exported from
 it for one host into a `ResolvedBuildPlan`:
 
 - **Entries move from the config's directory to the project root.**
-  `app.entry` and `app.worker.entry` are relative to the config file; the
-  plan's are relative to the project root the compiler runs in (`--project-root`,
-  default the config's directory). An entry outside the project root fails
-  with `app.entryOutsideProject`.
+  `app.entry`, `app.worker.entry` and the `app.fonts` paths are relative to
+  the config file; the plan's are relative to the project root the compiler
+  runs in (`--project-root`, default the config's directory). An entry outside
+  the project root fails with `app.entryOutsideProject`.
 - The plan records the identity (`app.id`, `app.title`, `app.version`), the
-  output name, the framework, the theme content, the AOT settings, the
-  resolved viewport and auxiliary surface, the host's derived `modality` and
-  `animation` class, `features`, `companions`, the worker with host channel
-  sizes, and `presentation: { id: "default", entry }`.
+  output name, the framework, the theme content, the font faces, the AOT
+  settings, the resolved viewport and auxiliary surface, the host's derived
+  `modality` and `animation` class, `features`, `companions`, the worker with
+  host channel sizes, and `presentation: { id: "default", entry }`.
 - The plan records the host contract with the application rate (`profile`,
   `profile.tickHz`) and its hash (`profileHash`), and a checksum of its own
   content (`planHash`).

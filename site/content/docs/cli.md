@@ -116,7 +116,7 @@ export default defineHostConfig({
 
 Use `hosts: ["psp", "vita", "./boards/a/pocket.host.json"]` for several host
 contracts. `host` and `hosts` are alternatives. The `app` section owns the
-entry, framework, viewport, tick rate, theme and features
+entry, framework, viewport, tick rate, theme, font faces and features
 ([Application config](/docs/app-config/)); the host contract supplies display
 geometry, cadences and capabilities.
 
@@ -175,8 +175,9 @@ title), the plan, the JavaScript and the asset pack. `app.icon` becomes the
 icon section. [Bundle format](/docs/native-contract/#bundle-format) lists the
 sections. Host IDs unsuitable
 for directory names use a hash-derived plan directory. The optional depfile
-includes application imports, assets, compiler inputs, the icon, the host
-contracts and the host config modules, the theme module among them.
+includes application imports, assets, compiler inputs, the icon, the font
+faces `app.fonts` names, the host contracts and the host config modules, the
+theme module among them.
 
 ### AOT source generation
 
@@ -210,7 +211,9 @@ message names `bun tools/wasm.ts`; in an installed package, which ships the
 `.wasm` without that crate, it names reinstalling the package.
 `--aot` is a `compile` option and cannot be combined with `--output`.
 The application's `app.tickHz` and `app.theme` apply to the generated
-animation data.
+animation data. **The faces `app.fonts` names are baked into the `font-N.bin`
+atlases, and the layout oracle measures with those atlases**;
+`dependencies.json` and the depfile list the face files.
 
 ## build
 

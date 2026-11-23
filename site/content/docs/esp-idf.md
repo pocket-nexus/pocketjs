@@ -95,8 +95,9 @@ host config for its one host and exports the host contract. `PROJECT_ROOT`
 defaults to the config's directory; the plan's entries are relative to it.
 `pocketjs_profile_header(TARGET <target> NAME <name>)` exports the host contract
 without an application. These two helpers require the Pocket CLI. Their
-dependency files track application imports, host contracts and host config
-imports, including new modules learned on a rebuild.
+dependency files track application imports, the font faces `app.fonts` names,
+host contracts and host config imports, including new modules learned on a
+rebuild.
 
 All three helpers accept `HOST_CONFIG`, defaulting to the project root's
 `pocket.host.config.ts`. `PROFILE_EXPORT_DIR` defaults to

@@ -28,9 +28,13 @@ import { buildWorker } from "./build-worker.ts";
 //   --framework=solid|vue-vapor|octane  select the framework for this build
 //   --extra-chars=<string>       force extra codepoints into every atlas
 //   --density=<integer>          low-level target sampling density (default 1)
-//   --font-regular=<path>        override the regular font source
-//   --font-bold=<path>           override the bold font source
-//   --font-mono=<path>           override the mono font source (font-mono slots)
+//   --font-regular=<path>        the regular font source of an entry without an
+//                                app config; a plan or the entry's config names
+//                                its faces with app.fonts, and passing both is
+//                                an error
+//   --font-bold=<path>           the bold font source, under the same rule
+//   --font-mono=<path>           the mono font source (font-mono slots), under
+//                                the same rule
 //   --outdir=<path>              write <app>.js/.pak here instead of dist/
 //                                (external repos build their apps against a
 //                                vendored PocketJS and keep outputs local)
@@ -65,7 +69,7 @@ import { resolveWorkerChannels } from "../contracts/spec/worker.ts";
 import { registerAnimationTheme, setAnimationTickRate } from "../framework/compiler/animation.ts";
 import { compileClasses, generateStylesModule, suspectClassLiteral, unknownUtilities } from "../framework/compiler/tailwind.ts";
 import { bakeAtlases } from "../framework/compiler/bake-font.ts";
-import { readFontConfig } from "../framework/compiler/font-config.ts";
+import { appFontFaces, readFontConfig } from "../framework/compiler/font-config.ts";
 import {
   densityVariantPath,
   encodeStaticImage,
@@ -215,6 +219,17 @@ if (densityFlag !== undefined && (!Number.isInteger(densityFlag) || densityFlag 
   throw new Error("PocketJS build: --density wants an integer from 1 through 255");
 }
 const rasterDensity = buildPlan?.viewport.rasterDensity ?? densityFlag ?? 1;
+
+// Font faces: a resolved plan or the entry's app config owns them
+// (app.fonts); --font-* serve an entry without an app config.
+if ((buildPlan || source) && (regularFontPath ?? boldFontPath ?? monoFontPath) !== undefined) {
+  throw new Error(buildPlan
+    ? "PocketJS build: --font-regular, --font-bold and --font-mono cannot override a ResolvedBuildPlan; name the faces with app.fonts"
+    : `PocketJS build: ${source!.configPath} owns the application's faces; name them with app.fonts instead of --font-regular, --font-bold or --font-mono`);
+}
+const fontFaces = buildPlan || source
+  ? appFontFaces(buildPlan ? buildPlan.app.fonts : source!.app.fonts, buildPlan ? projectRoot : source!.directory, path => buildInputs.add(path))
+  : { regularTtf: regularFontPath, boldTtf: boldFontPath, monoTtf: monoFontPath };
 
 // Tick rate: the realm's virtual-time step, baked into the bundle because
 // every ms-to-frame conversion in the framework resolves against it. An
@@ -415,9 +430,7 @@ const atlases = await bakeAtlases({
   slots: styles.usedFontSlots,
   extraChars,
   rasterDensity,
-  regularTtf: regularFontPath,
-  boldTtf: boldFontPath,
-  monoTtf: monoFontPath,
+  ...fontFaces,
   onRead: path => buildInputs.add(path),
   fallbackTtfs,
 });

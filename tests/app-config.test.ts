@@ -1,7 +1,7 @@
 // The app section of a host config as a build input: the theme module it
 // imports, the plan it resolves to, and the package `pocket compile` writes.
 import { expect, test } from "bun:test";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { validateAppConfig } from "../contracts/spec/app-config.ts";
 import { BUNDLE_SECTION, decodeBundle, decodeIdentity, findSection } from "../contracts/spec/bundle.ts";
@@ -147,4 +147,64 @@ test("pocket compile writes one bundle with the config's identity and icon", asy
     expect(retired.stderr.toString().trim().split("\n")).toHaveLength(1);
     expect(retired.stderr.toString()).toContain("--pocket was removed; pass the compiled application with --bundle FILE");
   }
+}, 120_000);
+
+test("app.fonts enters the plan relative to the project root", () => {
+  const fonts = { regular: "fonts/Face-Regular.ttf", mono: "fonts/Face-Mono.otf" };
+  const request = { target: "psp", configDirectory: resolve(ROOT, "apps/demo"), projectRoot: ROOT };
+  const plain = resolveAppPlan(application, request);
+  const selected = resolveAppPlan({ ...application, fonts }, request);
+  if (!plain.ok || !selected.ok) throw new Error("plans did not resolve");
+  expect(plain.plan.app.fonts).toBeUndefined();
+  expect(selected.plan.app.fonts).toEqual({ regular: "apps/demo/fonts/Face-Regular.ttf", mono: "apps/demo/fonts/Face-Mono.otf" });
+  // The declaration is part of the plan, so it changes the plan hash.
+  expect(selected.plan.planHash).not.toBe(plain.plan.planHash);
+  for (const [invalid, path] of [
+    [{ regular: "../Face.ttf" }, "/app/fonts/regular"],
+    [{ bold: "/fonts/Face.ttf" }, "/app/fonts/bold"],
+    [{ mono: "fonts/Face.woff2" }, "/app/fonts/mono"],
+    [{ italic: "fonts/Face.ttf" }, "/app/fonts/italic"],
+  ] as const) {
+    expect(validateAppConfig({ ...application, fonts: invalid }).map(item => item.path)).toEqual([path]);
+  }
+});
+
+test("pocket compile bakes the faces app.fonts names and lists them in the depfile", () => {
+  const directory = scratch("fonts");
+  mkdirSync(resolve(directory, "fonts"));
+  copyFileSync(resolve(ROOT, "assets/fonts/W95FA.otf"), resolve(directory, "fonts/W95FA.otf"));
+  writeFileSync(resolve(directory, "main.tsx"), [
+    'import { mount } from "@pocketjs/framework/solid";',
+    'import { Text } from "@pocketjs/framework/solid/components";',
+    'mount(() => <Text class="text-sm">Fonts</Text>);',
+  ].join("\n"));
+  const compile = (fonts: object | undefined) => {
+    writeFileSync(resolve(directory, "pocket.host.config.ts"), config(`{ host: "psp", app: ${JSON.stringify({ ...application, output: "faces", ...(fonts ? { fonts } : {}) })} }`));
+    return Bun.spawnSync([process.execPath, resolve(ROOT, "tools/pocket.ts"), "compile", "--output", "dist/faces.pkb", "--depfile", "dist/faces.d"],
+      { cwd: directory, stdout: "pipe", stderr: "pipe" });
+  };
+  const atlases = () => {
+    const bundle = decodeBundle(new Uint8Array(readFileSync(resolve(directory, "dist/faces.pkb"))));
+    const plan = JSON.parse(new TextDecoder().decode(findSection(bundle, BUNDLE_SECTION.plan)!));
+    const pak = unpack(findSection(bundle, BUNDLE_SECTION.pak)!).filter(item => item.key.startsWith("ui:font."));
+    return { plan, pak, depfile: readFileSync(resolve(directory, "dist/faces.d"), "utf8") };
+  };
+  let run = compile(undefined);
+  expect(run.exitCode, run.stderr.toString()).toBe(0);
+  const plain = atlases();
+  run = compile({ regular: "fonts/W95FA.otf" });
+  expect(run.exitCode, run.stderr.toString()).toBe(0);
+  const selected = atlases();
+  expect(selected.plan.app.fonts).toEqual({ regular: "fonts/W95FA.otf" });
+  expect(selected.plan.planHash).not.toBe(plain.plan.planHash);
+  expect(selected.pak.map(item => item.key)).toEqual(plain.pak.map(item => item.key));
+  expect(selected.pak.length).toBeGreaterThan(0);
+  for (const [index, item] of selected.pak.entries()) expect(Buffer.compare(item.data, plain.pak[index]!.data)).not.toBe(0);
+  expect(selected.depfile).toContain(resolve(directory, "fonts/W95FA.otf"));
+  expect(plain.depfile).toContain(resolve(ROOT, "assets/fonts/Inter-Regular.ttf"));
+  expect(selected.depfile).not.toContain(resolve(ROOT, "assets/fonts/Inter-Regular.ttf"));
+  // A face the config names must be a readable file, used slot or not.
+  run = compile({ bold: "fonts/Absent-Bold.ttf" });
+  expect(run.exitCode).not.toBe(0);
+  expect(run.stderr.toString()).toContain(`app.fonts.bold names ${resolve(directory, "fonts/Absent-Bold.ttf")}, which is not a readable file`);
 }, 120_000);

@@ -141,9 +141,9 @@ See [ESP-IDF](/docs/esp-idf/#embed-an-application).
 | `--density=N` | Raster samples per logical pixel for this build — an integer 1 through 255, default 1. A resolved plan owns the density, so passing both is an error. |
 | `--hz=N` | Bake this virtual tick rate into the bundle — an integer 1 through 240, default 60. The host must drive the surface at the same rate; a bundle whose baked rate differs from the host's `ui.__tickHz` throws before it mounts. |
 | `--layer=<module>` | Add a system layer ([`@pocketjs/framework/system-layers`](/docs/api/#pocketjsframeworksystem-layers)). Pass 1 walks the module; pass 2 imports it ahead of the entry. The flag repeats, and the layers import in the order given. |
-| `--font-regular=<path>` | Use this TTF instead of Inter Regular for the regular slots. |
-| `--font-bold=<path>` | Use this TTF instead of Inter Bold for the bold slots. |
-| `--font-mono=<path>` | Use this TTF instead of JetBrains Mono for the `font-mono` slots. |
+| `--font-regular=<path>` | Bake the regular slots from this TTF or OTF instead of Inter Regular. The flag serves an entry with no app config: a plan or the nearest host config names the faces with [`app.fonts`](/docs/app-config/#appfonts), and passing a flag with either is an error. |
+| `--font-bold=<path>` | The same for the bold slots and Inter Bold. |
+| `--font-mono=<path>` | The same for the `font-mono` slots and JetBrains Mono. |
 
 ```sh
 bun tools/build.ts settings --extra-chars="←→↑↓✓✕"
@@ -334,8 +334,9 @@ The assigned slots:
 | 16–18 | JetBrains Mono Regular | 12/14/16 px |
 
 A bold request under `font-mono` still lands on the mono slot for its size —
-there is no bold mono face. `--font-regular` and `--font-bold` swap the Inter
-faces for one build; the mono face has no flag.
+there is no bold mono face. The table names the default faces;
+[`app.fonts`](/docs/app-config/#appfonts) in the host config replaces the
+regular, bold and mono faces for the guest and the AOT build.
 
 The charset baked into every slot is the union of:
 

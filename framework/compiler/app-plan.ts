@@ -10,7 +10,7 @@ import { compiledProfile, profileChannels } from "../../contracts/spec/profile.t
 import { profileDocument } from "../../hosts/contract.ts";
 import { DYNAMIC_FORMS, TARGET_FORMS } from "../../contracts/spec/platforms.ts";
 import { deriveModality } from "../../contracts/spec/modality.ts";
-import { validateAppConfig, APP_OUTPUT_PATTERN, type AppConfig } from "../../contracts/spec/app-config.ts";
+import { validateAppConfig, APP_FONT_FACES, APP_OUTPUT_PATTERN, type AppConfig, type AppFonts } from "../../contracts/spec/app-config.ts";
 import type { AnimationTheme } from "../../contracts/spec/animation-theme.ts";
 import type { ContractDiagnostic } from "../../contracts/spec/json-schema.ts";
 import type { AppViewport, FixedViewportSpec } from "../../contracts/spec/viewport.ts";
@@ -45,8 +45,8 @@ export interface ResolveAppRequest {
   readonly executionClass?: "guest" | "aot";
   /** Versioned adapter input, interpreted only by its owner. */
   readonly hostExtension?: HostExtension;
-  /** The directory `app.entry`, `app.worker.entry` and `app.icon` are
-   *  relative to: the config file's. Defaults to `projectRoot`. */
+  /** The directory `app.entry`, `app.worker.entry`, `app.icon` and
+   *  `app.fonts` are relative to: the config file's. Defaults to `projectRoot`. */
   readonly configDirectory?: string;
   /** The directory the plan's entries are relative to: the `--project-root`
    *  of `tools/build.ts --plan`. Defaults to `configDirectory`. */
@@ -524,6 +524,9 @@ export function resolveAppPlan(
     return rebased;
   };
   const entry = planPath(app.entry, "/app/entry");
+  // The faces travel in the plan relative to the project root, like the entry.
+  const fonts: AppFonts | undefined = app.fonts && Object.fromEntries(APP_FONT_FACES.flatMap(face =>
+    app.fonts![face] === undefined ? [] : [[face, planPath(app.fonts![face]!, `/app/fonts/${face}`)]]));
   const modality = deriveModality(profile);
   const presentation = { id: "default", entry };
   const resolvedViewport = resolveViewport(app.viewport, "/app/viewport", profile, diagnostics);
@@ -699,6 +702,7 @@ export function resolveAppPlan(
       output,
       framework: app.framework,
       ...(theme !== undefined ? { theme } : {}),
+      ...(fonts !== undefined ? { fonts } : {}),
       ...(app.aot !== undefined ? { aot: app.aot } : {}),
       ...(app.model !== undefined ? { model: app.model } : {}),
       ...(app.recursionLimit !== undefined ? { recursionLimit: app.recursionLimit } : {}),
