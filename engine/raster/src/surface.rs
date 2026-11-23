@@ -8,9 +8,12 @@ use pocket_drivers::{
 use pocket_spec::{draw_op, psm};
 
 use super::{
-    blend_rgb565_pixel, clear_black_rect, fill_opaque_span, pack_rgb565, render_scaled_clipped,
-    Clip, RenderTarget, RgbaTarget, MAX_RENDER_SCALE,
+    aligned_words_mut, blend_rgb565_pixel, blend_rgba_pixel, channels, clear_black_rect,
+    fill_opaque_span, pack_rgb565, render_record, Clip, RenderTarget, RgbaTarget,
+    MAX_RENDER_SCALE,
 };
+#[cfg(test)]
+use super::render_scaled_clipped;
 
 const FORMATS: &[PixelFormat] = &[
     PixelFormat::Rgba8888,
@@ -143,6 +146,33 @@ fn render_clipped(
     Ok(())
 }
 
+/// The interpreter over an acquired surface under `clip`, optionally after
+/// clearing it: what `render_one` runs for one operation, for the
+/// differential tests.
+#[cfg(test)]
+pub(crate) fn interpret_for_test(
+    resources: &(impl RenderResources + ?Sized),
+    words: &[u32],
+    surface: &mut Surface<'_>,
+    scale: u32,
+    clip: Clip,
+    clear: bool,
+) {
+    let geometry = Geometry::new(resources, surface, scale).expect("test surface");
+    let mut target = SurfaceTarget::new(surface, geometry);
+    if clear {
+        clear_black_rect(&mut target, geometry.width, clip);
+    }
+    render_scaled_clipped(
+        resources,
+        words,
+        &mut target,
+        geometry.width,
+        scale as i32,
+        clip,
+    );
+}
+
 /// Physical rectangle as a clip. Coordinates saturate at `i32::MAX`, beyond
 /// any acquired region.
 fn physical(rect: Rect) -> Clip {
@@ -217,9 +247,11 @@ fn render_one(
         return Ok(());
     }
     let resources = OperationResources::new(resources, operation, scale as u32)?;
-    render_scaled_clipped(
+    // One validated drawing record: no scissor stack to set up.
+    render_record(
         &resources,
         operation.words,
+        0,
         target,
         geometry.width,
         scale,
@@ -456,6 +488,11 @@ struct SurfaceTarget<'a> {
     stride: usize,
     bytes_per_pixel: usize,
     geometry: Geometry,
+    /// The full-viewport offsets of the region's first pixel and of the
+    /// pixel after its last one, when the region holds whole viewport rows
+    /// without row padding (a strip of a strip display). An offset then maps
+    /// to its byte by one subtraction; other layouts divide by the width.
+    rows: Option<(usize, usize)>,
 }
 
 impl<'a> SurfaceTarget<'a> {
@@ -463,16 +500,34 @@ impl<'a> SurfaceTarget<'a> {
         let format = surface.format();
         let stride = surface.stride_bytes();
         let bytes_per_pixel = format.bits_per_pixel() / 8;
+        let width = geometry.width as usize;
+        let region = geometry.region;
+        let rows = (region.x0 == 0 && region.x1 == geometry.width && stride == width * bytes_per_pixel)
+            .then(|| (region.y0 as usize * width, region.y1 as usize * width));
         Self {
             pixels: surface.pixels_mut(),
             format,
             stride,
             bytes_per_pixel,
             geometry,
+            rows,
         }
     }
 
+    /// Byte offset of the pixel at `full_offset`. Panics unless `length`
+    /// pixels from it lie in one row of the acquired region.
+    #[inline]
     fn local_offset(&self, full_offset: usize, length: usize) -> usize {
+        if let Some((first, end)) = self.rows {
+            let width = self.geometry.width as usize;
+            assert!(
+                full_offset >= first
+                    && full_offset < end
+                    && (length <= 1 || length <= width - full_offset % width),
+                "raster write escaped the acquired surface"
+            );
+            return (full_offset - first) * self.bytes_per_pixel;
+        }
         let y = full_offset / self.geometry.width as usize;
         let x = full_offset % self.geometry.width as usize;
         let region = self.geometry.region;
@@ -488,11 +543,42 @@ impl<'a> SurfaceTarget<'a> {
     }
 }
 
+/// `blend_rgb565_pixel` on the two little-endian bytes of one pixel.
+#[inline]
+fn blend_rgb565_bytes(pixel: &mut [u8; 2], r: u32, g: u32, b: u32, a: u32) {
+    if a >= 255 {
+        *pixel = pack_rgb565(r, g, b).to_le_bytes();
+        return;
+    }
+    if a == 0 {
+        return;
+    }
+    let mut value = u16::from_le_bytes(*pixel);
+    blend_rgb565_pixel(&mut value, r, g, b, a);
+    *pixel = value.to_le_bytes();
+}
+
+/// `blend_rgb565_pixel` on one pixel held as a native word of
+/// little-endian storage.
+#[inline]
+fn blend_rgb565_word(word: u16, r: u32, g: u32, b: u32, a: u32) -> u16 {
+    if a >= 255 {
+        return pack_rgb565(r, g, b).to_le();
+    }
+    if a == 0 {
+        return word;
+    }
+    let mut value = u16::from_le(word);
+    blend_rgb565_pixel(&mut value, r, g, b, a);
+    value.to_le()
+}
+
 impl RenderTarget for SurfaceTarget<'_> {
     fn pixel_len(&self) -> usize {
         self.geometry.width as usize * self.geometry.height as usize
     }
 
+    #[inline]
     fn blend(&mut self, offset: usize, r: u32, g: u32, b: u32, a: u32) {
         let local = self.local_offset(offset, 1);
         match self.format {
@@ -521,13 +607,92 @@ impl RenderTarget for SurfaceTarget<'_> {
         let span = &mut self.pixels[local..local + len * self.bytes_per_pixel];
         match self.format {
             PixelFormat::Rgb565 => {
-                let color = pack_rgb565(r, g, b).to_le_bytes();
-                for pixel in span.as_chunks_mut::<2>().0.iter_mut() {
-                    pixel.copy_from_slice(&color);
+                let color = pack_rgb565(r, g, b);
+                let [low, high] = color.to_le_bytes();
+                if low == high {
+                    // Black, white and the greys between: one byte value.
+                    span.fill(low);
+                } else if let Some(words) = aligned_words_mut::<u16>(span) {
+                    words.fill(color.to_le());
+                } else {
+                    for pixel in span.as_chunks_mut::<2>().0.iter_mut() {
+                        *pixel = [low, high];
+                    }
                 }
             }
             PixelFormat::Rgba8888 => fill_opaque_span::<false>(span, r, g, b),
             PixelFormat::Argb8888 => fill_opaque_span::<true>(span, r, g, b),
+            _ => unreachable!("surface format validated before rendering"),
+        }
+    }
+
+    // The span methods resolve the row and the pixel format once; the loops
+    // below hold one format's blend each.
+
+    fn blend_fill(&mut self, start: usize, len: usize, r: u32, g: u32, b: u32, a: u32) {
+        if len == 0 || a == 0 {
+            return;
+        }
+        let local = self.local_offset(start, len);
+        let span = &mut self.pixels[local..local + len * self.bytes_per_pixel];
+        match self.format {
+            PixelFormat::Rgb565 => {
+                if let Some(words) = aligned_words_mut::<u16>(span) {
+                    for word in words {
+                        *word = blend_rgb565_word(*word, r, g, b, a);
+                    }
+                } else {
+                    for pixel in span.as_chunks_mut::<2>().0.iter_mut() {
+                        blend_rgb565_bytes(pixel, r, g, b, a);
+                    }
+                }
+            }
+            PixelFormat::Rgba8888 => {
+                for pixel in span.as_chunks_mut::<4>().0.iter_mut() {
+                    blend_rgba_pixel::<false>(pixel, r, g, b, a);
+                }
+            }
+            PixelFormat::Argb8888 => {
+                for pixel in span.as_chunks_mut::<4>().0.iter_mut() {
+                    blend_rgba_pixel::<true>(pixel, r, g, b, a);
+                }
+            }
+            _ => unreachable!("surface format validated before rendering"),
+        }
+    }
+
+    fn blend_span(&mut self, start: usize, colors: &[u32]) {
+        if colors.is_empty() {
+            return;
+        }
+        let local = self.local_offset(start, colors.len());
+        let span = &mut self.pixels[local..local + colors.len() * self.bytes_per_pixel];
+        match self.format {
+            PixelFormat::Rgb565 => {
+                if let Some(words) = aligned_words_mut::<u16>(span) {
+                    for (word, &color) in words.iter_mut().zip(colors) {
+                        let (r, g, b, a) = channels(color);
+                        *word = blend_rgb565_word(*word, r, g, b, a);
+                    }
+                } else {
+                    for (pixel, &color) in span.as_chunks_mut::<2>().0.iter_mut().zip(colors) {
+                        let (r, g, b, a) = channels(color);
+                        blend_rgb565_bytes(pixel, r, g, b, a);
+                    }
+                }
+            }
+            PixelFormat::Rgba8888 => {
+                for (pixel, &color) in span.as_chunks_mut::<4>().0.iter_mut().zip(colors) {
+                    let (r, g, b, a) = channels(color);
+                    blend_rgba_pixel::<false>(pixel, r, g, b, a);
+                }
+            }
+            PixelFormat::Argb8888 => {
+                for (pixel, &color) in span.as_chunks_mut::<4>().0.iter_mut().zip(colors) {
+                    let (r, g, b, a) = channels(color);
+                    blend_rgba_pixel::<true>(pixel, r, g, b, a);
+                }
+            }
             _ => unreachable!("surface format validated before rendering"),
         }
     }

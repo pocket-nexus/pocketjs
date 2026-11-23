@@ -56,6 +56,10 @@ pub mod abi;
 pub mod incremental;
 mod surface;
 #[cfg(test)]
+mod differential_tests;
+#[cfg(test)]
+mod reference;
+#[cfg(test)]
 mod triangle_tests;
 pub use incremental::{
     render_scaled_argb_incremental, render_scaled_incremental, render_scaled_rgb565_incremental,
@@ -119,6 +123,31 @@ fn pixel_bytes<const ARGB: bool>(r: u32, g: u32, b: u32) -> [u8; 4] {
     }
 }
 
+/// `bytes` as its whole native words of `T` when it starts on a `T`
+/// boundary, for one load or store per pixel in place of one per byte.
+/// None for storage that starts elsewhere: the byte loops serve any slice.
+#[inline]
+fn aligned_words<T: Word>(bytes: &[u8]) -> Option<&[T]> {
+    // SAFETY: every bit pattern is a valid `u16` or `u32`, and `align_to`
+    // returns only whole, aligned words inside `bytes`.
+    let (before, words, _) = unsafe { bytes.align_to::<T>() };
+    (before.is_empty() && words.len() == bytes.len() / core::mem::size_of::<T>()).then_some(words)
+}
+
+/// [`aligned_words`] for writing.
+#[inline]
+fn aligned_words_mut<T: Word>(bytes: &mut [u8]) -> Option<&mut [T]> {
+    // SAFETY: as in `aligned_words`; a word accepts every bit pattern.
+    let whole = bytes.len() / core::mem::size_of::<T>();
+    let (before, words, _) = unsafe { bytes.align_to_mut::<T>() };
+    (before.is_empty() && words.len() == whole).then_some(words)
+}
+
+/// The integer types pixel storage is read and written as.
+trait Word: Copy {}
+impl Word for u16 {}
+impl Word for u32 {}
+
 /// Fill an opaque, whole-pixel byte span. Host framebuffers are in practice
 /// at least 4-byte aligned, so the hot path emits one native word per pixel
 /// instead of routing every pixel through alpha blending and four
@@ -146,10 +175,33 @@ fn fill_opaque_span<const ARGB: bool>(span: &mut [u8], r: u32, g: u32, b: u32) {
 
 /// Opaque framebuffer target. `blend` performs integer src-over compositing;
 /// concrete targets differ only in storage format.
+///
+/// The span methods write consecutive pixels of one row and equal one
+/// `blend` call per pixel. A target maps the span to its storage once, so
+/// the interpreter's loops pay no address arithmetic or format dispatch per
+/// pixel.
 trait RenderTarget {
     fn pixel_len(&self) -> usize;
     fn blend(&mut self, offset: usize, r: u32, g: u32, b: u32, a: u32);
     fn fill_opaque(&mut self, start: usize, len: usize, r: u32, g: u32, b: u32);
+
+    /// Blend one colour over `len` pixels from `start`.
+    #[inline]
+    fn blend_fill(&mut self, start: usize, len: usize, r: u32, g: u32, b: u32, a: u32) {
+        for offset in start..start + len {
+            self.blend(offset, r, g, b, a);
+        }
+    }
+
+    /// Blend `colors` (`r | g << 8 | b << 16 | a << 24`, the DrawList colour
+    /// word) over the pixels from `start`.
+    #[inline]
+    fn blend_span(&mut self, start: usize, colors: &[u32]) {
+        for (index, &color) in colors.iter().enumerate() {
+            let (r, g, b, a) = channels(color);
+            self.blend(start + index, r, g, b, a);
+        }
+    }
 
     #[inline]
     fn clear_black(&mut self) {
@@ -160,6 +212,28 @@ trait RenderTarget {
 
 struct RgbaTarget<'a, const ARGB: bool> {
     bytes: &'a mut [u8],
+}
+
+/// `RgbaTarget::blend` on one pixel's bytes.
+#[inline]
+fn blend_rgba_pixel<const ARGB: bool>(pixel: &mut [u8; 4], r: u32, g: u32, b: u32, a: u32) {
+    let (ri, gi, bi, ai) = if ARGB { (2, 1, 0, 3) } else { (0, 1, 2, 3) };
+    if a >= 255 {
+        pixel[ri] = r as u8;
+        pixel[gi] = g as u8;
+        pixel[bi] = b as u8;
+        pixel[ai] = 255;
+        return;
+    }
+    if a == 0 {
+        return;
+    }
+    let ia = 255 - a;
+    let mix = |s: u32, d: u8| ((s * a + d as u32 * ia + 127) / 255) as u8;
+    pixel[ri] = mix(r, pixel[ri]);
+    pixel[gi] = mix(g, pixel[gi]);
+    pixel[bi] = mix(b, pixel[bi]);
+    pixel[ai] = 255;
 }
 
 impl<const ARGB: bool> RenderTarget for RgbaTarget<'_, ARGB> {
@@ -200,6 +274,23 @@ impl<const ARGB: bool> RenderTarget for RgbaTarget<'_, ARGB> {
         let byte_start = start * 4;
         fill_opaque_span::<ARGB>(&mut self.bytes[byte_start..byte_start + len * 4], r, g, b);
     }
+
+    #[inline]
+    fn blend_fill(&mut self, start: usize, len: usize, r: u32, g: u32, b: u32, a: u32) {
+        let span = &mut self.bytes[start * 4..(start + len) * 4];
+        for pixel in span.as_chunks_mut::<4>().0.iter_mut() {
+            blend_rgba_pixel::<ARGB>(pixel, r, g, b, a);
+        }
+    }
+
+    #[inline]
+    fn blend_span(&mut self, start: usize, colors: &[u32]) {
+        let span = &mut self.bytes[start * 4..(start + colors.len()) * 4];
+        for (pixel, &color) in span.as_chunks_mut::<4>().0.iter_mut().zip(colors) {
+            let (r, g, b, a) = channels(color);
+            blend_rgba_pixel::<ARGB>(pixel, r, g, b, a);
+        }
+    }
 }
 
 /// RGBA8 target that keeps coverage. The colour bytes are premultiplied: they
@@ -208,6 +299,24 @@ impl<const ARGB: bool> RenderTarget for RgbaTarget<'_, ARGB> {
 /// `a + da × (1 − a)` with the same rounding.
 struct PremultipliedTarget<'a> {
     bytes: &'a mut [u8],
+}
+
+/// `PremultipliedTarget::blend` on one pixel's bytes.
+#[inline]
+fn blend_premultiplied_pixel(pixel: &mut [u8; 4], r: u32, g: u32, b: u32, a: u32) {
+    if a >= 255 {
+        *pixel = [r as u8, g as u8, b as u8, 255];
+        return;
+    }
+    if a == 0 {
+        return;
+    }
+    let ia = 255 - a;
+    let mix = |s: u32, d: u8| ((s * a + d as u32 * ia + 127) / 255) as u8;
+    pixel[0] = mix(r, pixel[0]);
+    pixel[1] = mix(g, pixel[1]);
+    pixel[2] = mix(b, pixel[2]);
+    pixel[3] = mix(255, pixel[3]);
 }
 
 impl RenderTarget for PremultipliedTarget<'_> {
@@ -246,6 +355,23 @@ impl RenderTarget for PremultipliedTarget<'_> {
     fn fill_opaque(&mut self, start: usize, len: usize, r: u32, g: u32, b: u32) {
         let byte_start = start * 4;
         fill_opaque_span::<false>(&mut self.bytes[byte_start..byte_start + len * 4], r, g, b);
+    }
+
+    #[inline]
+    fn blend_fill(&mut self, start: usize, len: usize, r: u32, g: u32, b: u32, a: u32) {
+        let span = &mut self.bytes[start * 4..(start + len) * 4];
+        for pixel in span.as_chunks_mut::<4>().0.iter_mut() {
+            blend_premultiplied_pixel(pixel, r, g, b, a);
+        }
+    }
+
+    #[inline]
+    fn blend_span(&mut self, start: usize, colors: &[u32]) {
+        let span = &mut self.bytes[start * 4..(start + colors.len()) * 4];
+        for (pixel, &color) in span.as_chunks_mut::<4>().0.iter_mut().zip(colors) {
+            let (r, g, b, a) = channels(color);
+            blend_premultiplied_pixel(pixel, r, g, b, a);
+        }
     }
 
     /// The clear of this target is transparent: nothing is covered yet.
@@ -324,6 +450,24 @@ impl RenderTarget for Rgb565Target<'_> {
     fn fill_opaque(&mut self, start: usize, len: usize, r: u32, g: u32, b: u32) {
         self.pixels[start..start + len].fill(pack_rgb565(r, g, b));
     }
+
+    #[inline]
+    fn blend_fill(&mut self, start: usize, len: usize, r: u32, g: u32, b: u32, a: u32) {
+        for pixel in &mut self.pixels[start..start + len] {
+            blend_rgb565_pixel(pixel, r, g, b, a);
+        }
+    }
+
+    #[inline]
+    fn blend_span(&mut self, start: usize, colors: &[u32]) {
+        for (pixel, &color) in self.pixels[start..start + colors.len()]
+            .iter_mut()
+            .zip(colors)
+        {
+            let (r, g, b, a) = channels(color);
+            blend_rgb565_pixel(pixel, r, g, b, a);
+        }
+    }
 }
 
 impl Rgb565WindowTarget<'_> {
@@ -339,6 +483,18 @@ impl Rgb565WindowTarget<'_> {
             "raster write escaped the compact RGB565 window"
         );
         (y - self.origin_y) * self.width + (x - self.origin_x)
+    }
+
+    /// `local_offset` of the first of `len` pixels that lie in one window row.
+    #[inline]
+    fn span_offset(&self, start: usize, len: usize) -> usize {
+        let full_x = start % self.full_stride;
+        let local = self.local_offset(start);
+        assert!(
+            len <= self.origin_x + self.width - full_x,
+            "raster span crossed a compact RGB565 window row"
+        );
+        local
     }
 }
 
@@ -367,6 +523,32 @@ impl RenderTarget for Rgb565WindowTarget<'_> {
         );
         self.pixels[local..local + len].fill(pack_rgb565(r, g, b));
     }
+
+    #[inline]
+    fn blend_fill(&mut self, start: usize, len: usize, r: u32, g: u32, b: u32, a: u32) {
+        if len == 0 {
+            return;
+        }
+        let local = self.span_offset(start, len);
+        for pixel in &mut self.pixels[local..local + len] {
+            blend_rgb565_pixel(pixel, r, g, b, a);
+        }
+    }
+
+    #[inline]
+    fn blend_span(&mut self, start: usize, colors: &[u32]) {
+        if colors.is_empty() {
+            return;
+        }
+        let local = self.span_offset(start, colors.len());
+        for (pixel, &color) in self.pixels[local..local + colors.len()]
+            .iter_mut()
+            .zip(colors)
+        {
+            let (r, g, b, a) = channels(color);
+            blend_rgb565_pixel(pixel, r, g, b, a);
+        }
+    }
 }
 
 /// Fill an already-clipped span rect with one flat color.
@@ -383,10 +565,9 @@ fn fill_rect<T: RenderTarget>(target: &mut T, stride: i32, c: Clip, color: u32) 
         }
         return;
     }
+    let row_pixels = (c.x1 - c.x0) as usize;
     for y in c.y0..c.y1 {
-        for x in c.x0..c.x1 {
-            target.blend((y * stride + x) as usize, r, g, b, a);
-        }
+        target.blend_fill((y * stride + c.x0) as usize, row_pixels, r, g, b, a);
     }
 }
 
@@ -729,72 +910,6 @@ fn render_scaled_clipped<T: RenderTarget>(
     let mut i = 0usize;
     while i < words.len() {
         match words[i] {
-            draw_op::RECT => {
-                if i + 4 > words.len() {
-                    return;
-                }
-                let (x, y) = xy(words[i + 1], scale);
-                let (w, h) = wh(words[i + 2], scale);
-                let c = clip.intersect(Clip {
-                    x0: x,
-                    y0: y,
-                    x1: x + w,
-                    y1: y + h,
-                });
-                if c.x0 < c.x1 && c.y0 < c.y1 {
-                    fill_rect(target, width, c, words[i + 3]);
-                }
-                i += 4;
-            }
-            draw_op::GRAD_RECT => {
-                if i + 6 > words.len() {
-                    return;
-                }
-                let (x, y) = xy(words[i + 1], scale);
-                let (w, h) = wh(words[i + 2], scale);
-                grad_rect(
-                    target,
-                    width,
-                    clip,
-                    x,
-                    y,
-                    w,
-                    h,
-                    words[i + 3],
-                    words[i + 4],
-                    words[i + 5],
-                );
-                i += 6;
-            }
-            draw_op::GLYPH_RUN => {
-                if i + 3 > words.len() {
-                    return;
-                }
-                let slot = (words[i + 1] & 0xff) as u8;
-                let n = (words[i + 1] >> 16) as usize;
-                let color = words[i + 2];
-                if i + 3 + 2 * n > words.len() {
-                    return;
-                }
-                glyph_run(
-                    ui,
-                    target,
-                    width,
-                    scale,
-                    clip,
-                    slot,
-                    color,
-                    &words[i + 3..i + 3 + 2 * n],
-                );
-                i += 3 + 2 * n;
-            }
-            draw_op::TEX_QUAD => {
-                if i + 9 > words.len() {
-                    return;
-                }
-                tex_quad(ui, target, width, scale, clip, &words[i + 1..i + 9]);
-                i += 9;
-            }
             draw_op::SCISSOR => {
                 if i + 3 > words.len() || depth >= stack.len() {
                     return;
@@ -822,40 +937,135 @@ fn render_scaled_clipped<T: RenderTarget>(
                 }
                 i += 1;
             }
-            draw_op::TRI => {
-                if i + 7 > words.len() {
-                    return;
-                }
-                tri(target, width, scale, clip, &words[i + 1..i + 7]);
-                i += 7;
-            }
-            draw_op::TEX_TRI => {
-                if i + 12 > words.len() {
-                    return;
-                }
-                tex_tri(ui, target, width, scale, clip, &words[i + 1..i + 12]);
-                i += 12;
-            }
-            draw_op::TEXT_RUN => {
-                // Native-text op (host text system shapes the run); the
-                // software rasterizer has no shaper, so hosts that raster run
-                // with baked measurement and never receive it. Skipped, not a
-                // stop: the op is a known member of the closed set. Variable
-                // length: 8 header words + the packed UTF-8 payload.
-                if i + 8 > words.len() {
-                    return;
-                }
-                let payload = (words[i + 7] as usize).div_ceil(4);
-                i += 8 + payload;
-            }
-            // The op set is closed per DrawList version; anything else means
-            // corrupt data — stop instead of misinterpreting the stream.
-            _ => return,
+            _ => match render_record(ui, words, i, target, width, scale, clip) {
+                Some(next) => i = next,
+                None => return,
+            },
         }
     }
 }
 
+/// Draw the record at `words[at..]`, which is not a scissor, under `clip`.
+/// Returns the index of the next record; None stops the stream (a truncated
+/// record or an unknown opcode).
+///
+/// The surface entry points decode the DrawList themselves and call this
+/// once per record, without the scissor stack of [`render_scaled_clipped`].
+#[inline]
+fn render_record<T: RenderTarget>(
+    ui: &(impl RenderResources + ?Sized),
+    words: &[u32],
+    at: usize,
+    target: &mut T,
+    width: i32,
+    scale: i32,
+    clip: Clip,
+) -> Option<usize> {
+    let i = at;
+    match words[i] {
+        draw_op::RECT => {
+            if i + 4 > words.len() {
+                return None;
+            }
+            let (x, y) = xy(words[i + 1], scale);
+            let (w, h) = wh(words[i + 2], scale);
+            let c = clip.intersect(Clip {
+                x0: x,
+                y0: y,
+                x1: x + w,
+                y1: y + h,
+            });
+            if c.x0 < c.x1 && c.y0 < c.y1 {
+                fill_rect(target, width, c, words[i + 3]);
+            }
+            Some(i + 4)
+        }
+        draw_op::GRAD_RECT => {
+            if i + 6 > words.len() {
+                return None;
+            }
+            let (x, y) = xy(words[i + 1], scale);
+            let (w, h) = wh(words[i + 2], scale);
+            grad_rect(
+                target,
+                width,
+                clip,
+                x,
+                y,
+                w,
+                h,
+                words[i + 3],
+                words[i + 4],
+                words[i + 5],
+            );
+            Some(i + 6)
+        }
+        draw_op::GLYPH_RUN => {
+            if i + 3 > words.len() {
+                return None;
+            }
+            let slot = (words[i + 1] & 0xff) as u8;
+            let n = (words[i + 1] >> 16) as usize;
+            let color = words[i + 2];
+            if i + 3 + 2 * n > words.len() {
+                return None;
+            }
+            glyph_run(
+                ui,
+                target,
+                width,
+                scale,
+                clip,
+                slot,
+                color,
+                &words[i + 3..i + 3 + 2 * n],
+            );
+            Some(i + 3 + 2 * n)
+        }
+        draw_op::TEX_QUAD => {
+            if i + 9 > words.len() {
+                return None;
+            }
+            tex_quad(ui, target, width, scale, clip, &words[i + 1..i + 9]);
+            Some(i + 9)
+        }
+        draw_op::TRI => {
+            if i + 7 > words.len() {
+                return None;
+            }
+            tri(target, width, scale, clip, &words[i + 1..i + 7]);
+            Some(i + 7)
+        }
+        draw_op::TEX_TRI => {
+            if i + 12 > words.len() {
+                return None;
+            }
+            tex_tri(ui, target, width, scale, clip, &words[i + 1..i + 12]);
+            Some(i + 12)
+        }
+        draw_op::TEXT_RUN => {
+            // Native-text op (host text system shapes the run); the
+            // software rasterizer has no shaper, so hosts that raster run
+            // with baked measurement and never receive it. Skipped, not a
+            // stop: the op is a known member of the closed set. Variable
+            // length: 8 header words + the packed UTF-8 payload.
+            if i + 8 > words.len() {
+                return None;
+            }
+            let payload = (words[i + 7] as usize).div_ceil(4);
+            Some(i + 8 + payload)
+        }
+        // The op set is closed per DrawList version; anything else means
+        // corrupt data — stop instead of misinterpreting the stream.
+        _ => None,
+    }
+}
+
 // ---- GRAD_RECT: per-axis gouraud lerp ---------------------------------------------
+
+/// Pixels the interpreter shades into a stack buffer before one
+/// `RenderTarget::blend_span` call.
+const SPAN: usize = 64;
 
 #[allow(clippy::too_many_arguments)]
 fn grad_rect<T: RenderTarget>(
@@ -888,20 +1098,26 @@ fn grad_rect<T: RenderTarget>(
     let reversed = dir == spec::GradDir::ToTop as u32 || dir == spec::GradDir::ToLeft as u32;
     let (a, b) = if reversed { (to, from) } else { (from, to) };
     if horizontal {
+        // One colour per column: shade a band of columns once, then blend
+        // it over every row. A colour without alpha blends nothing.
         let inv = 1.0f32 / w as f32;
-        for px in c.x0..c.x1 {
-            let f = ((px - x) as f32 + 0.5) * inv;
-            let col = lerp_color(a, b, f);
-            let (r, g, bb, al) = channels(col);
-            if al == 0 {
-                continue;
+        let mut colors = [0u32; SPAN];
+        let mut band = c.x0;
+        while band < c.x1 {
+            let count = ((c.x1 - band) as usize).min(SPAN);
+            for (index, color) in colors[..count].iter_mut().enumerate() {
+                let px = band + index as i32;
+                let f = ((px - x) as f32 + 0.5) * inv;
+                *color = lerp_color(a, b, f);
             }
             for py in c.y0..c.y1 {
-                target.blend((py * stride + px) as usize, r, g, bb, al);
+                target.blend_span((py * stride + band) as usize, &colors[..count]);
             }
+            band += count as i32;
         }
     } else {
         let inv = 1.0f32 / h as f32;
+        let row_pixels = (c.x1 - c.x0) as usize;
         for py in c.y0..c.y1 {
             let f = ((py - y) as f32 + 0.5) * inv;
             let col = lerp_color(a, b, f);
@@ -909,14 +1125,12 @@ fn grad_rect<T: RenderTarget>(
             if al == 0 {
                 continue;
             }
+            let start = (py * stride + c.x0) as usize;
             if al >= 255 {
-                let start = (py * stride + c.x0) as usize;
-                target.fill_opaque(start, (c.x1 - c.x0) as usize, r, g, bb);
+                target.fill_opaque(start, row_pixels, r, g, bb);
                 continue;
             }
-            for px in c.x0..c.x1 {
-                target.blend((py * stride + px) as usize, r, g, bb, al);
-            }
+            target.blend_fill(start, row_pixels, r, g, bb, al);
         }
     }
 }
@@ -946,6 +1160,17 @@ fn edge_bias(u: (i64, i64), v: (i64, i64)) -> i64 {
     }
 }
 
+/// `n / d` for `n >= 0` and `d > 0`. Operands that fit 32 bits divide as
+/// such: a 32-bit target has no 64-bit divide instruction.
+#[inline]
+fn div_nonnegative(n: i64, d: i64) -> i64 {
+    if n <= u32::MAX as i64 && d <= u32::MAX as i64 {
+        (n as u32 / d as u32) as i64
+    } else {
+        n / d
+    }
+}
+
 /// Exact covered interval on one pixel row of a counter-clockwise triangle.
 /// Each doubled-coordinate edge is linear in x. Intersect the half-line where
 /// it reaches its `edge_bias` with the clip, then advance the original integer
@@ -962,25 +1187,39 @@ impl TriangleRow {
     fn new(a: (i64, i64), b: (i64, i64), c: (i64, i64), y: i32, min_x: i32, max_x: i32) -> Self {
         let sx = 2 * min_x as i64 + 1;
         let sy = 2 * y as i64 + 1;
-        let mut weights = [
+        let weights = [
             orient(b.0, b.1, c.0, c.1, sx, sy),
             orient(c.0, c.1, a.0, a.1, sx, sy),
             orient(a.0, a.1, b.0, b.1, sx, sy),
         ];
         let step = [-2 * (c.1 - b.1), -2 * (a.1 - c.1), -2 * (b.1 - a.1)];
         let bias = [edge_bias(b, c), edge_bias(c, a), edge_bias(a, b)];
+        Self::from_weights(weights, step, bias, min_x, max_x)
+    }
+
+    /// The row whose edge weights at the centre of pixel `min_x` are
+    /// `weights` and change by `step` per pixel; a covered centre has at
+    /// least `bias` on every edge.
+    fn from_weights(
+        mut weights: [i64; 3],
+        step: [i64; 3],
+        bias: [i64; 3],
+        min_x: i32,
+        max_x: i32,
+    ) -> Self {
         let mut first = 0i64;
         let mut end = (max_x as i64 - min_x as i64).max(0);
         for ((&w, &dx), &bias) in weights.iter().zip(&step).zip(&bias) {
             if dx > 0 {
                 if w < bias {
-                    first = first.max((bias - w + dx - 1) / dx);
+                    // bias - w >= 1: the numerator is positive.
+                    first = first.max(div_nonnegative(bias - w + dx - 1, dx));
                 }
             } else if dx < 0 {
                 if w < bias {
                     end = 0;
                 } else {
-                    end = end.min((w - bias) / -dx + 1);
+                    end = end.min(div_nonnegative(w - bias, -dx) + 1);
                 }
             } else if w < bias {
                 end = 0;
@@ -1022,6 +1261,54 @@ impl Iterator for TriangleRow {
     }
 }
 
+/// The rows of one triangle from a first row down. An edge function is
+/// linear in y as in x, so the weights at the clip's first column advance
+/// from row to row by one addition each. The `edge_bias` of an edge is the
+/// same on every row.
+struct TriangleRows {
+    weights: [i64; 3],
+    step: [i64; 3],
+    row_step: [i64; 3],
+    bias: [i64; 3],
+    min_x: i32,
+    max_x: i32,
+}
+
+impl TriangleRows {
+    fn new(a: (i64, i64), b: (i64, i64), c: (i64, i64), y: i32, min_x: i32, max_x: i32) -> Self {
+        let sx = 2 * min_x as i64 + 1;
+        let sy = 2 * y as i64 + 1;
+        Self {
+            weights: [
+                orient(b.0, b.1, c.0, c.1, sx, sy),
+                orient(c.0, c.1, a.0, a.1, sx, sy),
+                orient(a.0, a.1, b.0, b.1, sx, sy),
+            ],
+            step: [-2 * (c.1 - b.1), -2 * (a.1 - c.1), -2 * (b.1 - a.1)],
+            row_step: [2 * (c.0 - b.0), 2 * (a.0 - c.0), 2 * (b.0 - a.0)],
+            bias: [edge_bias(b, c), edge_bias(c, a), edge_bias(a, b)],
+            min_x,
+            max_x,
+        }
+    }
+
+    /// The covered interval of the current row; moves to the row below.
+    #[inline]
+    fn next_row(&mut self) -> TriangleRow {
+        let row = TriangleRow::from_weights(
+            self.weights,
+            self.step,
+            self.bias,
+            self.min_x,
+            self.max_x,
+        );
+        for (w, &dy) in self.weights.iter_mut().zip(&self.row_step) {
+            *w += dy;
+        }
+        row
+    }
+}
+
 fn tri<T: RenderTarget>(target: &mut T, stride: i32, scale: i32, clip: Clip, p: &[u32]) {
     let (x0, y0) = xy(p[0], scale);
     let (x1, y1) = xy(p[1], scale);
@@ -1050,28 +1337,92 @@ fn tri<T: RenderTarget>(target: &mut T, stride: i32, scale: i32, clip: Clip, p: 
     let (r0, g0, b0, a0) = channels(c0);
     let (r1, g1, b1, a1) = channels(c1);
     let (r2, g2, b2, a2) = channels(c2);
+    if min_x >= max_x || min_y >= max_y {
+        // Outside the clip: most triangles of a frame on a strip target.
+        return;
+    }
     let flat = c0 == c1 && c1 == c2;
-    let flat_opaque = flat && a0 >= 255;
     let half = area / 2;
-    for py in min_y..max_y {
-        for (px, [w0, w1, w2]) in TriangleRow::new((ax, ay), (bx, by), (cx, cy), py, min_x, max_x) {
-            if flat_opaque {
-                target.fill_opaque((py * stride + px) as usize, 1, r0, g0, b0);
-            } else if flat {
-                target.blend((py * stride + px) as usize, r0, g0, b0, a0);
-            } else {
-                // Integer barycentric interpolation, round-to-nearest.
-                let mix = |v0: u32, v1: u32, v2: u32| {
-                    ((v0 as i64 * w0 + v1 as i64 * w1 + v2 as i64 * w2 + half) / area) as u32
-                };
-                target.blend(
-                    (py * stride + px) as usize,
-                    mix(r0, r1, r2),
-                    mix(g0, g1, g2),
-                    mix(b0, b1, b2),
-                    mix(a0, a1, a2),
-                );
+    let mut rows = TriangleRows::new((ax, ay), (bx, by), (cx, cy), min_y, min_x, max_x);
+    if flat {
+        // One colour: every covered row is one span.
+        if a0 == 0 {
+            return;
+        }
+        for py in min_y..max_y {
+            let row = rows.next_row();
+            if row.x >= row.end {
+                continue;
             }
+            let start = (py * stride + row.x) as usize;
+            let len = (row.end - row.x) as usize;
+            if a0 >= 255 {
+                target.fill_opaque(start, len, r0, g0, b0);
+            } else {
+                target.blend_fill(start, len, r0, g0, b0, a0);
+            }
+        }
+        return;
+    }
+    // Integer barycentric interpolation, round-to-nearest:
+    // (v0*w0 + v1*w1 + v2*w2 + half) / area per channel. A covered centre
+    // has every weight at or above its `edge_bias` (0 or 1), so the weights
+    // are nonnegative, and they sum to `area`: the numerator is at most
+    // 255 * area + half. When that fits 32 bits (every triangle below
+    // two million pixels) the numerators step by addition along the row
+    // and divide as u32: the same quotients without 64-bit arithmetic.
+    if area
+        .checked_mul(255)
+        .and_then(|numerator| numerator.checked_add(half))
+        .is_some_and(|numerator| numerator <= u32::MAX as i64)
+    {
+        let (area, half) = (area as u32, half as u32);
+        let channel = [(r0, r1, r2), (g0, g1, g2), (b0, b1, b2), (a0, a1, a2)];
+        let step = rows.step;
+        let numerator_step = channel.map(|(v0, v1, v2)| {
+            (v0 as i64 * step[0] + v1 as i64 * step[1] + v2 as i64 * step[2]) as u32
+        });
+        let mut colors = [0u32; SPAN];
+        for py in min_y..max_y {
+            let row = rows.next_row();
+            if row.x >= row.end {
+                // The weights of a row without a covered pixel are not
+                // barycentric.
+                continue;
+            }
+            let [w0, w1, w2] = row.weights.map(|w| w as u32);
+            let mut numerator =
+                channel.map(|(v0, v1, v2)| v0 * w0 + v1 * w1 + v2 * w2 + half);
+            let mut px = row.x;
+            while px < row.end {
+                let count = ((row.end - px) as usize).min(SPAN);
+                for color in &mut colors[..count] {
+                    *color = (numerator[0] / area)
+                        | ((numerator[1] / area) << 8)
+                        | ((numerator[2] / area) << 16)
+                        | ((numerator[3] / area) << 24);
+                    for (n, &step) in numerator.iter_mut().zip(&numerator_step) {
+                        *n = n.wrapping_add(step);
+                    }
+                }
+                target.blend_span((py * stride + px) as usize, &colors[..count]);
+                px += count as i32;
+            }
+        }
+        return;
+    }
+    for py in min_y..max_y {
+        for (px, [w0, w1, w2]) in rows.next_row() {
+            let mix = |v0: u32, v1: u32, v2: u32| {
+                ((v0 as i64 * w0 + v1 as i64 * w1 + v2 as i64 * w2 + half) / area) as u32
+            };
+            target.blend(
+                (py * stride + px) as usize,
+                mix(r0, r1, r2),
+                mix(g0, g1, g2),
+                mix(b0, b1, b2),
+                mix(a0, a1, a2),
+            );
         }
     }
 }
@@ -1109,16 +1460,19 @@ fn glyph_run<T: RenderTarget>(
     let Some(atlas) = ui.font_atlas(slot) else {
         return;
     };
-    let (r, g, b, a) = channels(color);
+    let (_, _, _, a) = channels(color);
     if a == 0 {
         return;
     }
+    let rgb = color & 0x00ff_ffff;
     let cell_w = atlas.cell_w as i32 * output_scale;
     let cell_h = atlas.cell_h as i32 * output_scale;
     let atlas_density = atlas.raster_density as i32;
     let coverage_w = atlas.coverage_width() as i32;
     let coverage_h = atlas.coverage_height() as i32;
     let bpr = atlas.bytes_per_row();
+    let mut columns = [0usize; SPAN];
+    let mut colors = [0u32; SPAN];
     for pair in glyphs.as_chunks::<2>().0.iter() {
         let (gx, gy) = xy(pair[0], output_scale);
         let gid = (pair[1] & 0xffff) as u16;
@@ -1134,16 +1488,30 @@ fn glyph_run<T: RenderTarget>(
             continue;
         }
         let rows = atlas.glyph_rows(gid);
-        for py in y0..y1 {
-            let sy = coverage_index(py - gy, output_scale, atlas_density, coverage_h);
-            let row = &rows[sy * bpr..];
-            for px in x0..x1 {
-                let cx = coverage_index(px - gx, output_scale, atlas_density, coverage_w);
-                let cov = row[cx] as u32;
-                if cov != 0 {
-                    target.blend((py * stride + px) as usize, r, g, b, (a * cov + 127) / 255);
-                }
+        // The coverage column of a pixel is the same on every row: look a
+        // band of columns up once, then shade and blend it row by row.
+        let mut band = x0;
+        while band < x1 {
+            let count = ((x1 - band) as usize).min(SPAN);
+            for (index, column) in columns[..count].iter_mut().enumerate() {
+                let px = band + index as i32;
+                *column = coverage_index(px - gx, output_scale, atlas_density, coverage_w);
             }
+            for py in y0..y1 {
+                let sy = coverage_index(py - gy, output_scale, atlas_density, coverage_h);
+                let row = &rows[sy * bpr..];
+                for (color, &cx) in colors[..count].iter_mut().zip(&columns[..count]) {
+                    let cov = row[cx] as u32;
+                    // No coverage leaves the alpha at zero: nothing blends.
+                    *color = if cov != 0 {
+                        rgb | (((a * cov + 127) / 255) << 24)
+                    } else {
+                        0
+                    };
+                }
+                target.blend_span((py * stride + band) as usize, &colors[..count]);
+            }
+            band += count as i32;
         }
     }
 }
@@ -1269,6 +1637,185 @@ fn sample_linear(view: &TexView, u: f32, v: f32) -> Option<(u32, u32, u32, u32)>
     ))
 }
 
+// ---- validated views: one fetch per pixel format ----------------------------------
+
+/// The storage of a view whose every texel has its bytes: the loops below
+/// fetch without the per-texel format match of [`texel`], and no fetch can
+/// leave the storage. Other views take the per-pixel loops, which keep the
+/// behaviour of [`texel`] for them.
+#[derive(Clone, Copy)]
+enum Texels<'a> {
+    Rgb565(&'a [u8]),
+    Rgba8888(&'a [u8]),
+    Rgba4444(&'a [u8]),
+    Indexed(&'a [u8], &'a [u8]),
+}
+
+impl<'a> Texels<'a> {
+    /// None for an unknown format, a view without texels, T8 without a
+    /// whole palette, more texels than an `i32` index reaches, or fewer
+    /// bytes than `w * h` texels need.
+    fn new(view: &TexView<'a>) -> Option<Self> {
+        let texels = (view.w as usize).checked_mul(view.h as usize)?;
+        if texels == 0 || texels > i32::MAX as usize {
+            return None;
+        }
+        let holds = |bytes_per_texel: usize| {
+            texels
+                .checked_mul(bytes_per_texel)
+                .is_some_and(|bytes| bytes <= view.pixels.len())
+        };
+        match view.psm {
+            spec::psm::PSM_5650 if holds(2) => Some(Self::Rgb565(view.pixels)),
+            spec::psm::PSM_8888 if holds(4) => Some(Self::Rgba8888(view.pixels)),
+            spec::psm::PSM_4444 if holds(2) => Some(Self::Rgba4444(view.pixels)),
+            spec::psm::PSM_T8 if holds(1) => {
+                let palette = view.palette.filter(|palette| palette.len() >= 1024)?;
+                Some(Self::Indexed(view.pixels, palette))
+            }
+            _ => None,
+        }
+    }
+}
+
+/// Texel `index` (row-major) as a packed colour, `r | g << 8 | b << 16 |
+/// a << 24`: the channels [`texel`] returns for the format.
+trait Fetch: Copy {
+    fn fetch(self, index: usize) -> u32;
+}
+
+/// A format's storage: its bytes and, when they start on a word boundary,
+/// the same texels as words. Both hold at least `w * h` texels.
+#[derive(Clone, Copy)]
+struct FetchRgb565<'a>(&'a [u8], Option<&'a [u16]>);
+#[derive(Clone, Copy)]
+struct FetchRgba8888<'a>(&'a [u8], Option<&'a [u32]>);
+#[derive(Clone, Copy)]
+struct FetchRgba4444<'a>(&'a [u8], Option<&'a [u16]>);
+#[derive(Clone, Copy)]
+struct FetchIndexed<'a>(&'a [u8], &'a [u8], Option<&'a [u32]>);
+
+/// The little-endian 16-bit texel `index` of `bytes`, from `words` when the
+/// storage is aligned.
+#[inline(always)]
+fn texel16(bytes: &[u8], words: Option<&[u16]>, index: usize) -> u32 {
+    match words {
+        Some(words) => u16::from_le(words[index]) as u32,
+        None => {
+            let texel = &bytes[index * 2..index * 2 + 2];
+            texel[0] as u32 | ((texel[1] as u32) << 8)
+        }
+    }
+}
+
+/// The four bytes at `index * 4` as a packed colour, from `words` when the
+/// storage is aligned.
+#[inline(always)]
+fn texel32(bytes: &[u8], words: Option<&[u32]>, index: usize) -> u32 {
+    match words {
+        Some(words) => u32::from_le(words[index]),
+        None => {
+            let texel = &bytes[index * 4..index * 4 + 4];
+            u32::from_le_bytes([texel[0], texel[1], texel[2], texel[3]])
+        }
+    }
+}
+
+impl Fetch for FetchRgb565<'_> {
+    #[inline(always)]
+    fn fetch(self, index: usize) -> u32 {
+        let px16 = texel16(self.0, self.1, index);
+        let r5 = px16 & 0x1f;
+        let g6 = (px16 >> 5) & 0x3f;
+        let b5 = (px16 >> 11) & 0x1f;
+        ((r5 << 3) | (r5 >> 2))
+            | (((g6 << 2) | (g6 >> 4)) << 8)
+            | (((b5 << 3) | (b5 >> 2)) << 16)
+            | (255 << 24)
+    }
+}
+
+impl Fetch for FetchRgba8888<'_> {
+    #[inline(always)]
+    fn fetch(self, index: usize) -> u32 {
+        texel32(self.0, self.1, index)
+    }
+}
+
+impl Fetch for FetchRgba4444<'_> {
+    #[inline(always)]
+    fn fetch(self, index: usize) -> u32 {
+        let px16 = texel16(self.0, self.1, index);
+        ((px16 & 0xf) * 17)
+            | ((((px16 >> 4) & 0xf) * 17) << 8)
+            | ((((px16 >> 8) & 0xf) * 17) << 16)
+            | ((((px16 >> 12) & 0xf) * 17) << 24)
+    }
+}
+
+impl Fetch for FetchIndexed<'_> {
+    #[inline(always)]
+    fn fetch(self, index: usize) -> u32 {
+        texel32(self.1, self.2, self.0[index] as usize)
+    }
+}
+
+/// Run `$body` with `$fetch` bound to the fetch of `$texels`' format: one
+/// copy of the loop per format, selected once per operation.
+macro_rules! with_fetch {
+    ($texels:expr, $fetch:ident => $body:expr) => {
+        match $texels {
+            Texels::Rgb565(pixels) => {
+                let $fetch = FetchRgb565(pixels, aligned_words(pixels));
+                $body
+            }
+            Texels::Rgba8888(pixels) => {
+                let $fetch = FetchRgba8888(pixels, aligned_words(pixels));
+                $body
+            }
+            Texels::Rgba4444(pixels) => {
+                let $fetch = FetchRgba4444(pixels, aligned_words(pixels));
+                $body
+            }
+            Texels::Indexed(pixels, palette) => {
+                // A whole palette is 256 entries; the index is one byte.
+                let $fetch = FetchIndexed(pixels, palette, aligned_words(palette));
+                $body
+            }
+        }
+    };
+}
+
+/// The blend of [`sample_linear`] over four fetched neighbours. Two
+/// channels share a word, eight bits apart: `a * (256 - f) + b * f` is at
+/// most 255 * 256, so no lane carries into the next.
+#[inline(always)]
+fn lerp_neighbours(c00: u32, c01: u32, c10: u32, c11: u32, fx: u32, fy: u32) -> u32 {
+    const LANES: u32 = 0x00ff_00ff;
+    let lerp = |a: u32, b: u32, f: u32| ((a * (256 - f) + b * f) >> 8) & LANES;
+    let mix = |shift: u32| {
+        lerp(
+            lerp((c00 >> shift) & LANES, (c01 >> shift) & LANES, fx),
+            lerp((c10 >> shift) & LANES, (c11 >> shift) & LANES, fx),
+            fy,
+        )
+    };
+    mix(0) | (mix(8) << 8)
+}
+
+/// The integer modulate of TEX_QUAD and TEX_TRI, round-to-nearest, on every
+/// colour of a shaded span.
+#[inline]
+fn modulate_span(colors: &mut [u32], [mr, mg, mb, ma]: [u32; 4]) {
+    for color in colors {
+        let (r, g, b, a) = channels(*color);
+        *color = ((r * mr + 127) / 255)
+            | (((g * mg + 127) / 255) << 8)
+            | (((b * mb + 127) / 255) << 16)
+            | (((a * ma + 127) / 255) << 24);
+    }
+}
+
 // ---- TEX_TRI: barycentric textured triangle (affine UV; nearest, or integer
 //      bilinear when the texture carries the linear flag) --------------------
 
@@ -1309,6 +1856,11 @@ fn tex_tri<T: RenderTarget>(
     let max_x = x0.max(x1).max(x2).min(clip.x1);
     let min_y = y0.min(y1).min(y2).max(clip.y0);
     let max_y = y0.max(y1).max(y2).min(clip.y1);
+    if min_x >= max_x || min_y >= max_y {
+        // Outside the clip: no row is covered, and the reciprocal below is
+        // a software division on targets without a float divider.
+        return;
+    }
     let (mr, mg, mb, ma) = channels(modulate);
     let identity = modulate == 0xffff_ffff;
     let (twf, thf) = (view.w as f32, view.h as f32);
@@ -1317,6 +1869,30 @@ fn tex_tri<T: RenderTarget>(
     // Covered weights are in 0..=area. The narrow conversion has the same
     // IEEE-754 result and avoids software i64-to-f32 helpers on Cortex-M.
     let narrow = area <= i32::MAX as i64;
+    if narrow {
+        if let Some(texels) = Texels::new(&view) {
+            // The common case: shade each covered row into a span with the
+            // format's fetch, the weights stepping as i32.
+            let triangle = TexTriangle {
+                rows: TriangleRows::new((ax, ay), (bx, by), (cx, cy), min_y, min_x, max_x),
+                min_y,
+                max_y,
+                u: [u0, u1, u2],
+                v: [v0, v1, v2],
+                inv_area,
+                width: view.w,
+                height: view.h,
+                modulate: (!identity).then_some([mr, mg, mb, ma]),
+            };
+            let target: &mut dyn RenderTarget = target;
+            if view.linear {
+                with_fetch!(texels, fetch => tex_tri_linear(target, stride, triangle, fetch));
+            } else {
+                with_fetch!(texels, fetch => tex_tri_nearest(target, stride, triangle, fetch));
+            }
+            return;
+        }
+    }
     for py in min_y..max_y {
         for (px, [w0, w1, w2]) in TriangleRow::new((ax, ay), (bx, by), (cx, cy), py, min_x, max_x) {
             let (f0, f1, f2) = if narrow {
@@ -1355,6 +1931,107 @@ fn tex_tri<T: RenderTarget>(
             target.blend((py * stride + px) as usize, r, g, b, a);
         }
     }
+}
+
+/// One textured triangle over a validated view, wound counter-clockwise,
+/// with weights that fit `i32`.
+struct TexTriangle {
+    rows: TriangleRows,
+    min_y: i32,
+    max_y: i32,
+    u: [f32; 3],
+    v: [f32; 3],
+    inv_area: f32,
+    width: u32,
+    height: u32,
+    modulate: Option<[u32; 4]>,
+}
+
+impl TexTriangle {
+    /// The texture coordinate at weights `w`: the expression of the
+    /// per-pixel loop, operation for operation.
+    #[inline(always)]
+    fn uv(&self, w: [i32; 3]) -> (f32, f32) {
+        let f0 = w[0] as f32 * self.inv_area;
+        let f1 = w[1] as f32 * self.inv_area;
+        let f2 = w[2] as f32 * self.inv_area;
+        let u = self.u[0] * f0 + self.u[1] * f1 + self.u[2] * f2;
+        let v = self.v[0] * f0 + self.v[1] * f1 + self.v[2] * f2;
+        (u, v)
+    }
+
+    /// Shade every covered row with `sample` and blend it span by span.
+    #[inline(always)]
+    fn draw(mut self, target: &mut dyn RenderTarget, stride: i32, sample: impl Fn(f32, f32) -> u32) {
+        let step = self.rows.step.map(|step| step as i32);
+        let mut colors = [0u32; SPAN];
+        for py in self.min_y..self.max_y {
+            let row = self.rows.next_row();
+            if row.x >= row.end {
+                continue;
+            }
+            // Exact at every covered pixel, where a weight is in 0..=area.
+            let mut w = row.weights.map(|weight| weight as i32);
+            let mut px = row.x;
+            while px < row.end {
+                let count = ((row.end - px) as usize).min(SPAN);
+                for color in &mut colors[..count] {
+                    let (u, v) = self.uv(w);
+                    *color = sample(u, v);
+                    for (weight, &step) in w.iter_mut().zip(&step) {
+                        *weight = weight.wrapping_add(step);
+                    }
+                }
+                if let Some(modulate) = self.modulate {
+                    modulate_span(&mut colors[..count], modulate);
+                }
+                target.blend_span((py * stride + px) as usize, &colors[..count]);
+                px += count as i32;
+            }
+        }
+    }
+}
+
+fn tex_tri_nearest<F: Fetch>(
+    target: &mut dyn RenderTarget,
+    stride: i32,
+    triangle: TexTriangle,
+    fetch: F,
+) {
+    let (twf, thf) = (triangle.width as f32, triangle.height as f32);
+    let (tw_max, th_max) = (triangle.width as i32 - 1, triangle.height as i32 - 1);
+    let width = triangle.width as i32;
+    triangle.draw(target, stride, #[inline(always)]
+    |u, v| {
+        let tx = ((u * twf) as i32).clamp(0, tw_max);
+        let ty = ((v * thf) as i32).clamp(0, th_max);
+        fetch.fetch((ty * width + tx) as usize)
+    });
+}
+
+fn tex_tri_linear<F: Fetch>(
+    target: &mut dyn RenderTarget,
+    stride: i32,
+    triangle: TexTriangle,
+    fetch: F,
+) {
+    let (width, height) = (triangle.width, triangle.height);
+    let row = width as usize;
+    triangle.draw(target, stride, #[inline(always)]
+    |u, v| {
+        // A validated view has texels: the coordinates always exist.
+        let Some(sample) = linear_sample_coordinates(width, height, u, v) else {
+            return 0;
+        };
+        lerp_neighbours(
+            fetch.fetch(sample.y0 as usize * row + sample.x0 as usize),
+            fetch.fetch(sample.y0 as usize * row + sample.x1 as usize),
+            fetch.fetch(sample.y1 as usize * row + sample.x0 as usize),
+            fetch.fetch(sample.y1 as usize * row + sample.x1 as usize),
+            sample.fx,
+            sample.fy,
+        )
+    });
 }
 
 // ---- TEX_QUAD: textured rect (nearest, or integer bilinear when the texture
@@ -1397,6 +2074,31 @@ fn tex_quad<T: RenderTarget>(
     let (tw_max, th_max) = (view.w as i32 - 1, view.h as i32 - 1);
     let inv_w = 1.0f32 / w as f32;
     let inv_h = 1.0f32 / h as f32;
+    if let Some(texels) = Texels::new(&view) {
+        // The common case: the texel column of a pixel is the same on every
+        // row and the texel row the same on every column.
+        let quad = TexQuad {
+            clip: c,
+            x,
+            y,
+            u0,
+            v0,
+            u1,
+            v1,
+            inv_w,
+            inv_h,
+            width: view.w,
+            height: view.h,
+            modulate: (!identity).then_some([mr, mg, mb, ma]),
+        };
+        let target: &mut dyn RenderTarget = target;
+        if view.linear {
+            with_fetch!(texels, fetch => tex_quad_linear(target, stride, &quad, fetch));
+        } else {
+            with_fetch!(texels, fetch => tex_quad_nearest(target, stride, &quad, fetch));
+        }
+        return;
+    }
     for py in c.y0..c.y1 {
         let v = v0 + (v1 - v0) * ((py - y) as f32 + 0.5) * inv_h;
         let ty = ((v * thf) as i32).clamp(0, th_max);
@@ -1422,5 +2124,123 @@ fn tex_quad<T: RenderTarget>(
             }
             target.blend((py * stride + px) as usize, r, g, b, a);
         }
+    }
+}
+
+/// One textured rectangle over a validated view.
+struct TexQuad {
+    clip: Clip,
+    x: i32,
+    y: i32,
+    u0: f32,
+    v0: f32,
+    u1: f32,
+    v1: f32,
+    inv_w: f32,
+    inv_h: f32,
+    width: u32,
+    height: u32,
+    modulate: Option<[u32; 4]>,
+}
+
+impl TexQuad {
+    /// The texture coordinates of column `px` and of row `py`: the
+    /// expressions of the per-pixel loop, operation for operation.
+    #[inline(always)]
+    fn u(&self, px: i32) -> f32 {
+        self.u0 + (self.u1 - self.u0) * ((px - self.x) as f32 + 0.5) * self.inv_w
+    }
+
+    #[inline(always)]
+    fn v(&self, py: i32) -> f32 {
+        self.v0 + (self.v1 - self.v0) * ((py - self.y) as f32 + 0.5) * self.inv_h
+    }
+}
+
+fn tex_quad_nearest<F: Fetch>(
+    target: &mut dyn RenderTarget,
+    stride: i32,
+    quad: &TexQuad,
+    fetch: F,
+) {
+    let c = quad.clip;
+    let (twf, thf) = (quad.width as f32, quad.height as f32);
+    let (tw_max, th_max) = (quad.width as i32 - 1, quad.height as i32 - 1);
+    let width = quad.width as i32;
+    let mut columns = [0i32; SPAN];
+    let mut colors = [0u32; SPAN];
+    let mut band = c.x0;
+    while band < c.x1 {
+        let count = ((c.x1 - band) as usize).min(SPAN);
+        for (index, tx) in columns[..count].iter_mut().enumerate() {
+            let u = quad.u(band + index as i32);
+            *tx = ((u * twf) as i32).clamp(0, tw_max);
+        }
+        for py in c.y0..c.y1 {
+            let v = quad.v(py);
+            let ty = ((v * thf) as i32).clamp(0, th_max);
+            let row = ty * width;
+            for (color, &tx) in colors[..count].iter_mut().zip(&columns[..count]) {
+                *color = fetch.fetch((row + tx) as usize);
+            }
+            if let Some(modulate) = quad.modulate {
+                modulate_span(&mut colors[..count], modulate);
+            }
+            target.blend_span((py * stride + band) as usize, &colors[..count]);
+        }
+        band += count as i32;
+    }
+}
+
+fn tex_quad_linear<F: Fetch>(
+    target: &mut dyn RenderTarget,
+    stride: i32,
+    quad: &TexQuad,
+    fetch: F,
+) {
+    let c = quad.clip;
+    let (tw_max, th_max) = (quad.width as i32 - 1, quad.height as i32 - 1);
+    let width = quad.width as usize;
+    // Per column: the two texel columns and their weight, the horizontal
+    // half of `linear_sample_coordinates`.
+    let mut columns = [(0usize, 0usize, 0u32); SPAN];
+    let mut colors = [0u32; SPAN];
+    let mut band = c.x0;
+    while band < c.x1 {
+        let count = ((c.x1 - band) as usize).min(SPAN);
+        for (index, column) in columns[..count].iter_mut().enumerate() {
+            let u = quad.u(band + index as i32);
+            let uf = (u * quad.width as f32 * 256.0) as i32 - 128;
+            let x0 = (uf >> 8).clamp(0, tw_max);
+            *column = (
+                x0 as usize,
+                (x0 + 1).min(tw_max) as usize,
+                (uf & 255) as u32,
+            );
+        }
+        for py in c.y0..c.y1 {
+            // The vertical half.
+            let v = quad.v(py);
+            let vf = (v * quad.height as f32 * 256.0) as i32 - 128;
+            let y0 = (vf >> 8).clamp(0, th_max);
+            let y1 = (y0 + 1).min(th_max);
+            let fy = (vf & 255) as u32;
+            let (row0, row1) = (y0 as usize * width, y1 as usize * width);
+            for (color, &(x0, x1, fx)) in colors[..count].iter_mut().zip(&columns[..count]) {
+                *color = lerp_neighbours(
+                    fetch.fetch(row0 + x0),
+                    fetch.fetch(row0 + x1),
+                    fetch.fetch(row1 + x0),
+                    fetch.fetch(row1 + x1),
+                    fx,
+                    fy,
+                );
+            }
+            if let Some(modulate) = quad.modulate {
+                modulate_span(&mut colors[..count], modulate);
+            }
+            target.blend_span((py * stride + band) as usize, &colors[..count]);
+        }
+        band += count as i32;
     }
 }
