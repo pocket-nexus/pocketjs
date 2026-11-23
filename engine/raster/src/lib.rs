@@ -123,6 +123,31 @@ fn pixel_bytes<const ARGB: bool>(r: u32, g: u32, b: u32) -> [u8; 4] {
     }
 }
 
+/// `bytes` as its whole native words of `T` when it starts on a `T`
+/// boundary, for one load or store per pixel in place of one per byte.
+/// None for storage that starts elsewhere: the byte loops serve any slice.
+#[inline]
+fn aligned_words<T: Word>(bytes: &[u8]) -> Option<&[T]> {
+    // SAFETY: every bit pattern is a valid `u16` or `u32`, and `align_to`
+    // returns only whole, aligned words inside `bytes`.
+    let (before, words, _) = unsafe { bytes.align_to::<T>() };
+    (before.is_empty() && words.len() == bytes.len() / size_of::<T>()).then_some(words)
+}
+
+/// [`aligned_words`] for writing.
+#[inline]
+fn aligned_words_mut<T: Word>(bytes: &mut [u8]) -> Option<&mut [T]> {
+    // SAFETY: as in `aligned_words`; a word accepts every bit pattern.
+    let whole = bytes.len() / size_of::<T>();
+    let (before, words, _) = unsafe { bytes.align_to_mut::<T>() };
+    (before.is_empty() && words.len() == whole).then_some(words)
+}
+
+/// The integer types pixel storage is read and written as.
+trait Word: Copy {}
+impl Word for u16 {}
+impl Word for u32 {}
+
 /// Fill an opaque, whole-pixel byte span. Host framebuffers are in practice
 /// at least 4-byte aligned, so the hot path emits one native word per pixel
 /// instead of routing every pixel through alpha blending and four
@@ -885,72 +910,6 @@ fn render_scaled_clipped<T: RenderTarget>(
     let mut i = 0usize;
     while i < words.len() {
         match words[i] {
-            draw_op::RECT => {
-                if i + 4 > words.len() {
-                    return;
-                }
-                let (x, y) = xy(words[i + 1], scale);
-                let (w, h) = wh(words[i + 2], scale);
-                let c = clip.intersect(Clip {
-                    x0: x,
-                    y0: y,
-                    x1: x + w,
-                    y1: y + h,
-                });
-                if c.x0 < c.x1 && c.y0 < c.y1 {
-                    fill_rect(target, width, c, words[i + 3]);
-                }
-                i += 4;
-            }
-            draw_op::GRAD_RECT => {
-                if i + 6 > words.len() {
-                    return;
-                }
-                let (x, y) = xy(words[i + 1], scale);
-                let (w, h) = wh(words[i + 2], scale);
-                grad_rect(
-                    target,
-                    width,
-                    clip,
-                    x,
-                    y,
-                    w,
-                    h,
-                    words[i + 3],
-                    words[i + 4],
-                    words[i + 5],
-                );
-                i += 6;
-            }
-            draw_op::GLYPH_RUN => {
-                if i + 3 > words.len() {
-                    return;
-                }
-                let slot = (words[i + 1] & 0xff) as u8;
-                let n = (words[i + 1] >> 16) as usize;
-                let color = words[i + 2];
-                if i + 3 + 2 * n > words.len() {
-                    return;
-                }
-                glyph_run(
-                    ui,
-                    target,
-                    width,
-                    scale,
-                    clip,
-                    slot,
-                    color,
-                    &words[i + 3..i + 3 + 2 * n],
-                );
-                i += 3 + 2 * n;
-            }
-            draw_op::TEX_QUAD => {
-                if i + 9 > words.len() {
-                    return;
-                }
-                tex_quad(ui, target, width, scale, clip, &words[i + 1..i + 9]);
-                i += 9;
-            }
             draw_op::SCISSOR => {
                 if i + 3 > words.len() || depth >= stack.len() {
                     return;
@@ -978,36 +937,127 @@ fn render_scaled_clipped<T: RenderTarget>(
                 }
                 i += 1;
             }
-            draw_op::TRI => {
-                if i + 7 > words.len() {
-                    return;
-                }
-                tri(target, width, scale, clip, &words[i + 1..i + 7]);
-                i += 7;
-            }
-            draw_op::TEX_TRI => {
-                if i + 12 > words.len() {
-                    return;
-                }
-                tex_tri(ui, target, width, scale, clip, &words[i + 1..i + 12]);
-                i += 12;
-            }
-            draw_op::TEXT_RUN => {
-                // Native-text op (host text system shapes the run); the
-                // software rasterizer has no shaper, so hosts that raster run
-                // with baked measurement and never receive it. Skipped, not a
-                // stop: the op is a known member of the closed set. Variable
-                // length: 8 header words + the packed UTF-8 payload.
-                if i + 8 > words.len() {
-                    return;
-                }
-                let payload = (words[i + 7] as usize).div_ceil(4);
-                i += 8 + payload;
-            }
-            // The op set is closed per DrawList version; anything else means
-            // corrupt data — stop instead of misinterpreting the stream.
-            _ => return,
+            _ => match render_record(ui, words, i, target, width, scale, clip) {
+                Some(next) => i = next,
+                None => return,
+            },
         }
+    }
+}
+
+/// Draw the record at `words[at..]`, which is not a scissor, under `clip`.
+/// Returns the index of the next record; None stops the stream (a truncated
+/// record or an unknown opcode).
+///
+/// The surface entry points decode the DrawList themselves and call this
+/// once per record, without the scissor stack of [`render_scaled_clipped`].
+#[inline]
+fn render_record<T: RenderTarget>(
+    ui: &(impl RenderResources + ?Sized),
+    words: &[u32],
+    at: usize,
+    target: &mut T,
+    width: i32,
+    scale: i32,
+    clip: Clip,
+) -> Option<usize> {
+    let i = at;
+    match words[i] {
+        draw_op::RECT => {
+            if i + 4 > words.len() {
+                return None;
+            }
+            let (x, y) = xy(words[i + 1], scale);
+            let (w, h) = wh(words[i + 2], scale);
+            let c = clip.intersect(Clip {
+                x0: x,
+                y0: y,
+                x1: x + w,
+                y1: y + h,
+            });
+            if c.x0 < c.x1 && c.y0 < c.y1 {
+                fill_rect(target, width, c, words[i + 3]);
+            }
+            Some(i + 4)
+        }
+        draw_op::GRAD_RECT => {
+            if i + 6 > words.len() {
+                return None;
+            }
+            let (x, y) = xy(words[i + 1], scale);
+            let (w, h) = wh(words[i + 2], scale);
+            grad_rect(
+                target,
+                width,
+                clip,
+                x,
+                y,
+                w,
+                h,
+                words[i + 3],
+                words[i + 4],
+                words[i + 5],
+            );
+            Some(i + 6)
+        }
+        draw_op::GLYPH_RUN => {
+            if i + 3 > words.len() {
+                return None;
+            }
+            let slot = (words[i + 1] & 0xff) as u8;
+            let n = (words[i + 1] >> 16) as usize;
+            let color = words[i + 2];
+            if i + 3 + 2 * n > words.len() {
+                return None;
+            }
+            glyph_run(
+                ui,
+                target,
+                width,
+                scale,
+                clip,
+                slot,
+                color,
+                &words[i + 3..i + 3 + 2 * n],
+            );
+            Some(i + 3 + 2 * n)
+        }
+        draw_op::TEX_QUAD => {
+            if i + 9 > words.len() {
+                return None;
+            }
+            tex_quad(ui, target, width, scale, clip, &words[i + 1..i + 9]);
+            Some(i + 9)
+        }
+        draw_op::TRI => {
+            if i + 7 > words.len() {
+                return None;
+            }
+            tri(target, width, scale, clip, &words[i + 1..i + 7]);
+            Some(i + 7)
+        }
+        draw_op::TEX_TRI => {
+            if i + 12 > words.len() {
+                return None;
+            }
+            tex_tri(ui, target, width, scale, clip, &words[i + 1..i + 12]);
+            Some(i + 12)
+        }
+        draw_op::TEXT_RUN => {
+            // Native-text op (host text system shapes the run); the
+            // software rasterizer has no shaper, so hosts that raster run
+            // with baked measurement and never receive it. Skipped, not a
+            // stop: the op is a known member of the closed set. Variable
+            // length: 8 header words + the packed UTF-8 payload.
+            if i + 8 > words.len() {
+                return None;
+            }
+            let payload = (words[i + 7] as usize).div_ceil(4);
+            Some(i + 8 + payload)
+        }
+        // The op set is closed per DrawList version; anything else means
+        // corrupt data — stop instead of misinterpreting the stream.
+        _ => None,
     }
 }
 
@@ -1287,6 +1337,10 @@ fn tri<T: RenderTarget>(target: &mut T, stride: i32, scale: i32, clip: Clip, p: 
     let (r0, g0, b0, a0) = channels(c0);
     let (r1, g1, b1, a1) = channels(c1);
     let (r2, g2, b2, a2) = channels(c2);
+    if min_x >= max_x || min_y >= max_y {
+        // Outside the clip: most triangles of a frame on a strip target.
+        return;
+    }
     let flat = c0 == c1 && c1 == c2;
     let half = area / 2;
     let mut rows = TriangleRows::new((ax, ay), (bx, by), (cx, cy), min_y, min_x, max_x);
@@ -1317,7 +1371,11 @@ fn tri<T: RenderTarget>(target: &mut T, stride: i32, scale: i32, clip: Clip, p: 
     // 255 * area + half. When that fits 32 bits (every triangle below
     // two million pixels) the numerators step by addition along the row
     // and divide as u32: the same quotients without 64-bit arithmetic.
-    if area <= (u32::MAX as i64 - half) / 255 {
+    if area
+        .checked_mul(255)
+        .and_then(|numerator| numerator.checked_add(half))
+        .is_some_and(|numerator| numerator <= u32::MAX as i64)
+    {
         let (area, half) = (area as u32, half as u32);
         let channel = [(r0, r1, r2), (g0, g1, g2), (b0, b1, b2), (a0, a1, a2)];
         let step = rows.step;
@@ -1626,20 +1684,47 @@ trait Fetch: Copy {
     fn fetch(self, index: usize) -> u32;
 }
 
+/// A format's storage: its bytes and, when they start on a word boundary,
+/// the same texels as words. Both hold at least `w * h` texels.
 #[derive(Clone, Copy)]
-struct FetchRgb565<'a>(&'a [u8]);
+struct FetchRgb565<'a>(&'a [u8], Option<&'a [u16]>);
 #[derive(Clone, Copy)]
-struct FetchRgba8888<'a>(&'a [u8]);
+struct FetchRgba8888<'a>(&'a [u8], Option<&'a [u32]>);
 #[derive(Clone, Copy)]
-struct FetchRgba4444<'a>(&'a [u8]);
+struct FetchRgba4444<'a>(&'a [u8], Option<&'a [u16]>);
 #[derive(Clone, Copy)]
-struct FetchIndexed<'a>(&'a [u8], &'a [u8]);
+struct FetchIndexed<'a>(&'a [u8], &'a [u8], Option<&'a [u32]>);
+
+/// The little-endian 16-bit texel `index` of `bytes`, from `words` when the
+/// storage is aligned.
+#[inline(always)]
+fn texel16(bytes: &[u8], words: Option<&[u16]>, index: usize) -> u32 {
+    match words {
+        Some(words) => u16::from_le(words[index]) as u32,
+        None => {
+            let texel = &bytes[index * 2..index * 2 + 2];
+            texel[0] as u32 | ((texel[1] as u32) << 8)
+        }
+    }
+}
+
+/// The four bytes at `index * 4` as a packed colour, from `words` when the
+/// storage is aligned.
+#[inline(always)]
+fn texel32(bytes: &[u8], words: Option<&[u32]>, index: usize) -> u32 {
+    match words {
+        Some(words) => u32::from_le(words[index]),
+        None => {
+            let texel = &bytes[index * 4..index * 4 + 4];
+            u32::from_le_bytes([texel[0], texel[1], texel[2], texel[3]])
+        }
+    }
+}
 
 impl Fetch for FetchRgb565<'_> {
     #[inline(always)]
     fn fetch(self, index: usize) -> u32 {
-        let texel = &self.0[index * 2..index * 2 + 2];
-        let px16 = texel[0] as u32 | ((texel[1] as u32) << 8);
+        let px16 = texel16(self.0, self.1, index);
         let r5 = px16 & 0x1f;
         let g6 = (px16 >> 5) & 0x3f;
         let b5 = (px16 >> 11) & 0x1f;
@@ -1653,16 +1738,14 @@ impl Fetch for FetchRgb565<'_> {
 impl Fetch for FetchRgba8888<'_> {
     #[inline(always)]
     fn fetch(self, index: usize) -> u32 {
-        let texel = &self.0[index * 4..index * 4 + 4];
-        u32::from_le_bytes([texel[0], texel[1], texel[2], texel[3]])
+        texel32(self.0, self.1, index)
     }
 }
 
 impl Fetch for FetchRgba4444<'_> {
     #[inline(always)]
     fn fetch(self, index: usize) -> u32 {
-        let texel = &self.0[index * 2..index * 2 + 2];
-        let px16 = texel[0] as u32 | ((texel[1] as u32) << 8);
+        let px16 = texel16(self.0, self.1, index);
         ((px16 & 0xf) * 17)
             | ((((px16 >> 4) & 0xf) * 17) << 8)
             | ((((px16 >> 8) & 0xf) * 17) << 16)
@@ -1673,9 +1756,7 @@ impl Fetch for FetchRgba4444<'_> {
 impl Fetch for FetchIndexed<'_> {
     #[inline(always)]
     fn fetch(self, index: usize) -> u32 {
-        let entry = self.0[index] as usize * 4;
-        let color = &self.1[entry..entry + 4];
-        u32::from_le_bytes([color[0], color[1], color[2], color[3]])
+        texel32(self.1, self.2, self.0[index] as usize)
     }
 }
 
@@ -1685,19 +1766,20 @@ macro_rules! with_fetch {
     ($texels:expr, $fetch:ident => $body:expr) => {
         match $texels {
             Texels::Rgb565(pixels) => {
-                let $fetch = FetchRgb565(pixels);
+                let $fetch = FetchRgb565(pixels, aligned_words(pixels));
                 $body
             }
             Texels::Rgba8888(pixels) => {
-                let $fetch = FetchRgba8888(pixels);
+                let $fetch = FetchRgba8888(pixels, aligned_words(pixels));
                 $body
             }
             Texels::Rgba4444(pixels) => {
-                let $fetch = FetchRgba4444(pixels);
+                let $fetch = FetchRgba4444(pixels, aligned_words(pixels));
                 $body
             }
             Texels::Indexed(pixels, palette) => {
-                let $fetch = FetchIndexed(pixels, palette);
+                // A whole palette is 256 entries; the index is one byte.
+                let $fetch = FetchIndexed(pixels, palette, aligned_words(palette));
                 $body
             }
         }
@@ -1774,6 +1856,11 @@ fn tex_tri<T: RenderTarget>(
     let max_x = x0.max(x1).max(x2).min(clip.x1);
     let min_y = y0.min(y1).min(y2).max(clip.y0);
     let max_y = y0.max(y1).max(y2).min(clip.y1);
+    if min_x >= max_x || min_y >= max_y {
+        // Outside the clip: no row is covered, and the reciprocal below is
+        // a software division on targets without a float divider.
+        return;
+    }
     let (mr, mg, mb, ma) = channels(modulate);
     let identity = modulate == 0xffff_ffff;
     let (twf, thf) = (view.w as f32, view.h as f32);

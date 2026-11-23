@@ -8,9 +8,12 @@ use pocket_drivers::{
 use pocket_spec::{draw_op, psm};
 
 use super::{
-    blend_rgb565_pixel, blend_rgba_pixel, channels, clear_black_rect, fill_opaque_span,
-    pack_rgb565, render_scaled_clipped, Clip, RenderTarget, RgbaTarget, MAX_RENDER_SCALE,
+    aligned_words_mut, blend_rgb565_pixel, blend_rgba_pixel, channels, clear_black_rect,
+    fill_opaque_span, pack_rgb565, render_record, Clip, RenderTarget, RgbaTarget,
+    MAX_RENDER_SCALE,
 };
+#[cfg(test)]
+use super::render_scaled_clipped;
 
 const FORMATS: &[PixelFormat] = &[
     PixelFormat::Rgba8888,
@@ -244,9 +247,11 @@ fn render_one(
         return Ok(());
     }
     let resources = OperationResources::new(resources, operation, scale as u32)?;
-    render_scaled_clipped(
+    // One validated drawing record: no scissor stack to set up.
+    render_record(
         &resources,
         operation.words,
+        0,
         target,
         geometry.width,
         scale,
@@ -553,6 +558,21 @@ fn blend_rgb565_bytes(pixel: &mut [u8; 2], r: u32, g: u32, b: u32, a: u32) {
     *pixel = value.to_le_bytes();
 }
 
+/// `blend_rgb565_pixel` on one pixel held as a native word of
+/// little-endian storage.
+#[inline]
+fn blend_rgb565_word(word: u16, r: u32, g: u32, b: u32, a: u32) -> u16 {
+    if a >= 255 {
+        return pack_rgb565(r, g, b).to_le();
+    }
+    if a == 0 {
+        return word;
+    }
+    let mut value = u16::from_le(word);
+    blend_rgb565_pixel(&mut value, r, g, b, a);
+    value.to_le()
+}
+
 impl RenderTarget for SurfaceTarget<'_> {
     fn pixel_len(&self) -> usize {
         self.geometry.width as usize * self.geometry.height as usize
@@ -587,9 +607,17 @@ impl RenderTarget for SurfaceTarget<'_> {
         let span = &mut self.pixels[local..local + len * self.bytes_per_pixel];
         match self.format {
             PixelFormat::Rgb565 => {
-                let color = pack_rgb565(r, g, b).to_le_bytes();
-                for pixel in span.as_chunks_mut::<2>().0.iter_mut() {
-                    pixel.copy_from_slice(&color);
+                let color = pack_rgb565(r, g, b);
+                let [low, high] = color.to_le_bytes();
+                if low == high {
+                    // Black, white and the greys between: one byte value.
+                    span.fill(low);
+                } else if let Some(words) = aligned_words_mut::<u16>(span) {
+                    words.fill(color.to_le());
+                } else {
+                    for pixel in span.as_chunks_mut::<2>().0.iter_mut() {
+                        *pixel = [low, high];
+                    }
                 }
             }
             PixelFormat::Rgba8888 => fill_opaque_span::<false>(span, r, g, b),
@@ -609,8 +637,14 @@ impl RenderTarget for SurfaceTarget<'_> {
         let span = &mut self.pixels[local..local + len * self.bytes_per_pixel];
         match self.format {
             PixelFormat::Rgb565 => {
-                for pixel in span.as_chunks_mut::<2>().0.iter_mut() {
-                    blend_rgb565_bytes(pixel, r, g, b, a);
+                if let Some(words) = aligned_words_mut::<u16>(span) {
+                    for word in words {
+                        *word = blend_rgb565_word(*word, r, g, b, a);
+                    }
+                } else {
+                    for pixel in span.as_chunks_mut::<2>().0.iter_mut() {
+                        blend_rgb565_bytes(pixel, r, g, b, a);
+                    }
                 }
             }
             PixelFormat::Rgba8888 => {
@@ -635,9 +669,16 @@ impl RenderTarget for SurfaceTarget<'_> {
         let span = &mut self.pixels[local..local + colors.len() * self.bytes_per_pixel];
         match self.format {
             PixelFormat::Rgb565 => {
-                for (pixel, &color) in span.as_chunks_mut::<2>().0.iter_mut().zip(colors) {
-                    let (r, g, b, a) = channels(color);
-                    blend_rgb565_bytes(pixel, r, g, b, a);
+                if let Some(words) = aligned_words_mut::<u16>(span) {
+                    for (word, &color) in words.iter_mut().zip(colors) {
+                        let (r, g, b, a) = channels(color);
+                        *word = blend_rgb565_word(*word, r, g, b, a);
+                    }
+                } else {
+                    for (pixel, &color) in span.as_chunks_mut::<2>().0.iter_mut().zip(colors) {
+                        let (r, g, b, a) = channels(color);
+                        blend_rgb565_bytes(pixel, r, g, b, a);
+                    }
                 }
             }
             PixelFormat::Rgba8888 => {
