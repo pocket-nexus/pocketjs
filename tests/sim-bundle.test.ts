@@ -184,7 +184,7 @@ describe("bootBundle", () => {
   test("a missing bundle or wasm core is an error that names the path, and nothing is built", async () => {
     await expect(bootBundle({ js: join(scratch, "absent.js") })).rejects.toThrow(/the bundle is missing: .*absent\.js/);
     await expect(bootBundle({ js: bundle("any", "globalThis.frame = function () {};"), wasm: join(scratch, "absent.wasm") })).rejects.toThrow(
-      /the wasm core is missing: .*absent\.wasm/,
+      `sim: the wasm core passed as wasm does not exist: ${join(scratch, "absent.wasm")}`,
     );
   });
 });

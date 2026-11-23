@@ -184,7 +184,9 @@ world.logs;                 // each console line with the frame that wrote it
   `debugRectXY/WH`). No guest frame runs for it, so
   reading the tree between two steps leaves the journey's pixels unchanged.
 - **It builds nothing.** A missing wasm core or bundle is an error that names
-  the path. A tool installed without the engine sources passes `wasm`.
+  the path. For the default wasm core the error also names its remedy:
+  `bun tools/wasm.ts` in a source checkout, reinstalling the package in an
+  npm install. A tool installed without the engine sources passes `wasm`.
 
 ## The control experiment (`tools/flake-lab.ts`)
 

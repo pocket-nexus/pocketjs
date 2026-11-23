@@ -11,6 +11,7 @@ import type { BunPlugin } from "bun";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { ROOT, SITE } from "./paths.ts";
+import { HOST_WASM, missingHostWasm } from "../../../tools/wasm.ts";
 
 const KIT = join(SITE, "kit");
 
@@ -49,8 +50,8 @@ const ROOT_SUBPATHS = new Set([
 ]);
 
 export async function buildKit(outDir: string, commit: string): Promise<void> {
-  const wasm = join(ROOT, "platforms/web/pocketjs.wasm");
-  if (!existsSync(wasm)) throw new Error("platforms/web/pocketjs.wasm is missing; run `bun tools/wasm.ts`");
+  const wasm = HOST_WASM;
+  if (!existsSync(wasm)) throw new Error(`kit: ${missingHostWasm("the wasm core")}`);
   const OUT = join(outDir, "pocket");
   const sizes: Record<string, number> = {};
   const write = (rel: string, data: string | Uint8Array) => {

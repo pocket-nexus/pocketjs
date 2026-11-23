@@ -26,7 +26,7 @@ bun tools/pocket.ts compile --config apps/ipodnano-hero/pocket.host.config.ts --
 
 The directory contains `mod.rs`, the generated model and view modules, `include.rs`, font atlases, image entries in the pak IMG layout, `styles.bin`, and `layers.json`. `include.rs` uses paths relative to its own directory, so the directory can move before a firmware build. `dependencies.json` maps outputs to their input files and records SHA-256 hashes; `dependencies.d` provides Make-compatible inputs, including the host contract, the application's host config, source graph, fonts, images, and compiler layout oracle.
 
-The compiler consumes the distribution's prebuilt `platforms/web/pocketjs.wasm` for layout baking. A missing oracle is an error; source generation does not install or build a toolchain. `build.ts` uses this generator, then performs the program's native build.
+The compiler consumes the distribution's prebuilt `platforms/web/pocketjs.wasm` for layout baking. A missing oracle is an error that names its remedy: `bun tools/wasm.ts` in a source checkout (needs `rustup target add wasm32-unknown-unknown`), reinstalling the package in an npm install. Source generation does not install or build a toolchain. `build.ts` uses this generator, then performs the program's native build.
 
 ## Build
 

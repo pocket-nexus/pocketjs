@@ -12,6 +12,7 @@ import { parsePocketProfile } from "../framework/src/profile.ts";
 import { decodePng, encodeImageEntry } from "../framework/compiler/pak.ts";
 import { IMG_FLAG_LINEAR, PSM } from "../contracts/spec/spec.ts";
 import { encodePNG } from "../tools/png.ts";
+import { missingHostWasm } from "../tools/wasm.ts";
 const gba = POCKET_PROFILES["gba"];
 
 const ROOT = resolve(import.meta.dir, "..");
@@ -154,9 +155,17 @@ import {label} from './App';
       expect(first.result.program.styles.anims.length).toBeGreaterThan(0);
       expect(first.result.program.styles.anims[0]!.tracks[0]!.segments.at(-1)!.t1).toBe(30);
       expect(() => analyzeAot(entry, { strict: true })).toThrow("animate-app-fade");
-      await expect(compileAot({ plan: resolved.plan, projectRoot: project, outdir: join(project, "missing-wasm"), wasmPath: join(project, "absent.wasm") })).rejects.toThrow("prebuilt layout oracle");
+      await expect(compileAot({ plan: resolved.plan, projectRoot: project, outdir: join(project, "missing-wasm"), wasmPath: join(project, "absent.wasm") }))
+        .rejects.toThrow(`AOT: the layout oracle passed as wasmPath does not exist: ${join(project, "absent.wasm")}`);
     } finally { rmSync(project, { recursive: true, force: true }); }
   }, 120_000);
+
+  // The installed-package case runs in the packed package (npm-package.test.ts).
+  test("a checkout missing the layout oracle names the command that builds it", () => {
+    expect(existsSync(join(ROOT, "programs/web/wasm/Cargo.toml"))).toBe(true);
+    expect(missingHostWasm("the layout oracle")).toBe(`the layout oracle ${join(ROOT, "platforms/web/pocketjs.wasm")} is missing; ` +
+      `build it with \`bun tools/wasm.ts\` in ${ROOT} (needs \`rustup target add wasm32-unknown-unknown\`)`);
+  });
 
   // Solid views report the class string, Vue templates the class attribute.
   test.each([

@@ -16,6 +16,7 @@ import { loadHostConfig, profileRegistry } from "./profile-resolver.ts";
 import { POCKET_PROFILES } from "../hosts/index.ts";
 import { registerApplication } from "../microts/compiler/aot-model-config.ts";
 import type { LayerDeclarations } from "../microts/compiler/aot-paint-plan.ts";
+import { HOST_WASM, missingHostWasm } from "./wasm.ts";
 
 const ROOT = resolve(import.meta.dir, "..");
 const sha = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
@@ -124,8 +125,8 @@ export async function compileAot(options: AotCompileOptions): Promise<AotCompile
   fontConfig.codepoints.forEach(point => codepoints.add(point));
   const fonts = await bakeAtlases({ slots: program.styles.usedFontSlots, codepoints, rasterDensity: plan.viewport.rasterDensity,
     fallbackTtfs: fontConfig.fallbackTtfs, onRead: fontRead });
-  const wasmPath = resolve(options.wasmPath ?? resolve(ROOT, "platforms/web/pocketjs.wasm"));
-  if (!existsSync(wasmPath)) throw new Error(`AOT: prebuilt layout oracle not found: ${wasmPath}; install/build the compiler's wasm asset before compilation`);
+  const wasmPath = resolve(options.wasmPath ?? HOST_WASM);
+  if (!existsSync(wasmPath)) throw new Error(`AOT: ${missingHostWasm("the layout oracle", options.wasmPath === undefined ? undefined : { option: "wasmPath", path: wasmPath })}`);
   inputs.add(wasmPath);
   const declarationsPath = resolve(dirname(component), "gba-layers.json");
   const spriteLayers = plan.profile.platform === "gba";
