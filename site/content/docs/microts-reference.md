@@ -66,8 +66,8 @@ Import these elements from `@pocketjs/framework/vue-vapor/components`.
 | Element | Accepted attributes | Event |
 |---|---|---|
 | `View` | `class`, `:class`, `:style`, bare `focusable`, static `debug-name`, `:ref` to a model node slot | `@press` requires `focusable` |
-| `Text` | `class`, `:class` | — |
-| `Image` | `class`, `:class`, static `src` asset name | — |
+| `Text` | `class`, `:class`, `:style` with `textColor` and `opacity` | — |
+| `Image` | `class`, `:class`, static `src` asset name, `:src` ternary of asset names | — |
 | `ActionHandler` | Static `:button="BTN.NAME"`, boolean `active`, static `latched`, numeric `:holdMs` and `:repeatMs` | `@press`, `@hold`, `@release` (at least one) |
 | `AxisHandler` | Static `axis="primary"` or `"secondary"`, boolean `active` | `@delta` |
 | `MotionHandler` | Static `value` motion value, static `minQuality`, boolean `active` | `@update` |
@@ -283,9 +283,29 @@ cannot accompany a style-prop binding.
   :style="{ width: 80 + count * 12, opacity: 0.8 }" />
 ```
 
-`:style` belongs on `View` and takes an object literal with fixed property
-names. Use PocketJS names such as `width`, `paddingT`, `bgColor` and `rotate`.
-Values must match the property's numeric type or unit below.
+`:style` takes an object literal with fixed property names. Use PocketJS names
+such as `width`, `paddingT`, `bgColor` and `rotate`. Values must match the
+property's numeric type or unit below. **On `Text`, `:style` accepts
+`textColor` and `opacity`**: the text paint reads them, and neither changes the
+measured size of the run, so a `layout-baked` rect stays constant. Another
+property on `Text` is a compile error at that property.
+
+```vue
+<Text :style="{ textColor: percent < 20 ? '#dc2626' : '#0f172a' }">{{ percent }}%</Text>
+<Image class="w-6 h-6" :src="charging ? 'battery-charging.png' : 'battery.png'" />
+```
+
+**`:src` selects an image name with a ternary whose leaves are string
+literals.** Nested ternaries are accepted. The compiler bakes and registers
+every leaf, so the image table stays a compile-time constant; a missing leaf
+file is a compile error at the element. A `:src` that reads a string value,
+such as `:src="iconName"`, is rejected. The core draws the image into the
+node's layout box and does not size the box from the image, so a changed image
+leaves layout unchanged.
+
+On a sprite-layer host (GBA), a `:src` binding and a runtime `Text` `:style`
+binding are compile errors, inside or outside a `layout-baked` page: they have
+no sprite layer recipe. Use a `v-if` branch per image or color there.
 
 ### Build-time layout: `layout-baked`
 
@@ -465,6 +485,8 @@ compiles and packages the application.
 | View-model import must use the SFC basename | For `Dial.vue`, use `./Dial` and keep one `Dial.ts` or `Dial.d.ts` |
 | Unannotated `number`, or numeric type mismatch | Annotate the contract with `i32`, `f32` or another numeric type; convert floats before integer use |
 | `:class` must be a ternary | Select complete class literals with `condition ? '...' : '...'` |
+| `src requires a string literal attribute or a ternary with string literal leaves` | Name every image as a leaf: `:src="on ? 'on.png' : 'off.png'"` |
+| `Text style accepts textColor and opacity` | Move layout and font properties to the `Text`'s classes or to a parent `View` |
 | `@press` requires a focusable View | Add bare `focusable`, or use `ActionHandler` for a named button |
 | Invalid `v-for` source or key | Supply an array and a unique key with a supported type |
 | Text interpolation requires a scalar | Select a field, call `len`, or expose a formatting method |

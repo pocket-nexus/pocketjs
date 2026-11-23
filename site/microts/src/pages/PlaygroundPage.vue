@@ -671,9 +671,9 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="flex h-[calc(100dvh-3.6rem-3px)] min-h-[560px] flex-col max-lg:h-auto" :class="hue">
+  <div class="flex h-[calc(100dvh-61px)] min-h-[560px] flex-col max-lg:h-auto" :class="hue">
     <!-- Toolbar -->
-    <div class="flex flex-wrap items-center gap-2 border-b-[3px] border-drop bg-[rgba(20,14,34,0.75)] px-4 py-2.5">
+    <div class="flex flex-wrap items-center gap-2 border-b border-line bg-bg px-4 py-2.5">
       <button type="button" class="tool" title="New project, your projects and examples" aria-haspopup="dialog" @click="openBrowse">
         <svg width="13" height="13" viewBox="0 0 13 13" aria-hidden="true">
           <rect x="0.5" y="0.5" width="5" height="5" rx="1.2" fill="currentColor" />
@@ -688,7 +688,7 @@ onBeforeUnmount(() => {
           v-if="titleEditing"
           id="pg-title-input"
           v-model="titleDraft"
-          class="w-56 rounded-lg border-2 border-yellow bg-screen px-2 py-1 font-round text-[1.02rem] font-semibold text-ink outline-none"
+          class="w-56 rounded-lg border border-cyan bg-screen px-2 py-1 font-disp text-[1.02rem] font-bold text-ink outline-none"
           aria-label="Project name"
           @keydown.enter="commitTitle"
           @keydown.esc="titleEditing = false"
@@ -696,7 +696,7 @@ onBeforeUnmount(() => {
         />
         <h1
           v-else
-          class="truncate font-round text-[1.12rem] font-semibold text-ink"
+          class="truncate font-disp text-[1.12rem] font-bold tracking-[-0.01em] text-ink"
           :class="isProject ? 'cursor-text rounded-md px-1 hover:bg-[rgba(255,255,255,0.06)]' : ''"
           :title="isProject ? 'Rename project' : undefined"
           @click="startRenameTitle"
@@ -705,12 +705,12 @@ onBeforeUnmount(() => {
         </h1>
         <span class="tag max-sm:hidden">{{ FRAMEWORK_LABEL[ws.framework] }}</span>
         <span v-if="isProject" class="badge max-md:hidden" title="Saved in this browser">project</span>
-        <span v-if="dirty" class="badge text-yellow" title="Your edits are saved in this browser">edited</span>
+        <span v-if="dirty" class="badge !border-[rgba(255,210,63,0.4)] !text-yellow" title="Your edits are saved in this browser">edited</span>
       </div>
       <div v-if="ws" class="ml-auto flex flex-wrap items-center justify-end gap-2">
         <label class="tool cursor-pointer gap-2" title="Run after each edit">
-          <input v-if="isRetro" v-model="autoRun.retro" type="checkbox" class="accent-yellow" />
-          <input v-else v-model="autoRun.ui" type="checkbox" class="accent-yellow" />
+          <input v-if="isRetro" v-model="autoRun.retro" type="checkbox" class="accent-cyan" />
+          <input v-else v-model="autoRun.ui" type="checkbox" class="accent-cyan" />
           Auto-run
         </label>
         <template v-if="!isProject">
@@ -730,15 +730,15 @@ onBeforeUnmount(() => {
     <!-- Browse dialog -->
     <dialog
       ref="browseDialog"
-      class="pg-browse m-auto w-[min(1080px,calc(100vw-1.5rem))] max-w-none overflow-hidden rounded-[24px] border-[3px] border-lilac bg-panel p-0 text-ink"
+      class="pg-browse m-auto w-[min(1080px,calc(100vw-1.5rem))] max-w-none overflow-hidden rounded-[24px] border-0 bg-bg-2 p-0 text-ink"
       aria-labelledby="pg-browse-title"
       @click="onBrowseClick"
       @close="browseOpen = false"
     >
       <div v-if="browseOpen" class="flex max-h-[min(88dvh,940px)] flex-col">
-        <div class="flex items-center justify-between gap-3 px-5 pt-4 pb-3" style="border-bottom: 3px dotted rgba(169, 139, 255, 0.3)">
+        <div class="flex items-center justify-between gap-3 border-b border-line px-5 pt-4 pb-3">
           <div class="flex items-center gap-3">
-            <h2 id="pg-browse-title" class="font-round text-[1.3rem] font-semibold">Browse</h2>
+            <h2 id="pg-browse-title" class="h-card !text-[22px]">Browse</h2>
             <span class="text-[0.86rem] text-muted max-sm:hidden">Your current work stays open until you pick something.</span>
           </div>
           <button type="button" class="tool" aria-label="Close" @click="closeBrowse">
@@ -754,22 +754,22 @@ onBeforeUnmount(() => {
     <!-- Project not found -->
     <div v-if="missing" class="grid flex-1 place-items-center p-10 text-center">
       <div>
-        <p class="font-round text-xl font-semibold">This project is not in this browser.</p>
-        <p class="mt-2 text-soft">Projects are stored locally. Ask for a share link, or start a new one.</p>
-        <RouterLink to="/playground" class="btn btn-primary mt-6">Browse</RouterLink>
+        <p class="h-sub">This project is not in this browser.</p>
+        <p class="mt-2 text-ink-2">Projects are stored locally. Ask for a share link, or start a new one.</p>
+        <RouterLink to="/playground" class="btn btn-pri mt-6">Browse</RouterLink>
       </div>
     </div>
 
     <div v-show="!missing" class="grid min-h-0 flex-1 lg:grid-cols-[minmax(0,1fr)_minmax(420px,46%)]">
       <!-- Editor -->
       <section class="flex min-h-0 min-w-0 flex-col bg-screen max-lg:h-[62vh]">
-        <div class="flex items-end gap-1 overflow-x-auto border-b-2 border-[rgba(203,189,226,0.1)] bg-bg-2 px-4 pt-2" role="tablist">
+        <div class="flex items-end gap-1 overflow-x-auto border-b border-line bg-bg-2 px-4 pt-2" role="tablist">
           <template v-for="f in fileList" :key="f">
             <input
               v-if="naming?.mode === 'rename' && naming.from === f"
               id="pg-file-input"
               v-model="naming.value"
-              class="mb-1 w-44 flex-none rounded-md border-2 border-yellow bg-screen px-2 py-0.5 font-mono text-[0.8rem] text-ink outline-none"
+              class="mb-1 w-44 flex-none rounded-md border border-cyan bg-screen px-2 py-0.5 font-mono text-[0.8rem] text-ink outline-none"
               aria-label="File name"
               @keydown.enter="commitName"
               @keydown.esc="naming = null"
@@ -780,7 +780,7 @@ onBeforeUnmount(() => {
               role="tab"
               :aria-selected="f === active"
               class="group flex flex-none items-center rounded-t-[9px] transition-colors"
-              :class="f === active ? 'bg-screen text-yellow' : 'text-muted hover:text-ink-2'"
+              :class="f === active ? 'bg-screen text-ink shadow-[inset_0_2px_0_var(--hue)]' : 'text-muted hover:text-ink-2'"
             >
               <button
                 type="button"
@@ -808,7 +808,7 @@ onBeforeUnmount(() => {
             id="pg-file-input"
             v-model="naming.value"
             :placeholder="`Name${extensions[0]}`"
-            class="mb-1 w-44 flex-none rounded-md border-2 border-yellow bg-screen px-2 py-0.5 font-mono text-[0.8rem] text-ink outline-none placeholder:text-dim"
+            class="mb-1 w-44 flex-none rounded-md border border-cyan bg-screen px-2 py-0.5 font-mono text-[0.8rem] text-ink outline-none placeholder:text-dim"
             aria-label="New file name"
             @keydown.enter="commitName"
             @keydown.esc="naming = null"
@@ -817,7 +817,7 @@ onBeforeUnmount(() => {
           <button
             v-else-if="isProject"
             type="button"
-            class="mb-1 ml-1 grid size-7 flex-none place-items-center rounded-md font-mono text-[1rem] text-muted hover:bg-key hover:text-yellow"
+            class="mb-1 ml-1 grid size-7 flex-none place-items-center rounded-md font-mono text-[1rem] text-muted hover:bg-[rgba(255,255,255,0.08)] hover:text-ink"
             title="New file"
             aria-label="New file"
             @click="startAdd"
@@ -825,7 +825,7 @@ onBeforeUnmount(() => {
             +
           </button>
         </div>
-        <div v-if="nameError && naming" class="bg-[#2a0f22] px-4 py-1.5 font-round text-[0.8rem] text-pink-l">{{ nameError }}</div>
+        <div v-if="nameError && naming" class="bg-[rgba(255,95,158,0.1)] px-4 py-1.5 text-[0.8rem] text-pink-l">{{ nameError }}</div>
         <div class="relative min-h-0 flex-1">
           <CodeEditor
             v-if="!loading && active && active in files"
@@ -836,15 +836,15 @@ onBeforeUnmount(() => {
             @change="onChange"
             @run="run()"
           />
-          <div v-else class="grid h-full place-items-center font-round text-muted">Loading…</div>
+          <div v-else class="grid h-full place-items-center text-muted">Loading…</div>
         </div>
         <button
           v-if="diagnostic"
           type="button"
-          class="flex max-h-40 items-start gap-3 overflow-auto border-t-[3px] border-pink bg-[#2a0f22] px-4 py-2.5 text-left"
+          class="flex max-h-40 items-start gap-3 overflow-auto border-t border-[rgba(255,95,158,0.5)] bg-[#1d0f18] px-4 py-2.5 text-left"
           @click="gotoDiagnostic"
         >
-          <span class="mt-0.5 flex-none rounded-md bg-pink px-1.5 py-0.5 font-round text-[0.72rem] font-semibold text-[#2a0d1c]">
+          <span class="mt-0.5 flex-none rounded-full bg-[rgba(255,95,158,0.18)] px-2 py-0.5 text-[0.72rem] font-semibold text-pink-l">
             {{ diagnostic.phase }}
           </span>
           <span class="min-w-0">
@@ -859,8 +859,8 @@ onBeforeUnmount(() => {
       <!-- Stage: the whole device (screen + buttons) always fits in the right column -->
       <section class="flex min-h-0 flex-col gap-3 p-4 max-lg:order-first">
         <div class="flex flex-wrap items-center justify-between gap-2">
-          <span class="label">
-            <i class="inline-block size-2 rounded-[2px]" :class="state === 'running' && !paused ? 'blink bg-ok' : state === 'error' ? 'bg-err' : 'bg-out/60'" />
+          <span class="status">
+            <i class="inline-block size-2 rounded-full" :class="state === 'running' && !paused ? 'blink bg-ok' : state === 'error' ? 'bg-err' : 'bg-muted'" />
             {{ stateLabel }}
           </span>
           <div class="flex flex-wrap items-center gap-1.5">
@@ -901,7 +901,7 @@ onBeforeUnmount(() => {
             type="number"
             :min="MIN_SIDE"
             :max="MAX_SIDE"
-            class="w-20 rounded-lg border-2 border-[rgba(203,189,226,0.25)] bg-screen px-2 py-1 font-mono text-[0.85rem] text-ink outline-none focus:border-yellow"
+            class="w-20 rounded-lg border border-line-2 bg-screen px-2 py-1 font-mono text-[0.85rem] text-ink outline-none focus:border-cyan"
           />
           <span class="font-mono text-muted">×</span>
           <label class="sr-only-text" for="pg-custom-h">Height</label>
@@ -911,11 +911,11 @@ onBeforeUnmount(() => {
             type="number"
             :min="MIN_SIDE"
             :max="MAX_SIDE"
-            class="w-20 rounded-lg border-2 border-[rgba(203,189,226,0.25)] bg-screen px-2 py-1 font-mono text-[0.85rem] text-ink outline-none focus:border-yellow"
+            class="w-20 rounded-lg border border-line-2 bg-screen px-2 py-1 font-mono text-[0.85rem] text-ink outline-none focus:border-cyan"
           />
           <button type="submit" class="tool tool-go !min-h-8 !px-2.5 !text-[0.8rem]">Apply</button>
           <button type="button" class="tool !min-h-8 !px-2.5 !text-[0.8rem]" @click="customOpen = false">Cancel</button>
-          <span v-if="customError" class="font-round text-[0.8rem] text-pink-l">{{ customError }}</span>
+          <span v-if="customError" class="text-[0.8rem] text-pink-l">{{ customError }}</span>
         </form>
 
         <!-- Device: scaled proportionally to fit this area -->
@@ -936,7 +936,7 @@ onBeforeUnmount(() => {
             />
             <div
               v-if="state === 'compiling' || state === 'loading'"
-              class="absolute inset-0 grid place-items-center bg-[rgba(18,12,33,0.6)] font-px text-[0.55rem] tracking-[0.06em] text-yellow"
+              class="absolute inset-0 grid place-items-center bg-[rgba(11,10,16,0.6)] font-mono text-[0.7rem] font-semibold tracking-[0.14em] text-ink"
             >
               <span class="blink">{{ state === "compiling" ? "COMPILING" : "LOADING" }}</span>
             </div>
@@ -944,24 +944,24 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="flex-none space-y-1 text-[0.78rem] leading-snug">
-          <p class="text-soft">
-            <b class="font-round font-semibold text-ink">{{ isRetro ? "Game Boy Advance" : device.name }}</b> · {{ keysHint }}
+          <p class="text-ink-2">
+            <b class="font-semibold text-ink">{{ isRetro ? "Game Boy Advance" : device.name }}</b> · {{ keysHint }}
           </p>
           <div class="flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-[0.7rem] tracking-[0.04em] text-muted">
             <span v-for="f in facts" :key="f">{{ f }}</span>
           </div>
-          <p v-if="layoutNote" class="font-round text-orange-l">{{ layoutNote }}</p>
+          <p v-if="layoutNote" class="text-orange-l">{{ layoutNote }}</p>
         </div>
 
         <!-- Console / About -->
-        <div class="flex-none rounded-[14px] border-[2.5px] border-[rgba(169,139,255,0.3)] bg-panel">
+        <div class="card flex-none !rounded-[14px]">
           <div class="flex items-center gap-1 px-2 py-1.5">
             <button
               v-for="t in [{ id: 'console', label: 'Console' }, { id: 'about', label: 'About' }] as const"
               :key="t.id"
               type="button"
-              class="rounded-md px-2 py-1 font-round text-[0.82rem] font-semibold"
-              :class="panelTab === t.id && !panelCollapsed ? 'bg-key text-lilac-l' : 'text-muted hover:text-ink-2'"
+              class="rounded-md px-2 py-1 text-[0.82rem] font-semibold"
+              :class="panelTab === t.id && !panelCollapsed ? 'bg-[rgba(255,255,255,0.08)] text-ink' : 'text-muted hover:text-ink-2'"
               @click="panelTab === t.id ? (panelCollapsed = !panelCollapsed) : ((panelTab = t.id), (panelCollapsed = false))"
             >
               {{ t.label }}<span v-if="t.id === 'console' && logs.length" class="ml-1 text-dim">{{ logs.length }}</span>
@@ -973,7 +973,7 @@ onBeforeUnmount(() => {
             <button
               v-if="panelTab === 'console' && !panelCollapsed"
               type="button"
-              class="px-1.5 font-round text-[0.78rem] font-semibold text-muted hover:text-yellow"
+              class="px-1.5 text-[0.78rem] font-semibold text-muted hover:text-ink"
               @click="logs = []"
             >
               Clear
@@ -998,7 +998,7 @@ onBeforeUnmount(() => {
               </div>
               <div v-if="!logs.length" class="font-mono text-dim">console.log output from the app appears here.</div>
             </template>
-            <div v-else class="space-y-1.5 text-[0.8rem] text-soft">
+            <div v-else class="space-y-1.5 text-[0.8rem] text-ink-2">
               <template v-if="ws?.preset">
                 <p>{{ ws.preset.blurb }}</p>
                 <p>
@@ -1029,7 +1029,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .pg-browse {
-  box-shadow: 0 8px 0 var(--color-lilac-d), 0 30px 90px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 0 0 1px var(--color-line-2), 0 40px 100px -20px rgba(0, 0, 0, 0.8);
 }
 /*
  * Does not reuse .tool: while the dropdown is open, Firefox listens for transitionend on the <select>
@@ -1044,31 +1044,29 @@ onBeforeUnmount(() => {
   min-height: 2rem;
   padding: 0 2rem 0 0.625rem;
   border-radius: 10px;
-  border: 2px solid rgba(203, 189, 226, 0.18);
-  background-color: var(--color-key);
-  box-shadow: var(--shadow-key);
+  border: 1px solid var(--color-line);
+  background-color: var(--color-card);
   color: var(--color-ink-2);
-  font: 600 0.8rem/1 var(--font-round);
-  letter-spacing: 0.01em;
+  font: 600 0.8rem/1 var(--font-sans);
   transition: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M2 3.5 5 6.5 8 3.5' fill='none' stroke='%23cbbde2' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M2 3.5 5 6.5 8 3.5' fill='none' stroke='%23a9a3b8' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 0.6rem center;
 }
 .screen-select:hover {
-  border-color: rgba(203, 189, 226, 0.45);
+  border-color: var(--color-line-2);
 }
 .screen-select option {
-  background: var(--color-panel);
+  background: var(--color-card);
   color: var(--color-ink);
 }
 .pg-browse::backdrop {
-  background: rgba(10, 6, 20, 0.72);
-  backdrop-filter: blur(3px);
+  background: rgba(11, 10, 16, 0.72);
+  backdrop-filter: blur(6px);
 }
 @media (prefers-reduced-motion: no-preference) {
   .pg-browse[open] {
-    animation: pg-pop 0.22s var(--ease-spring);
+    animation: pg-pop 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
 }
 @keyframes pg-pop {

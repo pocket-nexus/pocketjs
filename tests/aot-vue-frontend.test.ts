@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 import { resolve } from "node:path";
 import { analyzeVueAot } from "../microts/compiler/aot-frontend.ts";
+import { imageNames } from "../microts/compiler/aot-expressions.ts";
+import type { AotNode } from "../microts/compiler/aot-ir.ts";
 const root = resolve(import.meta.dir, "..");
 test("Vue lab preserves typed model, factory, slot and input contracts deterministically", () => {
   const labEntry = resolve(root, "apps/vue-sfc-lab/app.vue");
@@ -97,4 +99,23 @@ test("Vue ActionHandler admits @press, @hold and @release with timing bindings",
   expect(() => vue(source(':holdMs="300" @press="release"'), contract)).toThrow(`${file}:1:264: error: holdMs requires @hold`);
   expect(() => vue(source('holdMs="300" @hold="release"'), contract)).toThrow(`${file}:1:264: error: ActionHandler requires typed bindings for holdMs`);
   expect(() => vue(source('@tap="release"'), contract)).toThrow(`${file}:1:264: error: ActionHandler accepts @press, @hold and @release with one handler each`);
+});
+test("Vue Text :style binds textColor and opacity; Image :src selects among literal image names", () => {
+  const contract = 'import type { Color, i32 } from "@pocketjs/framework/vue-vapor/std"; export declare const tint: Color; export declare const level: i32; export declare const icon: string;';
+  const source = (element: string) => `<script setup lang="ts">import { Image, Text, View } from "@pocketjs/framework/vue-vapor/components"; import { tint, level, icon } from "./App";</script><template><View>${element}</View></template>`;
+  const program = vue(source(`<Text :style="{ textColor: tint, opacity: level > 1 ? 0.5 : 1 }">A</Text><Image :src="level > 0 ? 'on.png' : level < -1 ? 'low.png' : 'off.png'" /><Image src="logo.png" />`), contract);
+  const view = program.components.find(c => c.root)!.nodes[0]!;
+  const [text, conditional, fixed] = view.kind === "element" ? view.children as Extract<AotNode, { kind: "element" }>[] : [];
+  expect(text!.props.map(p => [p.name, p.prop, p.value.kind])).toEqual([["textColor", 96, "binding"], ["opacity", 69, "conditional"]]);
+  expect(imageNames(conditional!.src, conditional!.dynamicSrc?.expression)).toEqual(["on.png", "low.png", "off.png"]);
+  expect(fixed).toMatchObject({ src: "logo.png" });
+  const rejects = (element: string, at: string, message: string) => {
+    const text = source(element);
+    expect(() => vue(text, contract)).toThrow(`App.vue:1:${text.indexOf(at) + 1}: error: ${message}`);
+  };
+  rejects(`<Text :style="{ opacity: 1, fontSlot: 1 }">A</Text>`, "fontSlot", "Text style accepts textColor and opacity; fontSlot is not a Text style property");
+  rejects(`<Image :src="icon" />`, ":src", "src requires a string literal attribute or a ternary with string literal leaves");
+  rejects(`<Image :src="level > 0 ? 'on.png' : icon" />`, ":src", "src requires a string literal attribute or a ternary with string literal leaves");
+  rejects(`<Image src="logo.png" :src="level > 0 ? 'on.png' : 'off.png'" />`, "<Image", "Image takes one src: a static src or a :src binding");
+  rejects(`<Image class="w-4 h-4" />`, "<Image", "Image requires a src asset name and has no children");
 });

@@ -1,36 +1,16 @@
-  <main class="lp-formain">
-    <div class="lp-container">
-      <div class="lp-for__head">
-        <span class="lp-kicker">PocketJS for user interfaces</span>
-        <h1>Write the interface once. Render it native everywhere.</h1>
-        <p class="lp-for__lead">Components, signals and Tailwind classes in Solid, Vue Vapor or Octane become one native tree that runs on every machine in the registry, from a 2004 PSP to a transparent macOS widget.</p>
-      </div>
-      <div class="lp-proof-grid">
-        <div class="lp-proof lp-reveal">
-          <h3>Three frameworks, one tree</h3>
-          <p>Solid signals, Vue refs and Octane hooks drive the same host components. Pick per project, or mix apps on the same deck; the runtime renders one tree either way. <a href="/docs/frameworks/">How the three coexist &rarr;</a></p>
-        </div>
-        <div class="lp-proof lp-reveal">
-          <h3>Layout and style, compiled</h3>
-          <p>taffy runs flexbox in the Rust core, so a familiar <span class="lp-mono">flex-col gap-4</span> lands on identical pixels on every target. Class literals compile to compact numeric records; no CSS parser ships to the device.</p>
-        </div>
-        <div class="lp-proof lp-reveal">
-          <h3>Input that feels right</h3>
-          <p>D-pad focus, real touch with gesture physics, kinetic scroll and tap-to-press, a virtual cursor for pointerless machines, and a system keyboard any app summons with one call.</p>
-        </div>
-        <div class="lp-proof lp-reveal">
-          <h3>Motion, baked</h3>
-          <p><span class="lp-mono">animate-*</span> classes compile to keyframe timelines the core plays back on the device&rsquo;s own budget, 3D transforms and arcs included.</p>
-        </div>
-      </div>
-      <figure class="lp-for__shot lp-reveal">
-        <img src="/assets/wall/card-im.jpg" alt="Pocket Talk, the IM demo, showing a message thread on a PSP-shaped screen." loading="lazy" />
-      </figure>
-      <p class="lp-for__shotcap">Pocket Talk, the IM demo: a VirtualList thread, the system keyboard and kinetic scroll on a PSP.</p>
-      <div class="lp-for__links">
-        <a class="lp-btn lp-btn--primary" href="/docs/getting-started/">Get started</a>
-        <a class="lp-btn lp-btn--ghost" href="/playground/">Open the playground</a>
-        <a class="lp-btn lp-btn--ghost" href="/docs/components/">Component reference</a>
-      </div>
+<main class="forpage">
+  <section class="s"><div class="wrap">
+    <div class="kick">PocketJS for user interfaces</div>
+    <h1>Write the interface once. Render it native everywhere.</h1>
+    <p class="intro">Components, signals and utility classes in Solid, Vue Vapor or Octane become one native tree that runs on every machine in the registry, from a 2004 PSP to a transparent macOS widget.</p>
+    <div class="plat forgrid">
+      <div class="pc" style="--k:var(--c)"><h3>Three frameworks, one tree</h3><p>Solid signals, Vue refs and Octane hooks drive the same host components. Pick one per project; the runtime renders one tree either way. <a href="/docs/frameworks/">How the three coexist →</a></p></div>
+      <div class="pc" style="--k:var(--y)"><h3>Layout and style, compiled</h3><p>taffy runs flexbox in the Rust core, so <code>flex-col gap-4</code> lands on the same pixels on every target. Class literals compile to numeric records; no CSS parser ships to the device.</p></div>
+      <div class="pc" style="--k:var(--p)"><h3>Input that feels right</h3><p>D-pad focus, touch with gesture physics, kinetic scroll and tap-to-press, a virtual cursor for machines without a pointer, and a system keyboard an app opens with one call.</p></div>
+      <div class="pc" style="--k:#a98bff"><h3>Motion, baked</h3><p><code>animate-*</code> classes compile to keyframe timelines the core plays back within the device's frame budget, 3D transforms and arcs included.</p></div>
     </div>
-  </main>
+    <figure class="forshot"><div class="frame"><img src="/assets/wall/card-im.jpg" alt="Pocket Talk, the IM demo, showing a message thread on a PSP-shaped screen." loading="lazy"></div>
+      <figcaption class="note">Pocket Talk, the IM demo: a VirtualList thread, the system keyboard and kinetic scroll on a PSP.</figcaption></figure>
+    <div class="ctas forctas"><a class="btn pri" href="/docs/getting-started/">Get started</a><a class="btn" href="/docs/components/">Component reference</a></div>
+  </div></section>
+</main>

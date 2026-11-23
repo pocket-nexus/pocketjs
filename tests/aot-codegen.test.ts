@@ -163,6 +163,42 @@ impl AppViewModel for Model { type Child = ChildModel; fn filter(&self) -> i32 {
 `);
 }, 120_000);
 
+test("Text style props and a conditional Image src follow the model after mount", () => {
+  const color: AotType = { kind: "named", name: "Color" }, f32: AotType = { kind: "number", name: "f32" };
+  const literal = (value: string | number, type: AotType): AotExpr => ({ kind: "literal", value, type, loc });
+  const above = (value: number): AotExpr => ({ kind: "binary", operator: ">", left: read("level", integer), right: literal(value, integer), type: boolean, loc });
+  const text: AotNode = { kind: "element", id: 0, tag: "Text", style: 0, focusable: false, children: [], events: [], text: { memo: 0, parts: ["A"] }, loc, props: [
+    { name: "textColor", prop: 96, value: read("tint", color), memo: 1 },
+    { name: "opacity", prop: 69, value: { kind: "conditional", condition: above(1), consequent: literal(0.5, f32), alternate: literal(1, f32), type: f32, loc }, memo: 2 },
+  ] };
+  const image: AotNode = { kind: "element", id: 1, tag: "Image", style: 0, props: [], focusable: false, children: [], events: [], loc,
+    dynamicSrc: { id: 3, expression: { kind: "conditional", condition: above(0), consequent: literal("on.png", string), alternate: literal("off.png", string), type: string, loc } } };
+  const app = component("App", [text, image]);
+  app.values = [{ name: "tint", sourceName: "tint", type: color, writable: false }, { name: "level", sourceName: "level", type: integer, writable: false }];
+  const output = emitAot({ ...program([app]), types: [{ kind: "newtype", name: "Color", base: { kind: "number", name: "u32" }, unit: "Color" }] }).files["app.rs"]!;
+  expect(output).toContain("src_memo: Option<&'static str>");
+  cargoFixture("text-style-image-src", output, `
+struct Model { tint: u32, level: i32 }
+impl AppViewModel for Model { fn tint(&self) -> Color { Color(self.tint) } fn level(&self) -> i32 { self.level } }
+fn read(app: &AppApp<Model>) -> (u32, f32, Option<String>) {
+  let nodes = app.ui().core().node_children(microts::NodeId::ROOT.0).to_vec();
+  let style = app.ui().core().resolved_style(nodes[0]).unwrap();
+  (style.text_color, style.opacity, app.ui().image_asset(microts::NodeId(nodes[1])).map(str::to_owned))
+}
+#[test] fn text_style_and_image_src() {
+  let mut app = AppApp::new(microts::CoreHost::new(), AppProps {}, Model { tint: 0xff0000ff, level: 0 });
+  app.frame(&microts::Input::default());
+  assert_eq!(read(&app), (0xff0000ff, 1.0, Some("off.png".into())));
+  app.model.level = 1; app.model.tint = 0xffff0000; app.invalidate(); app.frame(&microts::Input::default());
+  assert_eq!(read(&app), (0xffff0000, 1.0, Some("on.png".into())));
+  app.model.level = 2; app.invalidate(); app.frame(&microts::Input::default());
+  assert_eq!(read(&app), (0xffff0000, 0.5, Some("on.png".into())));
+  app.model.level = 0; app.invalidate(); app.frame(&microts::Input::default());
+  assert_eq!(read(&app), (0xffff0000, 1.0, Some("off.png".into())));
+}
+`);
+}, 120_000);
+
 test("hook queues preserve ownership through slots and descending destruction", () => {
   const child = component("Child"); child.factory = { name: "createChild", sourceName: "createChild", module: "./Child" };
   child.functions = [method("load"), method("release")]; child.hooks = { mount: call("load"), unmount: call("release") };

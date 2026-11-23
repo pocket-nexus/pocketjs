@@ -31,17 +31,17 @@ import {
   vdomHelperId,
 } from "@vue-jsx-vapor/runtime/raw";
 import {
+  FONT_LINKS,
   ICON_LINKS,
   OG_IMAGE_URL,
-  PIXEL_FONT_PRELOAD,
   SITE_DESC,
   SITE_TITLE,
   SITE_URL,
-  injectSiteFooterDescription,
   renderPage,
+  siteFooter,
+  siteHeader,
 } from "./templates.ts";
 import { BLOG_POSTS, DOC_NAV, type DocSection } from "./nav.ts";
-import { candyHeadings } from "./candy.ts";
 import {
   assertDocDemoBuilt,
   findDocDemoDirectives,
@@ -610,9 +610,6 @@ async function main() {
   ]) {
     if (existsSync(SITE + "assets/" + asset)) copy(SITE + "assets/" + asset, asset);
   }
-  // The Arcade look for pages outside the homepage, and its self-hosted pixel font.
-  copy(SITE + "assets/arcade.css", "assets/arcade.css");
-  copy(SITE + "assets/fonts/", "assets/fonts/");
   // OpenStrike desktop screenshot (referenced by the shipping-openstrike post).
   copy(SITE + "assets/os-dust2.jpg", "assets/os-dust2.jpg");
   // The original hardware capture (embedded by the introducing-pocketjs post).
@@ -654,8 +651,9 @@ async function main() {
   //    landing.js (framework tabs, theme buttons, community wall). Not wrapped
   //    in the shared header/footer (those stay for docs + playground).
   write("index.html", renderHome());
-  // The homepage ships one stylesheet: the shared tokens, then its own rules.
-  write("assets/landing.css", ["tokens.css", "landing.css"]
+  // The homepage and the /for/ pages ship one stylesheet: the shared tokens and
+  // shell, then the landing rules.
+  write("assets/landing.css", ["tokens.css", "chrome.css", "landing.css"]
     .map((f) => readFileSync(SITE + "assets/" + f, "utf8"))
     .join("\n"));
   await bundle("assets/landing.js", "assets/landing.js");
@@ -663,12 +661,8 @@ async function main() {
   for (const f of readdirSync(SITE + "assets/home/")) {
     if (/\.(?:webp|gif|mp4)$/.test(f)) copy(SITE + "assets/home/" + f, "assets/home/" + f);
   }
-  // home.css stays for the /for/ pages, which keep the .lp-* chrome.
-  copy(SITE + "assets/home.css", "assets/home.css");
 
-  // 6b. /for/ use-case pages — landing-styled (home.css chrome, no hero).
-  //     site/for/shell.html carries the shared nav + footer; each fragment
-  //     carries the page's main content.
+  // 6b. /for/ use-case pages: the shared header and footer around each fragment.
   for (const page of FOR_PAGES) {
     write(`for/${page.slug}/index.html`, renderForPage(page));
   }
@@ -725,11 +719,19 @@ function renderSponsorGallery(): string {
     .join("\n      ");
 }
 
+// The homepage marks where the shared header and footer go; each mark appears once.
+function fillSlot(html: string, slot: string, value: string): string {
+  const count = html.split(slot).length - 1;
+  if (count !== 1) throw new Error(`Expected ${slot} exactly once; found ${count}`);
+  return html.replace(slot, () => value);
+}
+
 function renderHome(): string {
   const raw = readFileSync(SITE + "home.html", "utf8");
   const slots = raw.split(SPONSOR_SLOT).length - 1;
   if (slots !== 1) throw new Error(`Expected ${SPONSOR_SLOT} exactly once in the homepage; found ${slots}`);
-  const body = raw.replace(SPONSOR_SLOT, () => renderSponsorGallery());
+  const body = fillSlot(fillSlot(raw.replace(SPONSOR_SLOT, () => renderSponsorGallery()),
+    "{{SITE_HEADER}}", siteHeader("home")), "{{SITE_FOOTER}}", siteFooter());
   const jsonLd = JSON.stringify({
     "@context": "https://schema.org",
     "@type": "SoftwareSourceCode",
@@ -755,7 +757,7 @@ function renderHome(): string {
       "Bun",
     ],
   });
-  return candyHeadings(`<!doctype html>
+  return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -779,9 +781,7 @@ function renderHome(): string {
 <meta name="twitter:image" content="${OG_IMAGE_URL}">
 <meta name="theme-color" content="#0b0a10">
 ${ICON_LINKS}
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@600;700;800&family=Inter:wght@400;500;600&display=swap">
+${FONT_LINKS}
 <link rel="stylesheet" href="/assets/landing.css">
 <script type="application/ld+json">${jsonLd}</script>
 </head>
@@ -789,33 +789,29 @@ ${ICON_LINKS}
 ${body}
 <script type="module" src="/assets/landing.js"></script>
 </body>
-</html>`);
+</html>`;
 }
 
-// The /for/ pages share the homepage's bespoke chrome (home.css, no shared
-// Tailwind shell): site/for/shell.html holds the nav + footer, and
-// site/for/<slug>.html the main content. Games and 3D have no page here: that
-// subject belongs to Pocket3D and its own site.
+// The /for/ pages are standalone documents in the homepage's look: the shared
+// header and footer around site/for/<slug>.html, styled by assets/landing.css.
+// Games and 3D have no page here: that subject belongs to its own site.
 const FOR_PAGES = [
   {
     slug: "interfaces",
     title: "PocketJS for user interfaces",
-    desc: "Components, signals and Tailwind classes in Solid, Vue Vapor or Octane become one native tree that runs on every machine in the registry.",
+    desc: "Components, signals and utility classes in Solid, Vue Vapor or Octane become one native tree that runs on every machine in the registry.",
   },
   {
     slug: "agents",
     title: "PocketJS for AI-native apps",
-    desc: "A virtual clock makes every frame a pure function of an input tape: sessions agents can drive, replay and diff, on a runtime small enough to host the agent itself.",
+    desc: "A virtual clock makes every frame a pure function of an input tape: sessions agents can drive, replay and diff.",
   },
 ];
 
 function renderForPage(page: { slug: string; title: string; desc: string }): string {
-  const shell = injectSiteFooterDescription(readFileSync(SITE + "for/shell.html", "utf8"));
   const main = readFileSync(SITE + `for/${page.slug}.html`, "utf8");
-  if (!shell.includes("{{FOR_MAIN}}")) throw new Error("for/shell.html must contain {{FOR_MAIN}}");
-  const body = shell.replace("{{FOR_MAIN}}", main);
   const url = `${SITE_URL}/for/${page.slug}/`;
-  return candyHeadings(`<!doctype html>
+  return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -837,19 +833,17 @@ function renderForPage(page: { slug: string; title: string; desc: string }): str
 <meta name="twitter:title" content="${page.title} · PocketJS">
 <meta name="twitter:description" content="${page.desc}">
 <meta name="twitter:image" content="${OG_IMAGE_URL}">
-<meta name="theme-color" content="#171226">
+<meta name="theme-color" content="#0b0a10">
 ${ICON_LINKS}
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&display=swap">
-${PIXEL_FONT_PRELOAD}
-<link rel="stylesheet" href="/assets/home.css">
-<link rel="stylesheet" href="/assets/arcade.css">
+${FONT_LINKS}
+<link rel="stylesheet" href="/assets/landing.css">
 </head>
 <body>
-${body}
+${siteHeader()}
+${main}
+${siteFooter()}
 </body>
-</html>`);
+</html>`;
 }
 
 async function compileCss() {

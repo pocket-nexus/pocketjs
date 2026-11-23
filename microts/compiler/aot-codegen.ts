@@ -380,7 +380,7 @@ class Lowerer {
         const input = node.input.kind === "button" && node.input.hold ? { ...node.input, hold: { delay: this.rewriteExpr(node.input.hold.delay, context), ...(node.input.hold.repeat ? { repeat: this.rewriteExpr(node.input.hold.repeat, context) } : {}) } } : node.input;
         return [{ ...node, input, active: this.rewriteExpr(node.active, context), events: node.events.map(e => ({ ...e, handler: this.rewriteHandler(e.handler, context) ?? { kind: "emit", name: "__discard", arguments: [], id: e.handler.id, loc: e.handler.loc } })), children: this.expand(node.children, context) }];
       }
-      return [{ ...node, dynamicStyle: node.dynamicStyle ? { ...node.dynamicStyle, expression: this.rewriteExpr(node.dynamicStyle.expression, context) } : undefined, props: node.props.map(p => ({ ...p, value: this.rewriteExpr(p.value, context) })), text: node.text ? { ...node.text, parts: node.text.parts.map(p => typeof p === "string" ? p : this.rewriteExpr(p, context)) } : undefined, events: node.events.flatMap(e => { const handler = this.rewriteHandler(e.handler, context); return handler ? [{ ...e, handler }] : []; }), children: this.expand(node.children, context) }];
+      return [{ ...node, dynamicStyle: node.dynamicStyle ? { ...node.dynamicStyle, expression: this.rewriteExpr(node.dynamicStyle.expression, context) } : undefined, dynamicSrc: node.dynamicSrc ? { ...node.dynamicSrc, expression: this.rewriteExpr(node.dynamicSrc.expression, context) } : undefined, props: node.props.map(p => ({ ...p, value: this.rewriteExpr(p.value, context) })), text: node.text ? { ...node.text, parts: node.text.parts.map(p => typeof p === "string" ? p : this.rewriteExpr(p, context)) } : undefined, events: node.events.flatMap(e => { const handler = this.rewriteHandler(e.handler, context); return handler ? [{ ...e, handler }] : []; }), children: this.expand(node.children, context) }];
     }) as ExpandedNode[];
   }
   contextParams(locals: Locals, dispatch = false): RustParam[] {
@@ -649,13 +649,15 @@ class Lowerer {
     }
     this.inputTraversal(name, binary("||", node.events.length ? rm(rp("input"), "is_press", nodeId) : rl(false), rm(rf(self, "children"), "pending", rp("input"))), [re(rm(rf(self, "children"), "sample_idle", rp("input")))]);
     this.structure(name, binary("+", rl(node.events.length, "usize"), rm(rf(self, "children"), "handler_count")), [re(rm(rf(self, "children"), "refresh_slot_placement", ui, nodeId, noNode))], rb([...(node.events.length ? [re(ifExpr(binary("&&", binary("<", rp("skip"), rl(node.events.length, "usize")), rm(rp("input"), "is_press", nodeId)), [{ kind: "return", value: rl(true) }]))] : [])], rm(rf(self, "children"), "pending_after", rp("input"), rm(rp("skip"), "saturating_sub", rl(node.events.length, "usize")))));
-    const memo = (key: string, expression: AotExpr, apply: (value: RustExpr) => RustExpr) => {
+    const memo = (key: string, expression: AotExpr, apply: (value: RustExpr) => RustExpr, type = this.type(expression.type)) => {
       this.requireDerive(expression.type, "PartialEq");
-      fields.push({ name: key, type: rt("Option", this.type(expression.type)) }); initial.push({ name: key, value: none });
+      fields.push({ name: key, type: rt("Option", type) }); initial.push({ name: key, value: none });
       const value = rp(`value_${key}`); const field = rf(self, key);
       update.push(stmtLet(`value_${key}`, this.expr(expression, locals)), re(ifExpr(binary("!=", field, some(value)), [re(apply(value)), assign(field, some(value))])));
     };
     if (node.dynamicStyle) memo("style_memo", node.dynamicStyle.expression, value => rm(ui, "set_style", nodeId, node.dynamicStyle!.expression.type.kind === "style" ? value : rc(rp("StyleId"), cast(value, rt("i32")))));
+    // Every leaf is a string literal, so the selected name is a `&'static str`.
+    if (node.dynamicSrc) memo("src_memo", node.dynamicSrc.expression, value => rm(ui, "set_image_asset", nodeId, value), rr(rt("str"), false, "static"));
     node.props.forEach((p, i) => memo(`prop_memo${i}`, p.value, value => rm(ui, "set_prop", nodeId, rl(p.prop, "u8"), cast(this.unwrapNumeric(value, p.value.type), rt("f64")))));
     if (node.text) {
       const parts = this.textParts(node.text.parts);

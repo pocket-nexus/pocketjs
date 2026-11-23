@@ -12,6 +12,7 @@ import { parsePocketProfile } from "../framework/src/profile.ts";
 import { decodePng, encodeImageEntry } from "../framework/compiler/pak.ts";
 import { IMG_FLAG_LINEAR, PSM } from "../contracts/spec/spec.ts";
 import { encodePNG } from "../tools/png.ts";
+import { missingHostWasm } from "../tools/wasm.ts";
 const gba = POCKET_PROFILES["gba"];
 
 const ROOT = resolve(import.meta.dir, "..");
@@ -138,6 +139,35 @@ import {label} from './App';
     } finally { rmSync(project, { recursive: true, force: true }); }
   }, 120_000);
 
+  test("every leaf of a conditional src is baked and registered; a missing leaf is an error at its element", async () => {
+    const project = temporary();
+    try {
+      const profile = parsePocketProfile({ format: "pocket-host/2", id: "aot-src", platform: "esp-idf", form: "takeover", cadences: [30],
+        display: { logicalViewports: [[240, 160]], presentations: ["native"], rasterDensity: 1, animation: "repaint" },
+        panel: { primary: [240, 160] }, capabilities: ["input.buttons", "text.glyphs.baked"] });
+      const app = { id: "dev.test.aot-src", title: "AOT src", version: "1.0.0", features: ["text.glyphs.baked"], entry: "app.tsx", framework: "solid",
+        aot: true, model: "compiled", viewport: { fixed: { logical: [240, 160], presentation: "native" } } } as const;
+      const resolved = resolveAppPlan(app, { target: profile.id }, profileRegistry(profile));
+      if (!resolved.ok) throw new Error(JSON.stringify(resolved.diagnostics));
+      writeFileSync(join(project, "app.ts"), `import { createSignal } from "solid-js";\nimport type { i32 } from "@pocketjs/framework/solid/std";\nexport const [level, setLevel] = createSignal<i32>(0);\n`);
+      writeFileSync(join(project, "app.tsx"), `import { Image, Text, View } from "@pocketjs/framework/solid/components";\nimport { level } from "./app";\nexport default function App() {\n  return <View class="w-full h-full">\n    <Image class="w-4 h-4" src={level() > 1 ? "full.png" : level() > 0 ? "half.png" : "empty.png"} />\n    <Image class="w-4 h-4" src="logo.png" />\n    <Text>A</Text>\n  </View>;\n}\n`);
+      for (const name of ["empty.png", "full.png", "half.png", "logo.png"]) writeFileSync(join(project, name), encodePNG(new Uint8Array(16 * 16 * 4).fill(0x80), 16, 16));
+      const out = join(project, "out");
+      const result = await compileAot({ plan: resolved.plan, projectRoot: project, outdir: out });
+      const include = readFileSync(join(out, "include.rs"), "utf8");
+      ["empty.png", "full.png", "half.png", "logo.png"].forEach((name, index) =>
+        expect(include).toContain(`{ let id = ui.core_mut().upload_img_entry(include_bytes!("images/image-${index}.img")); assert!(id >= 0); ui.register_image(${JSON.stringify(name)}, id); }`));
+      expect(files(join(out, "images")).map(path => relative(out, path)).sort()).toEqual(["images/image-0.img", "images/image-1.img", "images/image-2.img", "images/image-3.img"]);
+      expect(result.dependencies).toContain(join(project, "half.png"));
+      // A sprite-layer host bakes its background once: the changing image would stay frozen in it.
+      const sprites = resolveAppPlan(app, { target: "gba" }, profileRegistry(gba));
+      if (!sprites.ok) throw new Error(JSON.stringify(sprites.diagnostics));
+      await expect(compileAot({ plan: sprites.plan, projectRoot: project, outdir: join(project, "gba") })).rejects.toThrow(`${join(project, "app.tsx")}:5:5: error: gba layers: <Image>: a conditional src outside a layout-baked page has no sprite layer`);
+      rmSync(join(project, "half.png"));
+      await expect(compileAot({ plan: resolved.plan, projectRoot: project, outdir: out })).rejects.toThrow(`${join(project, "app.tsx")}:5:5: error: image "half.png" not found`);
+    } finally { rmSync(project, { recursive: true, force: true }); }
+  }, 120_000);
+
   test("custom app theme and application tick rate are isolated across compilations", async () => {
     const project = temporary();
     try {
@@ -154,9 +184,17 @@ import {label} from './App';
       expect(first.result.program.styles.anims.length).toBeGreaterThan(0);
       expect(first.result.program.styles.anims[0]!.tracks[0]!.segments.at(-1)!.t1).toBe(30);
       expect(() => analyzeAot(entry, { strict: true })).toThrow("animate-app-fade");
-      await expect(compileAot({ plan: resolved.plan, projectRoot: project, outdir: join(project, "missing-wasm"), wasmPath: join(project, "absent.wasm") })).rejects.toThrow("prebuilt layout oracle");
+      await expect(compileAot({ plan: resolved.plan, projectRoot: project, outdir: join(project, "missing-wasm"), wasmPath: join(project, "absent.wasm") }))
+        .rejects.toThrow(`AOT: the layout oracle passed as wasmPath does not exist: ${join(project, "absent.wasm")}`);
     } finally { rmSync(project, { recursive: true, force: true }); }
   }, 120_000);
+
+  // The installed-package case runs in the packed package (npm-package.test.ts).
+  test("a checkout missing the layout oracle names the command that builds it", () => {
+    expect(existsSync(join(ROOT, "programs/web/wasm/Cargo.toml"))).toBe(true);
+    expect(missingHostWasm("the layout oracle")).toBe(`the layout oracle ${join(ROOT, "platforms/web/pocketjs.wasm")} is missing; ` +
+      `build it with \`bun tools/wasm.ts\` in ${ROOT} (needs \`rustup target add wasm32-unknown-unknown\`)`);
+  });
 
   // Solid views report the class string, Vue templates the class attribute.
   test.each([
@@ -245,12 +283,58 @@ import { count } from "./App";
         const fonts = files(join(directory, "out")).some(file => /font-\d+\.bin$/.test(file));
         expect(include).toContain(`fn load_fonts(${fonts ? "ui" : "_"}: &mut microts::Ui)`);
         expect(include).toContain(`fn load_images(${images}: &mut microts::Ui)`);
-        // A product crate built with warnings denied calls both loaders.
+        expect(include).toContain(`fn load_fonts_in_place(${fonts ? "ui" : "_"}: &mut microts::Ui)`);
+        expect(include).toContain(`fn load_images_in_place(${images}: &mut microts::Ui)`);
+        // A product crate built with warnings denied calls either pair of loaders.
         writeFileSync(join(directory, "harness/Cargo.toml"), `[package]\nname = "aot-include-${name}"\nversion = "0.0.0"\nedition = "2021"\n[workspace]\n[dependencies]\nmicrots = { path = ${JSON.stringify(resolve(ROOT, "engine/microts-runtime"))} }\n`);
-        writeFileSync(join(directory, "harness/src/lib.rs"), `#![no_std]\n#![deny(warnings)]\nextern crate alloc;\ninclude!(${JSON.stringify(result.includeFile)});\npub use generated::*;\npub fn mount(ui: &mut microts::Ui) -> u32 {\n    load_fonts(ui);\n    load_images(ui);\n    TICK_HZ\n}\n`);
+        writeFileSync(join(directory, "harness/src/lib.rs"), `#![no_std]\n#![deny(warnings)]\nextern crate alloc;\ninclude!(${JSON.stringify(result.includeFile)});\npub use generated::*;\npub fn mount(ui: &mut microts::Ui) -> u32 {\n    load_fonts(ui);\n    load_images(ui);\n    TICK_HZ\n}\npub fn mount_in_place(ui: &mut microts::Ui) {\n    load_fonts_in_place(ui);\n    load_images_in_place(ui);\n}\n`);
         const check = Bun.spawnSync(["cargo", "check", "--quiet", "--manifest-path", join(directory, "harness/Cargo.toml")], { stdout: "pipe", stderr: "pipe", env: { ...process.env, ...AOT_CARGO_ENV } });
         expect({ status: check.exitCode, stderr: check.stderr.toString() }).toEqual({ status: 0, stderr: "" });
       }
     } finally { rmSync(project, { recursive: true, force: true }); }
+  }, 300_000);
+
+  test("include.rs in-place loaders share the atlases and register an image decoded at its first draw", async () => {
+    const directory = temporary();
+    try {
+      mkdirSync(join(directory, "harness/src"), { recursive: true });
+      mkdirSync(join(directory, "harness/tests"), { recursive: true });
+      writeFileSync(join(directory, "app.tsx"), `import {Image, Text, View} from '@pocketjs/framework/solid/components';\nexport default function App(){return <View class="w-[40] h-[40]"><Image class="w-[16] h-[16]" src="logo.png"/><Text>A</Text></View>}`);
+      writeFileSync(join(directory, "logo.png"), encodePNG(new Uint8Array(16 * 16 * 4).fill(0x80), 16, 16));
+      const app = { id: "dev.test.in-place", title: "in place", version: "1.0.0", features: ["text.glyphs.baked"],
+        entry: "app.tsx", framework: "solid", aot: true, viewport: { fixed: { logical: [240,160], presentation: "native" } } } as const;
+      const resolved = resolveAppPlan(app, { target: "gba" }, profileRegistry(gba));
+      if (!resolved.ok) throw new Error(JSON.stringify(resolved.diagnostics));
+      const out = join(directory, "out");
+      const result = await compileAot({ plan: resolved.plan, projectRoot: directory, outdir: out });
+      const slots = files(out).flatMap(file => /font-(\d+)\.bin$/.exec(file)?.[1] ?? []);
+      expect(slots.length).toBeGreaterThan(0);
+      writeFileSync(join(directory, "harness/Cargo.toml"), `[package]\nname = "aot-include-in-place"\nversion = "0.0.0"\nedition = "2021"\n[workspace]\n[dependencies]\nmicrots = { path = ${JSON.stringify(resolve(ROOT, "engine/microts-runtime"))} }\n`);
+      writeFileSync(join(directory, "harness/src/lib.rs"), `#![no_std]\n#![deny(warnings)]\nextern crate alloc;\ninclude!(${JSON.stringify(result.includeFile)});\npub const FONT_SLOTS: [u8; ${slots.length}] = [${slots.join(", ")}];\npub static IMAGE: &[u8] = include_bytes!(${JSON.stringify(join(out, "images/image-0.img"))});\npub struct Model;\nimpl generated::AppViewModel for Model {}\npub type App = generated::AppApp<Model>;\npub fn mount(copy: bool) -> App {\n    let mut ui = microts::Ui::new();\n    ui.core_mut().set_viewport(240.0, 160.0);\n    assert!(ui.load_styles(include_bytes!(${JSON.stringify(join(out, "styles.bin"))})));\n    if copy {\n        load_fonts(&mut ui);\n        load_images(&mut ui);\n    } else {\n        load_fonts_in_place(&mut ui);\n        load_images_in_place(&mut ui);\n    }\n    App::new(ui, generated::AppProps {}, Model)\n}\n`);
+      writeFileSync(join(directory, "harness/tests/load.rs"), `use aot_include_in_place::{mount, FONT_SLOTS, IMAGE};
+use microts::Input;
+
+#[test]
+fn in_place_loaders_read_the_included_bytes() {
+    for copy in [false, true] {
+        let mut app = mount(copy);
+        let core = app.ui().core();
+        for slot in FONT_SLOTS {
+            assert_eq!(core.font_atlas(slot).expect("atlas").bitmap.is_shared(), !copy, "slot {slot}");
+        }
+        // The one image is texture 0; the in-place texture holds no pixels until a frame draws it.
+        assert_eq!(core.texture_slot_count(), 1);
+        assert_eq!(core.texture_resident(0), Some(copy));
+        app.frame(&Input::default());
+        app.ui_mut().core_mut().draw();
+        // The Image node drew the texture registered under "logo.png": its pixels are the IMG entry's payload.
+        assert_eq!(app.ui().core().texture_resident(0), Some(true));
+        assert_eq!(app.ui().core().texture(0).expect("texture").pixels, &IMAGE[8..]);
+    }
+}
+`);
+      const run = Bun.spawnSync(["cargo", "test", "--quiet", "--manifest-path", join(directory, "harness/Cargo.toml")], { stdout: "pipe", stderr: "pipe", env: { ...process.env, ...AOT_CARGO_ENV } });
+      expect(run.exitCode, run.stdout.toString() + run.stderr.toString()).toBe(0);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
   }, 300_000);
 });

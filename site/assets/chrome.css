@@ -1,77 +1,50 @@
-/* site/assets/chrome.css — the shared shell: nav, resource menu, buttons and
-   footer. Loaded by the homepage and, through tailwind.css, by every other
-   page, so the chrome is one implementation rather than two. */
+/* site/assets/chrome.css — the shared shell: nav, buttons and footer. The
+   homepage and the /for/ pages load it through assets/landing.css, every other
+   page through tailwind.css, so there is one header and one footer. The markup
+   comes from siteHeader() and siteFooter() in site/templates.ts. */
 
-/* shared text helpers */
-.hud{font-family:var(--sans);font-weight:600;font-size:.72rem;letter-spacing:.06em;color:var(--muted)}
+.wrap{max-width:1200px;margin:0 auto;padding:0 28px}
+.hud{font-family:var(--sans);font-weight:500;font-size:13px;color:var(--muted)}
 .spectrum{background:var(--spectrum);-webkit-background-clip:text;background-clip:text;color:transparent}
-.spectrum.lit{background:var(--spectrum-lit);-webkit-background-clip:text;background-clip:text}
-.wrap{max-width:1160px;margin:0 auto;padding:0 clamp(1.25rem,4vw,2.5rem)}
 
 /* nav */
-.nav{position:sticky;top:0;z-index:50;border-bottom:1px solid var(--line);background:rgba(var(--shade-rgb),.88);backdrop-filter:blur(9px)}
-.nav .wrap{display:flex;align-items:center;justify-content:space-between;height:3.6rem}
-.mark{display:flex;align-items:center;gap:.55rem}
-.mark .nm{font-weight:700;font-size:1.05rem;letter-spacing:-.01em}
-.nav-links{display:flex;align-items:center;gap:1.5rem;font-family:var(--sans);font-weight:500;font-size:.85rem;letter-spacing:.02em;color:var(--ink-2)}
-.nav-links a:hover{color:var(--accent)}
-.nav-links .ico{display:flex;align-items:center;color:var(--ink-2)}
-.nav-links .ico svg{width:1.05rem;height:1.05rem;display:block}
-.nav-links .ico:hover{color:var(--accent)}
-@media(max-width:600px){
-  .nav-links{gap:1rem;font-size:.8rem}
-  .nav-links .ico{display:none}
-  .nav .wrap{padding-inline:1rem}
-  .mark{gap:.4rem}
-  .mark .nm{font-size:.95rem}
+.nav{position:sticky;top:0;z-index:50;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);background:rgba(11,10,16,.72);border-bottom:1px solid var(--line)}
+.nav .wrap{display:flex;align-items:center;gap:28px;height:60px}
+.brand{display:flex;gap:10px;align-items:center;font:700 17px var(--disp);letter-spacing:-.01em;color:var(--ink)}
+.brand svg{width:28px;height:28px;flex:none}
+.nav .links{margin-left:auto;display:flex;gap:26px;font:500 14.5px var(--sans);color:var(--ink-2)}
+.nav .links a{transition:color .15s}
+.nav .links a:hover,.nav .links a.on{color:var(--ink)}
+.nav .links a.on{box-shadow:0 2px 0 var(--accent)}
+.nav .icons{display:flex;gap:16px;align-items:center;color:var(--ink-2)}
+.nav .icons a:hover{color:var(--ink)}
+.nav .icons svg{width:18px;height:18px;display:block}
+.nav .gh{background:var(--ink);color:var(--bg)!important;font:600 14px var(--sans);padding:7px 15px;border-radius:999px}
+@media(max-width:760px){
+  .nav .wrap{gap:18px;padding:0 18px}
+  .nav .links{gap:18px;font-size:14px}
+  .nav .icons .soc{display:none}
 }
-.menu{position:relative}
-.menu-btn{appearance:none;background:none;border:none;cursor:pointer;color:var(--ink-2);
-  font:inherit;letter-spacing:.02em;display:flex;align-items:center;gap:.35rem;padding:0}
-.menu-btn svg{transition:transform .15s}
-.menu:hover .menu-btn,.menu:focus-within .menu-btn{color:var(--accent)}
-.menu:hover .menu-btn svg,.menu:focus-within .menu-btn svg{transform:rotate(180deg)}
-.menu-list{position:absolute;top:calc(100% + .75rem);left:50%;transform:translateX(-50%) translateY(-.35rem);
-  min-width:9.5rem;border-radius:12px;overflow:hidden;border:1px solid var(--line-2);background:rgba(var(--shade-rgb),.97);backdrop-filter:blur(9px);
-  display:flex;flex-direction:column;opacity:0;visibility:hidden;transition:opacity .14s,transform .14s,visibility .14s;
-  box-shadow:0 18px 44px rgba(var(--shade-rgb),.55)}
-.menu:hover .menu-list,.menu:focus-within .menu-list{opacity:1;visibility:visible;transform:translateX(-50%) translateY(0)}
-.menu-list::before{content:"";position:absolute;left:0;right:0;top:-.75rem;height:.75rem}
-.menu-list a{padding:.6rem .9rem;border-bottom:1px solid var(--line)}
-.menu-list a:last-child{border-bottom:none}
-.menu-list a:hover{background:var(--panel);color:var(--accent)}
-@media(max-width:600px){
-  .nav-links .menu-list{left:auto;right:0;transform:translateY(-.35rem)}
-  .nav-links .menu:hover .menu-list,.nav-links .menu:focus-within .menu-list{transform:translateY(0)}
+@media(max-width:520px){
+  .nav .links .wide{display:none}
 }
 
-
-/* buttons */
-.btn{display:inline-flex;align-items:center;gap:.4rem;font-family:var(--sans);font-weight:600;font-size:.85rem;letter-spacing:.01em;
-  padding:.72rem 1.35rem;border-radius:999px;border:1px solid var(--line-2);color:var(--ink-2);cursor:pointer;
-  background:transparent;transition:color .12s,border-color .12s,filter .12s}
-.btn:hover{color:var(--accent);border-color:rgba(var(--accent-rgb),.55)}
-/* --pri/--sec on the homepage, -primary/-ghost in the docs markup: one look */
-.btn--pri,.btn-primary{background:linear-gradient(180deg,var(--btn-a),var(--btn-b));color:var(--btn-ink);border-color:transparent;
-  font-weight:600;box-shadow:0 1px 0 rgba(255,255,255,.4) inset, 0 10px 26px -12px rgba(var(--accent-rgb),.75)}
-.btn--pri:hover,.btn-primary:hover{filter:brightness(1.06);color:var(--btn-ink)}
+/* buttons: .btn.pri on the homepage, .btn-primary / .btn-ghost in docs markup */
+.btn{display:inline-flex;align-items:center;gap:8px;font:600 15px var(--sans);padding:12px 22px;border-radius:999px;border:1px solid var(--line-2);color:var(--ink);background:transparent;cursor:pointer;transition:border-color .15s,background .15s}
+.btn svg{width:17px;height:17px}
+.btn:hover{border-color:rgba(255,255,255,.35)}
+.btn.pri,.btn--pri,.btn-primary{background:var(--accent);color:#1b1405;border-color:var(--accent)}
+.btn.pri:hover,.btn--pri:hover,.btn-primary:hover{background:#ffdc63;border-color:#ffdc63}
 .btn--sec,.btn-ghost{background:transparent}
 
-
 /* footer */
-.foot{border-top:1px solid var(--line);padding:2.2rem 0 3rem;background:var(--bg-2)}
-.foot .wrap{display:flex;flex-wrap:wrap;gap:1.4rem;justify-content:space-between;align-items:center}
-.foot .cols2{display:flex;gap:1.3rem;flex-wrap:wrap;font-family:var(--mono);font-size:.72rem;color:var(--ink-2)}
-.foot .cols2 a:hover{color:var(--accent)}
-/* The row carries two groups: this site, then the accounts. A muted dot marks
-   the boundary, so the footer stays one line of links instead of growing
-   headings. The dot is the first child of the group it opens, so wrapping can
-   never leave one stranded at the end of a line. */
-.foot .cols2 .fgrp{display:flex;gap:1.3rem;flex-wrap:wrap;align-items:baseline}
-.foot .cols2 .fdot{color:var(--muted);opacity:.6}
-.foot .hud a{color:var(--ink-2);text-decoration:underline;text-decoration-color:rgba(var(--ink-2-rgb),.35);text-underline-offset:3px}
-.foot .hud a:hover{color:var(--accent);text-decoration-color:currentColor}
-
+.foot{padding:56px 0 64px;color:var(--muted);font-size:14px;border-top:1px solid var(--line)}
+.foot .wrap{display:flex;align-items:center;gap:28px;flex-wrap:wrap}
+.foot nav{display:flex;gap:20px;flex-wrap:wrap}
+.foot nav a:hover,.foot .legal a:hover{color:var(--ink)}
+.foot .legal{margin-left:auto}
+.foot .legal a{border-bottom:1px solid var(--line-2)}
+@media(max-width:640px){.foot .legal{margin-left:0}}
 
 /* the interactive 3D stage: one implementation for the playground and the homepage */
 .pocket-frame {

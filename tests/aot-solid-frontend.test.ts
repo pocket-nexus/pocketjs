@@ -6,6 +6,7 @@ import { analyzeSolidAot } from "../microts/compiler/aot-solid-frontend.ts";
 import { normalizeJsxText } from "../microts/compiler/aot-jsx-text.ts";
 import type { AotNode } from "../microts/compiler/aot-ir.ts";
 import { BTN } from "../contracts/spec/spec.ts";
+import { imageNames } from "../microts/compiler/aot-expressions.ts";
 import { registerRepositoryApp } from "./app-fixtures.ts";
 const root = resolve(import.meta.dir, "..");
 const entry = resolve(root, "tests/fixtures/aot/solid/App.tsx");
@@ -380,6 +381,35 @@ test("local row values cannot impersonate imported BTN constants", () => {
 
 test("class ternaries cannot mix StyleClass props with literal leaves", () => {
   expect(() => sourceProgram('import { View } from "@pocketjs/framework/solid/components"; import type { StyleClass } from "@pocketjs/framework/solid/std"; export default function App(props: { tone: StyleClass; enabled: boolean }) { return <View class={props.enabled ? props.tone : "bg-red-600"}/>; }')).toThrow("full class literal leaves");
+});
+
+test("Text style binds textColor and opacity; Image src selects among literal image names", () => {
+  const program = analyze(`return <View>
+      <Text style={{ textColor: enabled() ? "#dc2626" : "#0f172a", opacity: count() > 1 ? 0.5 : 1 }}>A</Text>
+      <Image src={enabled() ? "on.png" : count() > 2 ? "half.png" : "off.png"}/>
+      <Image src="logo.png"/>
+    </View>;`);
+  const [text, conditional, fixed] = flatten(program.components.at(-1)!.nodes).slice(1) as Extract<AotNode, { kind: "element" }>[];
+  expect(text!.props.map(p => [p.name, p.prop, p.value.kind])).toEqual([["textColor", 96, "conditional"], ["opacity", 69, "conditional"]]);
+  expect(text!.props[0]!.value.type).toEqual({ kind: "named", name: "Color" });
+  expect(conditional!.src).toBeUndefined();
+  expect(imageNames(conditional!.src, conditional!.dynamicSrc?.expression)).toEqual(["on.png", "half.png", "off.png"]);
+  expect(fixed).toMatchObject({ src: "logo.png" });
+  expect(fixed!.dynamicSrc).toBeUndefined();
+});
+
+test.each([
+  ['<Text style={{ fontSlot: 1 }}>A</Text>', "fontSlot", "Text style accepts textColor and opacity; fontSlot is not a Text style property"],
+  ['<Text style={{ opacity: 1, width: 10 }}>A</Text>', "width", "Text style accepts textColor and opacity; width is not a Text style property"],
+  ['<Text style={{ color: "#ff0000" }}>A</Text>', "color", "Unknown numeric style property color"],
+  ['<Image src={theme().label}/>', "src", "src requires a string literal attribute or a ternary with string literal leaves"],
+  ['<Image src={enabled() ? "on.png" : theme().label}/>', "src", "src requires a string literal attribute or a ternary with string literal leaves"],
+  ['<Image src={enabled() ? "on.png" : ""}/>', "src", "src requires a string literal attribute or a ternary with string literal leaves"],
+  ['<Image src={"on.png"}/>', "src", "src requires a string literal attribute or a ternary with string literal leaves"],
+  ['<Image class="w-4 h-4"/>', "<Image", "Image requires a src asset name and has no children"],
+])("rejects host attribute %s at its location", (element, at, message) => {
+  const body = `return ${element};`, prefix = "export default function App() { ";
+  expect(() => analyze(body)).toThrow(`${entry}:7:${prefix.length + body.indexOf(at) + 1}: error: ${message}`);
 });
 
 test("Switch accepts a self-closing empty Match branch", () => {

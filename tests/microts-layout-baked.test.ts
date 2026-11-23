@@ -119,6 +119,11 @@ describe("layout-baked rules", () => {
     ["two recipes on one layer", `<View class="w-full h-full layout-baked"><View debugName="Both" class="absolute left-[1] top-[1] w-[10] h-[10]" style={{ opacity: open() ? 1 : 0, width: count() }} /></View>`, /one state recipe/],
     ["a binding with no recipe", `<View class="w-full h-full layout-baked"><View debugName="Spin" class="absolute left-[1] top-[1] w-[10] h-[10]" style={{ rotate: count() }} /></View>`, /no sprite layer recipe/],
     ["a width binding with no literal range", `<View class="w-full h-full layout-baked"><View debugName="Bar" class="absolute left-[1] top-[1] h-[10]" style={{ width: count() }} /></View>`, /declare it in gba-layers.json/],
+    ["a conditional src", `<View class="w-full h-full layout-baked"><View debugName="Icon" class="absolute left-[1] top-[1] w-[16] h-[16]"><Image class="w-[16] h-[16]" src={open() ? "on.png" : "off.png"} /></View></View>`, /<Image>: a conditional src is not a sprite layer recipe; use a <Show> branch per image/],
+    ["a Text color binding", `<View class="w-full h-full layout-baked"><View debugName="Label" class="absolute left-[1] top-[1] w-[40] h-[15]"><Text class="w-[40] h-[15] text-xs" style={{ textColor: open() ? "#dc2626" : "#0f172a" }}>x</Text></View></View>`, /runtime binding on textColor has no sprite layer recipe/],
+    ["a Text opacity binding", `<View class="w-full h-full layout-baked"><View debugName="Label" class="absolute left-[1] top-[1] w-[40] h-[15]"><Text class="w-[40] h-[15] text-xs" style={{ opacity: open() ? 1 : 0.5 }}>x</Text></View></View>`, /an opacity binding must sit on the layer root/],
+    ["a conditional src outside a baked page", `<View class="w-full h-full"><Image class="w-[16] h-[16]" src={open() ? "on.png" : "off.png"} /></View>`, /gba layers: <Image>: a conditional src outside a layout-baked page has no sprite layer/],
+    ["a Text style binding outside a baked page", `<View class="w-full h-full"><Text class="text-xs" style={{ opacity: open() ? 1 : 0.5 }}>x</Text></View>`, /gba layers: <Text>: a runtime opacity binding outside a layout-baked page has no sprite layer/],
   ];
   test.each(spriteCases)("sprite layers: %s is rejected", async (_name, body, message) => {
     const program = solid(body);
@@ -127,6 +132,17 @@ describe("layout-baked rules", () => {
     try { emitAot(program, { layoutEnvironment }); } catch (caught) { error = caught; }
     expect(error).toBeInstanceOf(AotCompileError);
     expect((error as AotCompileError).message).toMatch(message);
+  });
+
+  test("a conditional src and Text paint bindings keep static rects: the image does not size its box", async () => {
+    const program = solid(`<View class="w-full h-full layout-baked"><Image class="absolute left-[4] top-[4]" src={open() ? "on.png" : "off.png"} /><Image class="absolute left-[4] top-[40] w-[16] h-[16]" src={open() ? "on.png" : "off.png"} /><Text class="absolute left-[4] top-[80] text-xs" style={{ textColor: open() ? "#dc2626" : "#0f172a", opacity: open() ? 1 : 0.5 }}>x</Text></View>`);
+    const output = emitAot(program, { layoutEnvironment: await environment(program.styles.usedFontSlots) });
+    const rust = output.files["app.rs"]!;
+    expect(output.layout.regions[0]).toMatchObject({ nodes: 4, formulas: 0, islands: 0 });
+    expect(rust).toContain("ui.set_layout_static(node, 4f32, 4f32, 0f32, 0f32)");
+    expect(rust).toContain("ui.set_layout_static(node, 4f32, 40f32, 16f32, 16f32)");
+    expect(rust).toMatch(/ui\.set_layout_static\(node, 4f32, 80f32, \d+f32, \d+f32\)/);
+    expect(rust.match(/ui\.set_image_asset\(self\.node, value_src_memo\)/g)).toHaveLength(2);
   });
 
   test("an app without layout-baked needs no environment and emits no placement", () => {

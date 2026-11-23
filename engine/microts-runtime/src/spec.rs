@@ -81,7 +81,7 @@ pub const STYLE_PROPS: &[(&str, u8, &str)] = &[
 ];
 pub const HOST_ATTRIBUTES: &[(&str, &[&str])] = &[
     ("View", &["class", "style", "focusable", "debug-name"]),
-    ("Text", &["class"]),
+    ("Text", &["class", "style"]),
     ("Image", &["class", "src"]),
 ];
 pub const HOST_EVENTS: &[(&str, &[&str])] = &[

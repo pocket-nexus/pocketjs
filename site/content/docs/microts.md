@@ -345,7 +345,12 @@ The host owns input sampling, fonts, image resources and presentation.
 To embed the generated application:
 
 1. Create a `Ui`, set its viewport, load `gen/styles.bin`, and load the font
-   atlases and image resources your screen uses.
+   atlases and image resources your screen uses. For an application compiled
+   with `pocket compile --aot`, the generated `include.rs` loads them:
+   `load_fonts` and `load_images` copy the data into the heap, and
+   `load_fonts_in_place` and `load_images_in_place` read it from the
+   `include_bytes!` data and copy an image's pixels when a frame first draws
+   it ([ESP-IDF](/docs/esp-idf/#memory-and-stack)).
 2. Construct `CounterApp` with that UI, its root props and your model.
 3. Call `app.frame(&input)` once per tick with a hardware-neutral `Input`.
    The generated frame handles input, updates bindings and ticks the core.
