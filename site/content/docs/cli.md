@@ -190,7 +190,12 @@ pocket compile --config apps/ipodnano-hero/pocket.host.config.ts --project-root 
 An AOT application's `app` section sets `aot` to `true`. **`--aot` generates sources and assets without
 running Cargo or producing JavaScript or a bundle.** The output
 includes Rust modules, `include.rs`, styles, font and image assets, layer
-metadata, and `dependencies.json` with a depfile. Relative includes let the
+metadata, and `dependencies.json` with a depfile. `include.rs` declares
+`mod generated`, `TICK_HZ` and two pairs of loaders that take
+`&mut microts::Ui`: `load_fonts` and `load_images` copy the font atlases and
+images into the heap, and `load_fonts_in_place` and `load_images_in_place`
+read them from the `include_bytes!` data
+([ESP-IDF](/docs/esp-idf/#memory-and-stack)). Relative includes let the
 program's build consume the directory after relocation. GBA and iPod nano
 program builds use this source-generation path before their native build.
 

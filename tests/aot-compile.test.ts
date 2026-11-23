@@ -245,12 +245,58 @@ import { count } from "./App";
         const fonts = files(join(directory, "out")).some(file => /font-\d+\.bin$/.test(file));
         expect(include).toContain(`fn load_fonts(${fonts ? "ui" : "_"}: &mut microts::Ui)`);
         expect(include).toContain(`fn load_images(${images}: &mut microts::Ui)`);
-        // A product crate built with warnings denied calls both loaders.
+        expect(include).toContain(`fn load_fonts_in_place(${fonts ? "ui" : "_"}: &mut microts::Ui)`);
+        expect(include).toContain(`fn load_images_in_place(${images}: &mut microts::Ui)`);
+        // A product crate built with warnings denied calls either pair of loaders.
         writeFileSync(join(directory, "harness/Cargo.toml"), `[package]\nname = "aot-include-${name}"\nversion = "0.0.0"\nedition = "2021"\n[workspace]\n[dependencies]\nmicrots = { path = ${JSON.stringify(resolve(ROOT, "engine/microts-runtime"))} }\n`);
-        writeFileSync(join(directory, "harness/src/lib.rs"), `#![no_std]\n#![deny(warnings)]\nextern crate alloc;\ninclude!(${JSON.stringify(result.includeFile)});\npub use generated::*;\npub fn mount(ui: &mut microts::Ui) -> u32 {\n    load_fonts(ui);\n    load_images(ui);\n    TICK_HZ\n}\n`);
+        writeFileSync(join(directory, "harness/src/lib.rs"), `#![no_std]\n#![deny(warnings)]\nextern crate alloc;\ninclude!(${JSON.stringify(result.includeFile)});\npub use generated::*;\npub fn mount(ui: &mut microts::Ui) -> u32 {\n    load_fonts(ui);\n    load_images(ui);\n    TICK_HZ\n}\npub fn mount_in_place(ui: &mut microts::Ui) {\n    load_fonts_in_place(ui);\n    load_images_in_place(ui);\n}\n`);
         const check = Bun.spawnSync(["cargo", "check", "--quiet", "--manifest-path", join(directory, "harness/Cargo.toml")], { stdout: "pipe", stderr: "pipe", env: { ...process.env, ...AOT_CARGO_ENV } });
         expect({ status: check.exitCode, stderr: check.stderr.toString() }).toEqual({ status: 0, stderr: "" });
       }
     } finally { rmSync(project, { recursive: true, force: true }); }
+  }, 300_000);
+
+  test("include.rs in-place loaders share the atlases and register an image decoded at its first draw", async () => {
+    const directory = temporary();
+    try {
+      mkdirSync(join(directory, "harness/src"), { recursive: true });
+      mkdirSync(join(directory, "harness/tests"), { recursive: true });
+      writeFileSync(join(directory, "app.tsx"), `import {Image, Text, View} from '@pocketjs/framework/solid/components';\nexport default function App(){return <View class="w-[40] h-[40]"><Image class="w-[16] h-[16]" src="logo.png"/><Text>A</Text></View>}`);
+      writeFileSync(join(directory, "logo.png"), encodePNG(new Uint8Array(16 * 16 * 4).fill(0x80), 16, 16));
+      const app = { id: "dev.test.in-place", title: "in place", version: "1.0.0", features: ["text.glyphs.baked"],
+        entry: "app.tsx", framework: "solid", aot: true, viewport: { fixed: { logical: [240,160], presentation: "native" } } } as const;
+      const resolved = resolveAppPlan(app, { target: "gba" }, profileRegistry(gba));
+      if (!resolved.ok) throw new Error(JSON.stringify(resolved.diagnostics));
+      const out = join(directory, "out");
+      const result = await compileAot({ plan: resolved.plan, projectRoot: directory, outdir: out });
+      const slots = files(out).flatMap(file => /font-(\d+)\.bin$/.exec(file)?.[1] ?? []);
+      expect(slots.length).toBeGreaterThan(0);
+      writeFileSync(join(directory, "harness/Cargo.toml"), `[package]\nname = "aot-include-in-place"\nversion = "0.0.0"\nedition = "2021"\n[workspace]\n[dependencies]\nmicrots = { path = ${JSON.stringify(resolve(ROOT, "engine/microts-runtime"))} }\n`);
+      writeFileSync(join(directory, "harness/src/lib.rs"), `#![no_std]\n#![deny(warnings)]\nextern crate alloc;\ninclude!(${JSON.stringify(result.includeFile)});\npub const FONT_SLOTS: [u8; ${slots.length}] = [${slots.join(", ")}];\npub static IMAGE: &[u8] = include_bytes!(${JSON.stringify(join(out, "images/image-0.img"))});\npub struct Model;\nimpl generated::AppViewModel for Model {}\npub type App = generated::AppApp<Model>;\npub fn mount(copy: bool) -> App {\n    let mut ui = microts::Ui::new();\n    ui.core_mut().set_viewport(240.0, 160.0);\n    assert!(ui.load_styles(include_bytes!(${JSON.stringify(join(out, "styles.bin"))})));\n    if copy {\n        load_fonts(&mut ui);\n        load_images(&mut ui);\n    } else {\n        load_fonts_in_place(&mut ui);\n        load_images_in_place(&mut ui);\n    }\n    App::new(ui, generated::AppProps {}, Model)\n}\n`);
+      writeFileSync(join(directory, "harness/tests/load.rs"), `use aot_include_in_place::{mount, FONT_SLOTS, IMAGE};
+use microts::Input;
+
+#[test]
+fn in_place_loaders_read_the_included_bytes() {
+    for copy in [false, true] {
+        let mut app = mount(copy);
+        let core = app.ui().core();
+        for slot in FONT_SLOTS {
+            assert_eq!(core.font_atlas(slot).expect("atlas").bitmap.is_shared(), !copy, "slot {slot}");
+        }
+        // The one image is texture 0; the in-place texture holds no pixels until a frame draws it.
+        assert_eq!(core.texture_slot_count(), 1);
+        assert_eq!(core.texture_resident(0), Some(copy));
+        app.frame(&Input::default());
+        app.ui_mut().core_mut().draw();
+        // The Image node drew the texture registered under "logo.png": its pixels are the IMG entry's payload.
+        assert_eq!(app.ui().core().texture_resident(0), Some(true));
+        assert_eq!(app.ui().core().texture(0).expect("texture").pixels, &IMAGE[8..]);
+    }
+}
+`);
+      const run = Bun.spawnSync(["cargo", "test", "--quiet", "--manifest-path", join(directory, "harness/Cargo.toml")], { stdout: "pipe", stderr: "pipe", env: { ...process.env, ...AOT_CARGO_ENV } });
+      expect(run.exitCode, run.stdout.toString() + run.stderr.toString()).toBe(0);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
   }, 300_000);
 });

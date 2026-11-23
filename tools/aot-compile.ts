@@ -144,7 +144,7 @@ export async function compileAot(options: AotCompileOptions): Promise<AotCompile
     mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, data); sources.set(name, from);
   };
   for (const font of fonts) write(`font-${font.slot}.bin`, font.bytes, [...fontSources].sort());
-  const imageCode: string[] = [];
+  const imageCode: string[] = [], imageInPlaceCode: string[] = [];
   // The guest build's image baking (raster-assets.ts): the @Nx sibling, images.json format and sampling, and the IMG entry's size check.
   const imageManifest = resolve(dirname(component), "images.json");
   const imageMeta = readImageManifest(imageManifest, inputs);
@@ -159,8 +159,11 @@ export async function compileAot(options: AotCompileOptions): Promise<AotCompile
     write(file, encodeStaticImage(loaded.image, imageMeta[name]), [...new Set([source, loaded.source]), ...(existsSync(imageManifest) ? [imageManifest] : []),
       ...settingsFiles, ...(options.dependencyFiles ?? []).map(path => resolve(path))]);
     imageCode.push(`{ let id = ui.core_mut().upload_img_entry(include_bytes!(${JSON.stringify(file)})); assert!(id >= 0); ui.register_image(${JSON.stringify(name)}, id); }`);
+    imageInPlaceCode.push(`{ let bytes: &'static [u8] = include_bytes!(${JSON.stringify(file)}); let id = ui.core_mut().upload_img_entry_from(alloc::rc::Rc::new(bytes), 0..bytes.len()); assert!(id >= 0); ui.register_image(${JSON.stringify(name)}, id); }`);
   }
-  write("include.rs", `#[path = "mod.rs"]\nmod generated;\n/// The compiled package rate, core ticks per virtual second (plan.profile.tickHz).\n#[allow(dead_code)]\npub const TICK_HZ: u32 = ${tickHz};\n#[allow(dead_code)]\nfn load_fonts(${fonts.length ? "ui" : "_"}: &mut microts::Ui) {\n${fonts.map(font => `assert!(ui.core_mut().load_font_atlas(include_bytes!("font-${font.slot}.bin")));`).join("\n")}\n}\n#[allow(dead_code)]\nfn load_images(${imageCode.length ? "ui" : "_"}: &mut microts::Ui) {\n${imageCode.join("\n")}\n}\n`);
+  write("include.rs", `#[path = "mod.rs"]\nmod generated;\n/// The compiled package rate, core ticks per virtual second (plan.profile.tickHz).\n#[allow(dead_code)]\npub const TICK_HZ: u32 = ${tickHz};\n#[allow(dead_code)]\nfn load_fonts(${fonts.length ? "ui" : "_"}: &mut microts::Ui) {\n${fonts.map(font => `assert!(ui.core_mut().load_font_atlas(include_bytes!("font-${font.slot}.bin")));`).join("\n")}\n}\n#[allow(dead_code)]\nfn load_images(${imageCode.length ? "ui" : "_"}: &mut microts::Ui) {\n${imageCode.join("\n")}\n}\n` +
+    `/// load_fonts without the copy: each atlas reads its coverage cells from the include_bytes! data.\n#[allow(dead_code)]\nfn load_fonts_in_place(${fonts.length ? "ui" : "_"}: &mut microts::Ui) {\n${fonts.map(font => `{ let bytes: &'static [u8] = include_bytes!("font-${font.slot}.bin"); assert!(ui.core_mut().load_font_atlas_shared(alloc::rc::Rc::new(bytes), 0..bytes.len())); }`).join("\n")}\n}\n` +
+    `/// load_images without the copy: each texture decodes from the include_bytes! data when a frame first draws it, and set_texture_budget releases it again.\n#[allow(dead_code)]\nfn load_images_in_place(${imageInPlaceCode.length ? "ui" : "_"}: &mut microts::Ui) {\n${imageInPlaceCode.join("\n")}\n}\n`);
   write("layers.json", JSON.stringify({ viewport: plan.viewport.logical, tickRate: tickHz, settleFrames: 40, layers: result.layout.regions.flatMap(region => region.layers) }, null, 2) + "\n");
   await inputs.compiler([resolve(ROOT, "tools/aot-compile.ts")], ROOT);
   const allInputs = inputs.paths();
