@@ -270,7 +270,11 @@ function tofu(
 
 async function loadFont(path: string): Promise<Font> {
   const buf = await Bun.file(path).arrayBuffer();
-  return parseFont(buf);
+  try {
+    return parseFont(buf);
+  } catch (error) {
+    throw new Error(`PocketJS bake-font: ${path} is not a TrueType or OpenType font: ${(error as Error).message}`);
+  }
 }
 
 const TOFU_CODEPOINT = 0xfffd; // U+FFFD replacement char maps to gid 0

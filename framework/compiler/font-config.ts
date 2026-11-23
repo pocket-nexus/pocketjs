@@ -1,5 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
+import { accessSync, constants, existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { APP_FONT_FACES, type AppFonts } from "../../contracts/spec/app-config.ts";
 
 export interface FontConfig {
   fallbackTtfs: string[];
@@ -47,4 +48,32 @@ export function readFontConfig(path: string, onRead: (path: string) => void = ()
     for (let cp = from; cp <= to; cp++) add(cp);
   }
   return { fallbackTtfs: strings("fallback").map(file), codepoints: [...points].sort((a, b) => a - b) };
+}
+
+/** The faces `bakeAtlases` takes for the slots `app.fonts` names. */
+export interface FontFaces {
+  regularTtf?: string;
+  boldTtf?: string;
+  monoTtf?: string;
+}
+
+/** The faces an application selects (`app.fonts`, its paths relative to
+ *  `directory`). Each named file must be readable; it is an input of the
+ *  build whether or not a slot of its kind is used. */
+export function appFontFaces(fonts: AppFonts | undefined, directory: string, onRead: (path: string) => void = () => {}): FontFaces {
+  const faces: FontFaces = {};
+  for (const face of APP_FONT_FACES) {
+    const name = fonts?.[face];
+    if (name === undefined) continue;
+    const path = resolve(directory, name);
+    try {
+      if (!statSync(path).isFile()) throw new Error("not a file");
+      accessSync(path, constants.R_OK);
+    } catch {
+      throw new Error(`PocketJS fonts: app.fonts.${face} names ${path}, which is not a readable file`);
+    }
+    onRead(path);
+    faces[`${face}Ttf`] = path;
+  }
+  return faces;
 }

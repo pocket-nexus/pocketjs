@@ -8,7 +8,7 @@ import type { HostExtension } from "./host-extension.ts";
 import { createHash } from "node:crypto";
 import type { AnimationClass } from "../../contracts/spec/animation.ts";
 import type { AnimationTheme } from "../../contracts/spec/animation-theme.ts";
-import type { PocketFramework } from "../../contracts/spec/app-config.ts";
+import type { AppFonts, PocketFramework } from "../../contracts/spec/app-config.ts";
 import type { Modality } from "../../contracts/spec/modality.ts";
 import type { PresentationMode, Viewport } from "../../contracts/spec/platforms.ts";
 import type { CompiledProfile, PocketProfile } from "../../contracts/spec/profile.ts";
@@ -46,6 +46,9 @@ export interface ResolvedBuildPlanContent {
     readonly framework: PocketFramework;
     /** Animation content baked into the style table. */
     readonly theme?: AnimationTheme;
+    /** The faces the glyph atlases are baked from, relative to the project
+     *  root. */
+    readonly fonts?: AppFonts;
     readonly aot?: boolean;
     readonly model?: "rust" | "compiled";
     readonly recursionLimit?: number;

@@ -12,6 +12,20 @@ import { workerDeclarationSchema, type WorkerDeclarationSource } from "./worker.
 export const POCKET_FRAMEWORKS = ["solid", "vue-vapor", "octane"] as const;
 export type PocketFramework = (typeof POCKET_FRAMEWORKS)[number];
 
+/** The faces the build bakes for each kind of font slot, each a TTF or OTF
+ *  file relative to the config file. An absent field keeps the default
+ *  face: Inter Regular, Inter Bold, JetBrains Mono. */
+export interface AppFonts {
+  /** The regular-weight proportional slots. */
+  readonly regular?: string;
+  /** The `font-bold` slots. */
+  readonly bold?: string;
+  /** The `font-mono` slots. */
+  readonly mono?: string;
+}
+
+export const APP_FONT_FACES = ["regular", "bold", "mono"] as const;
+
 export interface AppConfig {
   /** The mounted module, relative to the config file. */
   readonly entry: string;
@@ -39,6 +53,8 @@ export interface AppConfig {
   readonly surfaces?: SurfacesSpec;
   /** Animation content baked into the style table. */
   readonly theme?: AnimationTheme;
+  /** The font faces the glyph atlases are baked from. */
+  readonly fonts?: AppFonts;
   /** Admit the complete Solid component graph to the AOT view subset. */
   readonly aot?: boolean;
   readonly model?: "rust" | "compiled";
@@ -76,6 +92,13 @@ export const APP_OUTPUT_PATTERN = "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$";
 export const APP_ID_PATTERN = "^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$";
 export const APP_VERSION_PATTERN = "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$";
 
+/** A relative TTF or OTF path without `..` segments or backslashes. */
+const fontFileSchema = {
+  type: "string",
+  minLength: 1,
+  pattern: "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+\\.(?:ttf|otf)$",
+} as const satisfies JsonSchema;
+
 const outputSchema = {
   type: "string",
   minLength: 1,
@@ -100,6 +123,11 @@ export const appConfigSchema = {
     features: { type: "array", items: capabilityIdSchema, uniqueItems: true },
     surfaces: surfacesSchema,
     theme: animationThemeSchema,
+    fonts: {
+      type: "object",
+      additionalProperties: false,
+      properties: { regular: fontFileSchema, bold: fontFileSchema, mono: fontFileSchema },
+    },
     aot: { type: "boolean" },
     model: { enum: ["rust", "compiled"] },
     recursionLimit: { type: "integer", minimum: 1, default: 256 },

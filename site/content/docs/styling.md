@@ -317,8 +317,10 @@ its size — and a mono size with no slot throws at build time: `text-lg font-mo
 gives ``no monospace font slot for 18px``.
 
 The default faces are Inter regular/bold and JetBrains Mono
-(`framework/compiler/bake-font.ts`); `--font-regular` / `--font-bold` on the
-build override them, and `assets/fonts/` also ships InterDisplay and W95FA.
+(`framework/compiler/bake-font.ts`); `app.fonts` in the host config replaces
+the regular, bold and mono faces
+([Application config](/docs/app-config/#appfonts)), and `assets/fonts/` also
+ships InterDisplay and W95FA.
 
 ## Transform
 

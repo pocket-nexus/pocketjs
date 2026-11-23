@@ -253,4 +253,43 @@ import { count } from "./App";
       }
     } finally { rmSync(project, { recursive: true, force: true }); }
   }, 300_000);
+
+  test("app.fonts: the atlases, the layout oracle and the dependency outputs use the selected face", async () => {
+    const project = temporary();
+    try {
+      const profile = parsePocketProfile({ format: "pocket-host/2", id: "aot-fonts", platform: "esp-idf", form: "takeover", cadences: [30],
+        display: { logicalViewports: [[240, 240]], presentations: ["native"], rasterDensity: 1, animation: "repaint" },
+        panel: { primary: [240, 240] }, capabilities: ["input.buttons", "text.glyphs.baked"] });
+      const app = { id: "dev.test.aot-fonts", title: "AOT fonts", version: "1.0.0", features: ["text.glyphs.baked"],
+        entry: "app.tsx", framework: "solid", aot: true, viewport: { logical: [240, 240], presentation: "native" } } as const;
+      // The header's box is the width and line height of its text: the oracle measures it with the baked atlas.
+      writeFileSync(join(project, "app.tsx"), `import {Text, View} from '@pocketjs/framework/solid/components';
+export default function App(){return <View class="w-full h-full layout-baked bg-slate-100"><View class="absolute left-[8] top-[8] flex-col"><Text class="text-lg text-slate-900">Hello PocketJS</Text></View></View>}`);
+      mkdirSync(join(project, "fonts"));
+      const face = join(project, "fonts/W95FA.otf");
+      writeFileSync(face, readFileSync(resolve(ROOT, "assets/fonts/W95FA.otf")));
+      const compile = async (fonts: { regular?: string; bold?: string } | undefined, outdir: string) => {
+        const resolved = resolveAppPlan({ ...app, ...(fonts ? { fonts } : {}) }, { target: profile.id }, profileRegistry(profile));
+        if (!resolved.ok) throw new Error(JSON.stringify(resolved.diagnostics));
+        return compileAot({ plan: resolved.plan, projectRoot: project, outdir: join(project, outdir) });
+      };
+      const plain = await compile(undefined, "plain"), selected = await compile({ regular: "fonts/W95FA.otf" }, "selected");
+      const atlases = (result: Awaited<ReturnType<typeof compile>>) => result.files.filter(file => /font-\d+\.bin$/.test(file)).map(file => relative(result.outdir, file));
+      expect(atlases(selected)).toEqual(atlases(plain));
+      expect(atlases(plain).length).toBeGreaterThan(0);
+      for (const file of atlases(plain)) expect(readFileSync(join(selected.outdir, file)).equals(readFileSync(join(plain.outdir, file)))).toBe(false);
+      const rects = (result: Awaited<ReturnType<typeof compile>>) => [...readFileSync(join(result.outdir, "app.rs"), "utf8").matchAll(/set_layout_static\(node, ([^)]*)\)/g)].map(match => match[1]);
+      expect(rects(plain).length).toBeGreaterThan(0);
+      expect(rects(selected)).not.toEqual(rects(plain));
+      // The face is an input of the build and a source of every atlas.
+      expect(selected.dependencies).toContain(face);
+      expect(selected.dependencies.some(path => path.endsWith("Inter-Regular.ttf"))).toBe(false);
+      const manifest = JSON.parse(readFileSync(selected.dependencyManifest, "utf8"));
+      expect(manifest.inputs.find((input: { path: string }) => input.path === face).sha256).toMatch(/^[0-9a-f]{64}$/);
+      for (const output of manifest.outputs.filter((output: { file: string }) => /^font-\d+\.bin$/.test(output.file))) expect(output.sources).toContain(face);
+      expect(readFileSync(join(selected.outdir, "dependencies.d"), "utf8")).toContain(face);
+      // A face the plan names must be a readable file, used slot or not.
+      await expect(compile({ bold: "fonts/Absent-Bold.ttf" }, "absent")).rejects.toThrow(`app.fonts.bold names ${join(project, "fonts/Absent-Bold.ttf")}, which is not a readable file`);
+    } finally { rmSync(project, { recursive: true, force: true }); }
+  }, 120_000);
 });
