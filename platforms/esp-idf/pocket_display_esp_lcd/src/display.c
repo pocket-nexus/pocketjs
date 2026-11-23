@@ -5,6 +5,7 @@
 #include "freertos/task.h"
 #include "pocket/display_esp_lcd.h"
 #include <limits.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 /* One strip transfer takes milliseconds at any usable SPI/I80 clock. A wait
@@ -184,6 +185,34 @@ static int32_t acquire(void *context, const pocket_rect *region,
   }
   return POCKET_STATUS_FAILED;
 }
+/* Pixel storage read and written as 32-bit words. ESP-IDF compiles with
+ * -fno-builtin-memcpy, so a 4-byte memcpy would be a call per word. */
+typedef uint32_t __attribute__((may_alias)) pixel_word;
+/* Exchange the two bytes of every RGB565 pixel, two pixels at a time. A
+ * strip buffer is 128-byte aligned and a row holds an even number of bytes,
+ * so `pixels` is 2-byte aligned. */
+static void swap_pixel_bytes(uint8_t *pixels, size_t bytes) {
+  if (bytes < 2)
+    return;
+  if ((uintptr_t)pixels & 2U) {
+    uint8_t a = pixels[0];
+    pixels[0] = pixels[1];
+    pixels[1] = a;
+    pixels += 2;
+    bytes -= 2;
+  }
+  pixel_word *words = __builtin_assume_aligned(pixels, 4);
+  for (; bytes >= 4; words++, bytes -= 4) {
+    const uint32_t value = *words;
+    *words = ((value & 0x00ff00ffU) << 8) | ((value >> 8) & 0x00ff00ffU);
+  }
+  if (bytes >= 2) {
+    uint8_t *tail = (uint8_t *)words;
+    uint8_t a = tail[0];
+    tail[0] = tail[1];
+    tail[1] = a;
+  }
+}
 static int32_t flush(void *context, const pocket_rect *regions, size_t count,
                      uint64_t *token) {
   pocket_display_esp_lcd *d = context;
@@ -202,16 +231,14 @@ static int32_t flush(void *context, const pocket_rect *regions, size_t count,
     end = r->y + r->height;
     r = (const pocket_rect *)((const uint8_t *)r + r->struct_size);
   }
-  if (d->config.byte_swap)
-    for (size_t i = 0; i < b->surface.byte_length; i += 2) {
-      uint8_t a = b->pixels[i];
-      b->pixels[i] = b->pixels[i + 1];
-      b->pixels[i + 1] = a;
-    }
   r = regions;
   for (size_t i = 0; i < count; i++) {
     uint8_t *pixels =
         b->pixels + (size_t)(r->y - b->region.y) * d->config.width * 2;
+    /* The rows of the regions are the rows this frame rendered; the regions
+     * are disjoint (validated above), so each row is exchanged once. */
+    if (d->config.byte_swap)
+      swap_pixel_bytes(pixels, (size_t)r->height * d->config.width * 2);
     if (esp_lcd_panel_draw_bitmap(d->config.panel, 0, (int)r->y, (int)r->width,
                                   (int)(r->y + r->height), pixels) != ESP_OK) {
       terminal(d);
