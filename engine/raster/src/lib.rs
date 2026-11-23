@@ -131,14 +131,14 @@ fn aligned_words<T: Word>(bytes: &[u8]) -> Option<&[T]> {
     // SAFETY: every bit pattern is a valid `u16` or `u32`, and `align_to`
     // returns only whole, aligned words inside `bytes`.
     let (before, words, _) = unsafe { bytes.align_to::<T>() };
-    (before.is_empty() && words.len() == bytes.len() / size_of::<T>()).then_some(words)
+    (before.is_empty() && words.len() == bytes.len() / core::mem::size_of::<T>()).then_some(words)
 }
 
 /// [`aligned_words`] for writing.
 #[inline]
 fn aligned_words_mut<T: Word>(bytes: &mut [u8]) -> Option<&mut [T]> {
     // SAFETY: as in `aligned_words`; a word accepts every bit pattern.
-    let whole = bytes.len() / size_of::<T>();
+    let whole = bytes.len() / core::mem::size_of::<T>();
     let (before, words, _) = unsafe { bytes.align_to_mut::<T>() };
     (before.is_empty() && words.len() == whole).then_some(words)
 }
@@ -2001,7 +2001,8 @@ fn tex_tri_nearest<F: Fetch>(
     let (twf, thf) = (triangle.width as f32, triangle.height as f32);
     let (tw_max, th_max) = (triangle.width as i32 - 1, triangle.height as i32 - 1);
     let width = triangle.width as i32;
-    triangle.draw(target, stride, |u, v| {
+    triangle.draw(target, stride, #[inline(always)]
+    |u, v| {
         let tx = ((u * twf) as i32).clamp(0, tw_max);
         let ty = ((v * thf) as i32).clamp(0, th_max);
         fetch.fetch((ty * width + tx) as usize)
@@ -2016,7 +2017,8 @@ fn tex_tri_linear<F: Fetch>(
 ) {
     let (width, height) = (triangle.width, triangle.height);
     let row = width as usize;
-    triangle.draw(target, stride, |u, v| {
+    triangle.draw(target, stride, #[inline(always)]
+    |u, v| {
         // A validated view has texels: the coordinates always exist.
         let Some(sample) = linear_sample_coordinates(width, height, u, v) else {
             return 0;
