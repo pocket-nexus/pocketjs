@@ -371,8 +371,6 @@ a.lp-btn--primary:hover {
 .lp-p4 { width: 270px; padding: 12px 14px 16px; background: linear-gradient(180deg, #0e2318, #081a11); border: 1px solid #1d4030; border-radius: 8px; box-shadow: 0 24px 50px -24px rgba(0, 0, 0, 0.9); }
 .lp-p4::after { content: ""; position: absolute; inset: auto 10px 5px; height: 4px; background: repeating-linear-gradient(90deg, #c9a648 0 5px, transparent 5px 10px); opacity: 0.7; }
 .lp-p4__term { aspect-ratio: 480/272; background: #071018; border: 1px solid #16394f; border-radius: 4px; padding: 8px 9px; font: 500 9.5px/1.65 var(--mono); color: #9edcff; overflow: hidden; }
-.lp-t-p { color: var(--accent-2); }
-.lp-t-d { color: #4e7a95; }
 
 /* collage placement, in % of the fixed canvas */
 .lp-dev--gb { left: 8%; top: 10%; transform: rotate(-6deg); }
@@ -648,7 +646,6 @@ a.lp-btn--primary:hover {
 .lp-for__shot img { width: 100%; display: block; }
 .lp-for__shotcap { max-width: 780px; padding: 0.6rem 0.2rem 0; font: 500 11px/1.6 var(--mono); color: var(--muted); }
 .lp-for__links { display: flex; flex-wrap: wrap; gap: 0.85rem; margin-top: clamp(2.2rem, 4.5vw, 3rem); }
-.lp-for__term { padding: 1.4rem 1.5rem; background: #150f26; font: 500 13px/1.9 var(--mono); color: #ffd23f; }
 
 /* ---- Showcase — six proof apps -------------------------------------------- */
 .lp-showcase { border-top: 1px solid var(--line); }

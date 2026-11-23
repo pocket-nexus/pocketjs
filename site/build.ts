@@ -49,8 +49,6 @@ import {
   type DocDemo,
 } from "./doc-demos.ts";
 import { emitSingleLodStagePackage } from "./stage-package.ts";
-import { renderHomeShowcase } from "./home-showcase.ts";
-import { SHOWCASE_APPS } from "./showcase.ts";
 
 const ROOT = new URL("..", import.meta.url).pathname; // repo root
 const SITE = ROOT + "site/";
@@ -612,9 +610,6 @@ async function main() {
   ]) {
     if (existsSync(SITE + "assets/" + asset)) copy(SITE + "assets/" + asset, asset);
   }
-  // The Pocket3D mark beside the homepage's link to 3d.pocket.nexus: that site's
-  // drawing, copied at build time so this one keeps no second copy.
-  copy(SITE + "pocket3d/mark.svg", "assets/pocket3d-mark.svg");
   // The Arcade look for pages outside the homepage, and its self-hosted pixel font.
   copy(SITE + "assets/arcade.css", "assets/arcade.css");
   copy(SITE + "assets/fonts/", "assets/fonts/");
@@ -655,21 +650,18 @@ async function main() {
     scripts: ['<script type="module" src="/pg/playground.bundle.js"></script>'],
     path: "/playground/",
   }));
-  // 6. homepage — bespoke design with its own chrome, landing.css and
-  //    landing.js (the framework code tabs). Not wrapped in the shared
-  //    header/footer (those stay for docs + playground).
+  // 6. homepage — bespoke design with its own header, footer, landing.css and
+  //    landing.js (framework tabs, theme buttons, community wall). Not wrapped
+  //    in the shared header/footer (those stay for docs + playground).
   write("index.html", renderHome());
-  // The homepage ships one stylesheet: the same tokens and chrome the Tailwind
-  // build imports, plus the landing sections, concatenated in layer order and
-  // closed by the Arcade look. Other pages link arcade.css after their own CSS.
-  write("assets/landing.css", ["tokens.css", "base.css", "chrome.css", "landing.css", "showcase.css", "arcade.css"]
+  // The homepage ships one stylesheet: the shared tokens, then its own rules.
+  write("assets/landing.css", ["tokens.css", "landing.css"]
     .map((f) => readFileSync(SITE + "assets/" + f, "utf8"))
     .join("\n"));
-  await bundle("assets/landing.js", "assets/landing.js", {
-    external: ["/assets/pocket-stage-web.js", "/assets/handheld-stages.js"],
-  });
-  for (const image of new Set(SHOWCASE_APPS.map((app) => app.image))) {
-    if (image.startsWith("/assets/showcase/")) copy(SITE + image.slice(1), image.slice(1));
+  await bundle("assets/landing.js", "assets/landing.js");
+  // Its screen captures and clips (sources in site/assets/home/SOURCES.md).
+  for (const f of readdirSync(SITE + "assets/home/")) {
+    if (/\.(?:webp|gif|mp4)$/.test(f)) copy(SITE + "assets/home/" + f, "assets/home/" + f);
   }
   // home.css stays for the /for/ pages, which keep the .lp-* chrome.
   copy(SITE + "assets/home.css", "assets/home.css");
@@ -737,7 +729,7 @@ function renderHome(): string {
   const raw = readFileSync(SITE + "home.html", "utf8");
   const slots = raw.split(SPONSOR_SLOT).length - 1;
   if (slots !== 1) throw new Error(`Expected ${SPONSOR_SLOT} exactly once in the homepage; found ${slots}`);
-  const body = renderHomeShowcase(raw.replace(SPONSOR_SLOT, () => renderSponsorGallery()));
+  const body = raw.replace(SPONSOR_SLOT, () => renderSponsorGallery());
   const jsonLd = JSON.stringify({
     "@context": "https://schema.org",
     "@type": "SoftwareSourceCode",
@@ -785,12 +777,11 @@ function renderHome(): string {
 <meta name="twitter:title" content="${SITE_TITLE}">
 <meta name="twitter:description" content="${SITE_DESC}">
 <meta name="twitter:image" content="${OG_IMAGE_URL}">
-<meta name="theme-color" content="#171226">
+<meta name="theme-color" content="#0b0a10">
 ${ICON_LINKS}
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=STIX+Two+Text:ital,wght@0,400;0,600;1,400&family=VT323&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Fredoka:wght@500;600;700&display=swap">
-${PIXEL_FONT_PRELOAD}
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@600;700;800&family=Inter:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="/assets/landing.css">
 <script type="application/ld+json">${jsonLd}</script>
 </head>

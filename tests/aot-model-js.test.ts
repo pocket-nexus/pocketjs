@@ -91,3 +91,12 @@ export function press():void {const src:i32[]=fill(1100000,1);const dst:i32[]=fi
   module.press(); expect(module.last()).toBe(1100001);
   expect(interpretModel(program, [{ dispatch: [{ fn: "press" }] }]).at(-1)!.state.last).toBe(1100001);
 });
+test("negating a negative constant or -0 runs as two negations", async () => {
+  const { module } = await compile(`import type {f64} from "@pocketjs/framework/solid/std";
+const TILT:f64=-24;const ZERO:f64=-0;
+export const [value,setValue]=createSignal<f64>(5);export const [twice,setTwice]=createSignal<f64>(5);
+export const [zero,setZero]=createSignal<f64>(5);export const [positive,setPositive]=createSignal<f64>(5);
+export function flip():void {setValue(-TILT);setTwice(-(-value()));setZero(ZERO);setPositive(-ZERO);}`);
+  module.flip(); expect(module.value()).toBe(24); expect(module.twice()).toBe(24);
+  expect(Object.is(module.zero(), -0)).toBe(true); expect(Object.is(module.positive(), 0)).toBe(true);
+});

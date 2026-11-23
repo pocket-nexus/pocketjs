@@ -61,6 +61,7 @@ export function checkModelRust(name: string, source: string, harness: string) {
   writeFileSync(`${directory}/src/lib.rs`, `#[deny(unused)]\nmod model;\nuse model::*;\nuse microts::{Cmd, Ready};\n${harness}`);
   const result = Bun.spawnSync(["cargo", "test", "--quiet", "--manifest-path", `${directory}/Cargo.toml`], { stdout: "pipe", stderr: "pipe", env: { ...process.env, ...AOT_CARGO_ENV } });
   expect(result.exitCode, result.stdout.toString() + result.stderr.toString()).toBe(0);
+  return result.stdout.toString() + result.stderr.toString();
 }
 
 test("generated model implements seeds, once-per-reaction pre, on-demand memo and wrapping i32", () => {
@@ -123,6 +124,17 @@ export const [ratio,setRatio]=createSignal<f64>(0);export const [single,setSingl
 export function press():void {setRatio(1/2);const value:f32=1;setSingle(value/2);}`);
   checkModelRust("division-promotion", source, '#[test]fn division(){let mut m=AppModel::default();m.press();assert_eq!(m.ratio(),0.5f64);assert_eq!(m.single(),0.5f32);}');
 });
+
+test("negating a negative constant, a negation or -0 compiles without a double negation", () => {
+  const source = compileSource(`import type {f64} from "@pocketjs/framework/solid/std";
+const TILT: f64 = -24; const ZERO: f64 = -0; const LOW: i32 = -2147483648;
+export const [value, setValue] = createSignal<f64>(5); export const [twice, setTwice] = createSignal<f64>(5);
+export const [zero, setZero] = createSignal<f64>(5); export const [positive, setPositive] = createSignal<f64>(5); export const [low, setLow] = createSignal<i32>(5);
+export function flip(): void { setValue(-TILT); setTwice(-(-value())); setZero(ZERO); setPositive(-ZERO); setLow(-LOW); }`);
+  expect(source).not.toMatch(/--/);
+  const output = checkModelRust("negated-literal", source, '#[test]fn flip(){let mut m=AppModel::default();m.flip();assert_eq!(m.value(),24f64);assert_eq!(m.twice(),24f64);assert!(m.zero()==0f64&&m.zero().is_sign_negative());assert!(m.positive()==0f64&&m.positive().is_sign_positive());assert_eq!(m.low(),i32::MIN);}');
+  expect(output).not.toContain("src/model.rs");
+}, 120_000);
 
 test("analyzed sources preserve helper returns, shadowing, argument evaluation and recursion", () => {
   checkModelRust("functions", compileSource(`

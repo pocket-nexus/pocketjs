@@ -58,13 +58,14 @@ until a guest tick has consumed the press; hidden previews stop their clocks.
 bun run site:build
 bun test tests/handheld-models.test.ts
 bun site/preview.ts --no-build --port=4173
-# In another terminal:
-bun site/verify-handhelds.ts http://127.0.0.1:4173/
-WIDTH=390 HEIGHT=1200 MOBILE=1 SHOT=dist/handheld-models/homepage-handhelds-mobile.png \
-  bun site/verify-handhelds.ts http://127.0.0.1:4173/
-# Check the homepage at 1440 and 390 CSS pixels; captures stay in ignored dist/:
-bun site/verify-hero.ts http://127.0.0.1:4173/
+# In another terminal, against a page that embeds both stages:
+bun site/verify-handhelds.ts http://127.0.0.1:4173/<page>/
+WIDTH=390 HEIGHT=1200 MOBILE=1 SHOT=dist/handheld-models/handhelds-mobile.png \
+  bun site/verify-handhelds.ts http://127.0.0.1:4173/<page>/
 ```
+
+**No page embeds the stages now.** The homepage carried them until its
+redesign; `site/build.ts` still bundles `assets/handheld-stages.js`.
 
 The browser verifier checks contact selection, lower-screen scrolling, Vita
 button raycasts and release, and records screenshots and JSON receipts under

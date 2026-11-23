@@ -51,10 +51,10 @@ name are unrepresentable, so there is no way to *spell* another app's
 tree. Hosts must not follow a symlink out of the root: a host checks every
 segment and treats a symlink as absent.
 
-The confinement binds the **guest**, not the host. On Pocket Pi the device
-agent's home is the whole workspace — with every app root laid out under
-it (`/workspace/apps/<app-id>/data/`), the agent reads and writes every
-app's tree through the same module, bound wider, while apps still cannot
+The confinement binds the **guest**, not the host. A host can bind the
+same module wider: a device agent whose home is the whole workspace, with
+every app root laid out under it (`/workspace/apps/<app-id>/data/`), reads
+and writes every app's tree through that module, while apps still cannot
 reach each other. Privilege is the binding, not the code.
 
 **Atomicity.** A truncate `write` lands completely or not at all: the

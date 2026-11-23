@@ -481,7 +481,8 @@ class ModelRust {
       case "literal": {
         if (e.type.kind === "named") { const d = this.declarations.get(e.type.name); if (d?.kind === "enum") return rp(d.name, rustVariant(String(e.value))); if (d?.kind === "newtype") return rc(rp(d.name), d.unit === "Color" ? rl(parseMicroTsColor(String(e.value)), "u32") : this.expr({ ...e, type: d.base })); }
         if (typeof e.value === "string") return capacity === undefined ? rc(rp("String", "from"), rl(e.value)) : rc({ kind: "path", path: ["microts", "model", "bounded_string"], typeArgs: [{ kind: "const", value: capacity }] }, rl(e.value), rl(capacityName));
-        const raw = e.rawNumber === undefined ? undefined : exactIntegerLiteral(e.rawNumber) ?? e.rawNumber.replaceAll("_", "").replace(/^\./, "0.").replace(/\.$/, ".0");
+        // An integer spelling would drop the sign of -0.
+        const raw = e.rawNumber === undefined || Object.is(e.value, -0) ? undefined : exactIntegerLiteral(e.rawNumber) ?? e.rawNumber.replaceAll("_", "").replace(/^\./, "0.").replace(/\.$/, ".0");
         return rl(e.value, e.type.kind === "number" ? e.type.name : undefined, raw);
       }
       case "undefined": return rp("None");
