@@ -2,153 +2,104 @@
 <html>
 <head>
 <meta charset="utf-8">
-<!-- The end card, in the Arcade look of pocketjs.dev and 3d.pocket.nexus
-     (site/assets/arcade.css): the mark and a white Fredoka wordmark as the
-     sites' bars set them, the headline as candy Press Start 2P letters on the
-     hero's marquee plate, and the plum ground with soft pixel dots (with
-     Arcade sprites for PocketJS, pocket.nexus's confetti for Pocket3D).
-     make-outro.ts screenshots it once per layer (?layer=bg|logo|plate|line-N|url);
-     every other element keeps its box through `visibility: hidden`, so the
-     layers composite back into the same picture. -->
+<!-- The end card, in the look of the pocketjs.dev and 3d.pocket.nexus heroes
+     (site/assets/landing.css, site/pocket3d/public/index.html): the near-black
+     ground with soft glows in the mark's hues, the mark and the wordmark in
+     Inter Tight 700, a kicker row of coloured dots, and the headline in Inter
+     Tight 800 with every line after the first in the hero's gradient.
+     make-outro.ts screenshots it once per layer
+     (?layer=bg|logo|kicker|line-N|url); every other element keeps its box
+     through `visibility: hidden`, so the layers composite back into the same
+     picture. -->
 <style>
   @font-face {
-    font-family: "Press Start 2P"; font-style: normal; font-weight: 400; font-display: block;
-    src: url("./press-start-2p-latin.woff2") format("woff2");
-  }
-  @font-face {
-    font-family: "Fredoka"; font-style: normal; font-weight: 300 700; font-display: block;
-    src: url("./Fredoka.ttf") format("truetype");
+    font-family: "Inter Tight"; font-style: normal; font-weight: 100 900; font-display: block;
+    src: url("./InterTight.ttf") format("truetype");
   }
 
   /* make-outro.ts sets the root font-size to 10px * scale, scale = min(W,H)/1080 */
   :root {
     font-size: 10px;
-    --bg: #171226; --ink: #fcf6ff; --soft: #a597c4; --out: #221338; --drop: #0a0614; --screen: #120c21;
-    --y: #ffd23f; --y-d: #c99400;
-    --p: #ff5f9e; --p-d: #c23a73;
-    --c: #3fd0e8; --c-d: #1b93a8;
-    --l: #a98bff; --l-d: #7155d8;
-    --o: #ffb45c; --o-d: #cf7d1c;
-    --hue: var(--p); --hue-d: var(--p-d);
-    --spark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 7 7' shape-rendering='crispEdges'%3E%3Cpath d='M3 0h1v7H3zM0 3h7v1H0zM2 2h3v3H2z'/%3E%3C/svg%3E");
-    --heart: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 7 6' shape-rendering='crispEdges'%3E%3Cpath d='M1 0h2v1H1zM4 0h2v1H4zM0 1h7v2H0zM1 3h5v1H1zM2 4h3v1H2zM3 5h1v1H3z'/%3E%3C/svg%3E");
-    --plus: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 5 5' shape-rendering='crispEdges'%3E%3Cpath d='M2 0h1v5H2zM0 2h5v1H0z'/%3E%3C/svg%3E");
+    --bg: #0b0a10; --ink: #f6f3fb; --muted: #766f8a;
+    --y: #ffd23f; --p: #ff5f9e; --c: #3fd0e8; --o: #ff9f43;
+    --gradient: linear-gradient(90deg, var(--y), var(--p) 55%, var(--c));
+    --glow-a: rgba(255,210,63,.16); --glow-b: rgba(63,208,232,.14); --glow-c: rgba(255,95,158,.12);
   }
-  body[data-brand="pocket3d"] { --hue: var(--y); --hue-d: var(--y-d); }
+  /* Pocket3D's hero leads with its gold: gold to orange to pink */
+  body[data-brand="pocket3d"] {
+    --gradient: linear-gradient(90deg, var(--y), var(--o) 45%, var(--p));
+    --glow-a: rgba(255,210,63,.18); --glow-b: rgba(255,159,67,.10); --glow-c: rgba(255,95,158,.12);
+  }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { width: 100%; height: 100%; overflow: hidden; }
   body {
     position: relative; background: var(--bg); color: var(--ink);
-    font-family: "Fredoka", system-ui, sans-serif; -webkit-font-smoothing: antialiased;
+    font-family: "Inter Tight", system-ui, sans-serif; -webkit-font-smoothing: antialiased;
   }
 
-  /* ground: a lilac glow from the top, a pink one from the right, pixel dots, a vignette */
+  /* ground: three soft glows behind the headline, as the heroes have */
   .ground { position: absolute; inset: 0;
     background:
-      radial-gradient(ellipse 70% 46% at 50% -6%, rgba(169,139,255,.16), transparent 70%),
-      radial-gradient(ellipse 50% 50% at 100% 40%, rgba(255,95,158,.07), transparent 70%),
-      radial-gradient(circle, rgba(203,189,226,.075) .11rem, transparent .13rem) 0 0 / 2.4rem 2.4rem; }
-  .ground::after { content: ""; position: absolute; inset: 0;
-    background: radial-gradient(ellipse 96% 92% at 50% 50%, transparent 72%, rgba(10,6,20,.34) 100%); }
-  .sprite { position: absolute; width: var(--s); height: var(--s); background: var(--f); opacity: .2;
-    -webkit-mask: var(--m) center / contain no-repeat; mask: var(--m) center / contain no-repeat; }
-
-  /* Pocket3D's ground is 3d.pocket.nexus's (site/pocket3d/public/index.html): a pink glow from
-     the top, a cyan one from the left, and pocket.nexus's confetti over the pixel dots in place
-     of the Arcade sprites and the vignette */
-  body[data-brand="pocket3d"] .ground {
-    background:
-      radial-gradient(60% 56rem at 50% 0, rgba(255,95,158,.14), transparent 70%),
-      radial-gradient(40% 42rem at 12% 13rem, rgba(63,208,232,.08), transparent 70%); }
-  body[data-brand="pocket3d"] .ground::after { opacity: .6;
-    background:
-      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='370' height='370'%3E%3Cg opacity='.3'%3E%3Crect x='30' y='42' width='13' height='5' rx='2.5' fill='%23ffd23f' transform='rotate(-24 36 44)'/%3E%3Ccircle cx='168' cy='26' r='2.6' fill='%233fd0e8'/%3E%3Crect x='292' y='118' width='11' height='5' rx='2.5' fill='%23ff5f9e' transform='rotate(38 297 120)'/%3E%3Cpath d='M92 214q5-6 10 0t10 0' stroke='%23ffb45c' stroke-width='2.6' fill='none' stroke-linecap='round'/%3E%3Ccircle cx='238' cy='300' r='2.2' fill='%23a98bff'/%3E%3Crect x='24' y='318' width='10' height='4.5' rx='2.25' fill='%233fd0e8' transform='rotate(58 29 320)'/%3E%3C/g%3E%3C/svg%3E") 0 0 / 37rem 37rem,
-      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='530' height='530'%3E%3Cg opacity='.24'%3E%3Ccircle cx='70' cy='120' r='2.4' fill='%23ff5f9e'/%3E%3Crect x='250' y='60' width='12' height='5' rx='2.5' fill='%23a98bff' transform='rotate(-52 256 62)'/%3E%3Cpath d='M418 250l1.8 4.5 4.5 1.8-4.5 1.8-1.8 4.5-1.8-4.5-4.5-1.8 4.5-1.8z' fill='%23ffd23f'/%3E%3Crect x='150' y='400' width='12' height='5' rx='2.5' fill='%23ffb45c' transform='rotate(16 156 402)'/%3E%3Ccircle cx='470' cy='470' r='2' fill='%233fd0e8'/%3E%3C/g%3E%3C/svg%3E") 14rem 9rem / 53rem 53rem,
-      radial-gradient(circle, rgba(203,189,226,.085) .11rem, transparent .16rem) 0 0 / 2.4rem 2.4rem; }
-  body[data-brand="pocket3d"] .sprite { display: none; }
+      radial-gradient(110rem 64rem at 34% 40%, var(--glow-a), transparent 72%),
+      radial-gradient(110rem 64rem at 68% 44%, var(--glow-b), transparent 72%),
+      radial-gradient(96rem 56rem at 50% 64%, var(--glow-c), transparent 72%); }
 
   .stage { position: absolute; inset: 0; display: flex; flex-direction: column;
-    align-items: center; justify-content: center; gap: 6.4rem; padding: 6rem 4rem 10rem; }
+    align-items: center; justify-content: center; padding: 6rem 4rem 12rem; text-align: center; }
 
-  /* the lockup of the sites' bars: the mark, then the name in white Fredoka 600 */
-  .lockup { display: flex; align-items: center; gap: 2.4rem; }
-  .lockup img { width: 10.4rem; height: 10.4rem; display: block; filter: drop-shadow(0 .6rem 0 var(--drop)); }
-  body[data-brand="pocket3d"] .lockup img { width: 12.6rem; height: 12.6rem; filter: drop-shadow(0 .9rem .8rem rgba(5,2,12,.55)); }
-  .wordmark { font: 600 8.6rem/1 "Fredoka", system-ui, sans-serif; letter-spacing: 0; white-space: nowrap;
-    filter: drop-shadow(0 .6rem 0 var(--drop)); }
+  /* the lockup of the sites' bars: the mark, then the name in Inter Tight 700 */
+  .lockup { display: flex; align-items: center; gap: 2rem; margin-bottom: 5.6rem; }
+  .lockup img { width: 8.8rem; height: 8.8rem; display: block; }
+  .wordmark { font: 700 6.4rem/1 "Inter Tight", system-ui, sans-serif; letter-spacing: -.02em; white-space: nowrap; }
 
-  /* the headline plate: the hero's arcade marquee, sized in em of its 40px headline */
-  .plate { position: relative; font-size: 5.6rem; max-width: 92vw;
-    padding: .62em .7em .95em; border-radius: .65em; border: .1em solid var(--hue);
-    background: radial-gradient(ellipse 70% 90% at 25% 30%, rgba(255,95,158,.15), transparent 70%), var(--screen);
-    box-shadow: inset 0 0 0 .1em #1a1130, inset 0 .125em 0 .1em rgba(0,0,0,.35),
-      0 .2em 0 var(--hue-d), 0 .2em 0 .075em var(--drop), 0 .75em 1.25em -.5em rgba(0,0,0,.8); }
-  .plate::after { content: ""; position: absolute; inset: .2em; border-radius: .45em; pointer-events: none;
-    background: repeating-linear-gradient(0deg, rgba(10,6,20,.24) 0 .025em, transparent .025em .1em); }
-  .plate::before { content: ""; position: absolute; right: -.38em; top: -.48em; width: .88em; height: .88em; z-index: 3;
-    background: var(--y); -webkit-mask: var(--spark) center / contain no-repeat; mask: var(--spark) center / contain no-repeat;
-    filter: drop-shadow(0 .075em 0 var(--drop)); }
-  body[data-brand="pocket3d"] .plate::before { background: var(--p); }
-  .rail { position: absolute; left: .6em; right: .6em; bottom: .375em; height: .15em; opacity: .8;
-    background: repeating-linear-gradient(90deg, var(--y) 0 .15em, transparent .15em .3em, var(--p) .3em .45em,
-      transparent .45em .6em, var(--c) .6em .75em, transparent .75em .9em, var(--l) .9em 1.05em, transparent 1.05em 1.2em); }
+  /* the kicker: coloured dots and short uppercase labels above the headline */
+  .kicker { display: flex; flex-wrap: wrap; justify-content: center; gap: 1rem 3.2rem; margin-bottom: 3.2rem;
+    font: 600 2.4rem/1 "Inter Tight", system-ui, sans-serif; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+  .kicker span { display: inline-flex; align-items: center; gap: 1.2rem; }
+  .kicker span::before { content: ""; width: 1.2rem; height: 1.2rem; border-radius: 50%; background: var(--k); }
 
-  /* candy pixel letters, as site/candy.ts splits them and arcade.css draws them */
-  .headline { position: relative; z-index: 1; font: 400 1em/1.38 "Press Start 2P", ui-monospace, monospace;
-    text-transform: uppercase; text-align: left; --u: .075em; }
+  /* the headline: Inter Tight 800, the first line in ink, the rest in the gradient */
+  .headline { font: 800 min(12.4rem, 8.6vw)/.98 "Inter Tight", system-ui, sans-serif; letter-spacing: -.045em;
+    max-width: 92vw; padding-bottom: .08em; }
   .line { display: block; }
-  .w { display: inline-block; white-space: nowrap; }
-  .ch { --f: var(--y); --fd: var(--y-d); display: inline-block; color: var(--f);
-    text-shadow:
-      0 var(--u) 0 var(--fd), 0 calc(var(--u)*2) 0 var(--fd),
-      var(--u) 0 0 var(--out), calc(var(--u)*-1) 0 0 var(--out), 0 calc(var(--u)*-1) 0 var(--out),
-      var(--u) calc(var(--u)*-1) 0 var(--out), calc(var(--u)*-1) calc(var(--u)*-1) 0 var(--out),
-      var(--u) var(--u) 0 var(--out), calc(var(--u)*-1) var(--u) 0 var(--out),
-      var(--u) calc(var(--u)*2) 0 var(--out), calc(var(--u)*-1) calc(var(--u)*2) 0 var(--out),
-      var(--u) calc(var(--u)*3) 0 var(--out), calc(var(--u)*-1) calc(var(--u)*3) 0 var(--out), 0 calc(var(--u)*3) 0 var(--out),
-      calc(var(--u)*-1) calc(var(--u)*4) 0 var(--drop), 0 calc(var(--u)*4) 0 var(--drop), var(--u) calc(var(--u)*4) 0 var(--drop),
-      calc(var(--u)*-1) calc(var(--u)*5) 0 var(--drop), 0 calc(var(--u)*5) 0 var(--drop), var(--u) calc(var(--u)*5) 0 var(--drop); }
-  .ch.y { --f: var(--y); --fd: var(--y-d); } .ch.p { --f: var(--p); --fd: var(--p-d); }
-  .ch.c { --f: var(--c); --fd: var(--c-d); } .ch.l { --f: var(--l); --fd: var(--l-d); }
-  .ch.o { --f: var(--o); --fd: var(--o-d); }
+  .line + .line { background: var(--gradient); -webkit-background-clip: text; background-clip: text; color: transparent; }
 
   .url { position: absolute; bottom: 6.4rem; left: 0; right: 0; text-align: center;
-    font: 600 3.4rem/1 "Fredoka", system-ui, sans-serif; letter-spacing: .01em; color: var(--soft); }
+    font: 500 3rem/1 "Inter Tight", system-ui, sans-serif; letter-spacing: .01em; color: var(--muted); }
 
   /* ---- layers: one element shows, the rest keep their boxes ---- */
   body[data-layer]:not([data-layer="bg"]) { background: transparent; }
   body[data-layer]:not([data-layer="bg"]) .ground { visibility: hidden; }
-  body[data-layer="bg"] :is(.lockup, .plate, .url) { visibility: hidden; }
-  body[data-layer="logo"] :is(.plate, .url) { visibility: hidden; }
-  body[data-layer="plate"] :is(.lockup, .url, .headline) { visibility: hidden; }
-  body[data-layer^="line-"] :is(.lockup, .url, .plate) { visibility: hidden; }
-  body[data-layer="url"] :is(.lockup, .plate) { visibility: hidden; }
+  body[data-layer="bg"] :is(.lockup, .kicker, .headline, .url) { visibility: hidden; }
+  body[data-layer="logo"] :is(.kicker, .headline, .url) { visibility: hidden; }
+  body[data-layer="kicker"] :is(.lockup, .headline, .url) { visibility: hidden; }
+  body[data-layer^="line-"] :is(.lockup, .kicker, .url, .headline) { visibility: hidden; }
+  body[data-layer="url"] :is(.lockup, .kicker, .headline) { visibility: hidden; }
 </style>
 </head>
 <body>
-  <div class="ground">
-    <i class="sprite" style="--s:2.1rem;--f:var(--l);--m:var(--spark);left:9%;top:14%"></i>
-    <i class="sprite" style="--s:2.1rem;--f:var(--p);--m:var(--heart);left:82%;top:10%"></i>
-    <i class="sprite" style="--s:1.2rem;--f:var(--c);--m:var(--plus);left:77%;top:63%"></i>
-    <i class="sprite" style="--s:1.6rem;--f:#ff8fbd;--m:var(--spark);left:90%;top:78%"></i>
-    <i class="sprite" style="--s:2.1rem;--f:var(--l);--m:var(--heart);left:12%;top:80%"></i>
-    <i class="sprite" style="--s:1.2rem;--f:#dccfff;--m:var(--plus);left:30%;top:58%"></i>
-  </div>
+  <div class="ground"></div>
 
   <div class="stage">
     <div class="lockup"><img id="mark" alt=""><div class="wordmark" id="brand"></div></div>
-    <div class="plate"><div class="headline" id="headline"></div><span class="rail"></span></div>
+    <div class="kicker" id="kicker"></div>
+    <div class="headline" id="headline"></div>
   </div>
 
   <div class="url" id="url"></div>
 
   <script>
     var BRANDS = {
-      pocketjs: { word: "PocketJS", mark: "pocketjs-mark.svg", tagline: "Create UI on\nevery screen\nyou love", url: "pocketjs.dev" },
-      pocket3d: { word: "Pocket3D", mark: "pocket3d-mark.svg", tagline: "Create 3D on\nevery device\nyou love", url: "3d.pocket.nexus" },
+      pocketjs: {
+        word: "PocketJS", mark: "pocketjs-mark.svg", tagline: "Modern UI.\nMinimal footprint.", url: "pocketjs.dev",
+        kicker: [["Solid", "c"], ["Vue Vapor", "y"], ["Octane", "p"]],
+      },
+      pocket3d: {
+        word: "Pocket3D", mark: "pocket3d-mark.svg", tagline: "Create 3D for\nevery machine\nyou love", url: "3d.pocket.nexus",
+        kicker: [["PSP", "y"], ["Nintendo 3DS", "p"], ["PS Vita", "c"]],
+      },
     };
-    var HUES = ["p", "y", "c", "l", "o"];
     var p = new URLSearchParams(location.search);
     var key = (p.get("brand") || "pocketjs").toLowerCase();
     var brand = BRANDS[key] || BRANDS.pocketjs;
@@ -158,26 +109,21 @@
     document.getElementById("brand").textContent = brand.word;
     document.getElementById("url").textContent = p.has("url") ? p.get("url") : brand.url;
 
-    // One block per authored line; each letter takes the next of the five hues,
-    // as site/candy.ts splits the hero headline.
-    var hue = 0;
+    var kicker = document.getElementById("kicker");
+    brand.kicker.forEach(function (item) {
+      var span = document.createElement("span");
+      span.style.setProperty("--k", "var(--" + item[1] + ")");
+      span.textContent = item[0];
+      kicker.appendChild(span);
+    });
+
+    // One block per authored line, so each line enters as its own layer.
     var headline = document.getElementById("headline");
     (p.has("tagline") ? p.get("tagline") : brand.tagline).split("\n").forEach(function (text, n) {
       var line = document.createElement("span");
       line.className = "line";
       line.dataset.n = n;
-      text.replace(/\s+/g, " ").trim().split(" ").forEach(function (word, i) {
-        if (i) line.appendChild(document.createTextNode(" "));
-        var w = document.createElement("span");
-        w.className = "w";
-        Array.from(word).forEach(function (ch) {
-          var c = document.createElement("span");
-          c.className = "ch " + HUES[hue++ % HUES.length];
-          c.textContent = ch;
-          w.appendChild(c);
-        });
-        line.appendChild(w);
-      });
+      line.textContent = text.replace(/\s+/g, " ").trim();
       headline.appendChild(line);
     });
 

@@ -1,12 +1,12 @@
 #!/usr/bin/env bun
 // make-outro.ts — append a PocketJS or Pocket3D end card to a local video.
 //
-// Renders the card in the Arcade look of pocketjs.dev and 3d.pocket.nexus (the
-// mark and wordmark, the headline as candy pixel letters on the hero's marquee
-// plate, the url) with headless Chrome, one transparent layer per element, then
-// composites it onto the input with a crossfade and a staggered entrance: logo,
-// plate, each headline line, url, each dropping in three steps as the sites'
-// headline letters do. The source plays
+// Renders the card in the look of the pocketjs.dev and 3d.pocket.nexus heroes
+// (the mark and wordmark, a kicker row, the headline in Inter Tight with its
+// gradient lines, the url) with headless Chrome, one transparent layer per
+// element, then composites it onto the input with a crossfade and a staggered
+// entrance: logo, kicker, each headline line, url, each fading in as it rises
+// into place with an ease-out. The source plays
 // in full before its held final frame dissolves into the card. The input's primary
 // audio track is preserved and faded out by the source's end; the card itself is
 // silent (no voiceover). HLG/PQ sources are tone-mapped to BT.709 SDR so the SDR
@@ -17,9 +17,8 @@
 //        [--brand pocketjs|pocket3d] [--tagline STR] [--url STR] [--outro SECS]
 //        [--xfade SECS] [--crf N] [--preset P] [--x]
 //
-// Defaults: brand pocketjs ("Create UI on / every screen / you love",
-// pocketjs.dev); pocket3d is "Create 3D on / every device / you love",
-// 3d.pocket.nexus. outro 2s, xfade 0.35s, crf 18, preset medium. Pass --url ""
+// Defaults: brand pocketjs ("Modern UI. / Minimal footprint.", pocketjs.dev);
+// pocket3d is "Create 3D for / every machine / you love", 3d.pocket.nexus. outro 2s, xfade 0.35s, crf 18, preset medium. Pass --url ""
 // to hide the url.
 
 import { $ } from "bun";
@@ -31,13 +30,13 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const HTML = resolve(HERE, "..", "assets", "outro.html");
 // The template loads these beside itself; nothing is fetched from the network.
-export const ASSETS = ["press-start-2p-latin.woff2", "Fredoka.ttf", "pocketjs-mark.svg", "pocket3d-mark.svg"]
+export const ASSETS = ["InterTight.ttf", "pocketjs-mark.svg", "pocket3d-mark.svg"]
   .map((name) => resolve(HERE, "..", "assets", name));
 
 /** Each product's wordmark, headline and url, as its site's hero and bar set them. */
 export const BRANDS = {
-  pocketjs: { word: "PocketJS", tagline: "Create UI on\nevery screen\nyou love", url: "pocketjs.dev" },
-  pocket3d: { word: "Pocket3D", tagline: "Create 3D on\nevery device\nyou love", url: "3d.pocket.nexus" },
+  pocketjs: { word: "PocketJS", tagline: "Modern UI.\nMinimal footprint.", url: "pocketjs.dev" },
+  pocket3d: { word: "Pocket3D", tagline: "Create 3D for\nevery machine\nyou love", url: "3d.pocket.nexus" },
 } as const;
 export type Brand = keyof typeof BRANDS;
 export const DEFAULT_TAGLINE = BRANDS.pocketjs.tagline;
@@ -46,8 +45,8 @@ export const DEFAULT_XFADE = 0.35;
 
 /**
  * Keep a readable hold after the stagger, including on shorter custom cards.
- * The plate takes the tagline slot; its lines drop in one after another inside
- * the same window, and the last one lands when the url does.
+ * The kicker takes the tagline slot; the headline's lines rise in one after
+ * another inside the same window, and the last one lands when the url does.
  */
 export function resolveOutroTiming(outro: number, xfade: number, lineCount = 3) {
   if (!Number.isFinite(outro) || outro <= 0) throw new Error("--outro must be a positive number");
@@ -67,14 +66,13 @@ export function resolveOutroTiming(outro: number, xfade: number, lineCount = 3) 
 }
 
 /**
- * The y offset of a layer dropping in, as an FFmpeg expression of t: three held
- * steps like arcade.css's ar-drop-in (steps(3)): above by `rise`, halfway, a
- * small overshoot below, then rest.
+ * The y offset of a layer rising into place, as an FFmpeg expression of t: it
+ * starts `rise` pixels below its rest position and eases out (cubic) to 0 over
+ * `duration`, as the sites' sections fade up.
  */
-export function dropIn(start: number, duration: number, rise: number): string {
+export function riseIn(start: number, duration: number, rise: number): string {
   const p = `clip((t-${start.toFixed(6)})/${duration.toFixed(6)},0,1)`;
-  const over = Math.round(rise / 5);
-  return `if(lt(${p},1/3),${-rise},if(lt(${p},2/3),${-Math.round(rise / 2)},if(lt(${p},1),${over},0)))`;
+  return `${rise}*pow(1-${p},3)`;
 }
 
 /** Append the transition after the source, without dimming its final frames. */
@@ -347,10 +345,10 @@ async function main() {
   // type tracks resolution across landscape & portrait
   const scale = Math.min(w, h) / 1080;
   const lineCount = a.tagline.split("\n").length;
-  // the logo and url drop 16 and 12px at 1080p; a headline line drops 0.6em of its 56px face
-  const riseLogo = round(16 * scale);
-  const risePlate = round(20 * scale);
-  const riseLine = round(34 * scale);
+  // at 1080p the logo rises 18px, the kicker 14px, a headline line 28px and the url 12px
+  const riseLogo = round(18 * scale);
+  const riseKicker = round(14 * scale);
+  const riseLine = round(28 * scale);
   const riseUrl = round(12 * scale);
   const xfade = a.xfade;
   const offset = dur;
@@ -375,10 +373,10 @@ async function main() {
       tagline: a.tagline,
       url: a.url,
     });
-    // every layer after bg enters with a fade of a third of its slot and a stepped drop
+    // every layer after bg fades in over the first half of its slot as it rises
     const entering = [
       { layer: "logo", ...timing.logo, rise: riseLogo },
-      { layer: "plate", ...timing.tagline, rise: risePlate },
+      { layer: "kicker", ...timing.tagline, rise: riseKicker },
       ...timing.lines.map((line, i) => ({ layer: `line-${i}`, ...line, rise: riseLine })),
       ...(a.url ? [{ layer: "url", ...timing.url, rise: riseUrl }] : []),
     ];
@@ -400,9 +398,9 @@ async function main() {
     const graphLines = [
       `[1:v]${cardColor}setsar=1,fps=${fpsRate},format=yuv420p${outputColor},setpts=PTS-STARTPTS[bg];`,
       ...entering.map((e, i) =>
-        `[${i + 2}:v]${cardColor}fps=${fpsRate},format=yuva420p${outputColor},fade=t=in:st=${f(e.start)}:d=${f(e.duration / 3)}:alpha=1,setpts=PTS-STARTPTS[l${i}];`),
+        `[${i + 2}:v]${cardColor}fps=${fpsRate},format=yuva420p${outputColor},fade=t=in:st=${f(e.start)}:d=${f(e.duration / 2)}:alpha=1,setpts=PTS-STARTPTS[l${i}];`),
       ...entering.map((e, i) =>
-        `[${i ? `o${i - 1}` : "bg"}][l${i}]overlay=x=0:y='${dropIn(e.start, e.duration, e.rise)}'${i === entering.length - 1 ? `,format=yuv420p${outputColor},trim=duration=${a.outro},setpts=PTS-STARTPTS[outro]` : `[o${i}]`};`),
+        `[${i ? `o${i - 1}` : "bg"}][l${i}]overlay=x=0:y='${riseIn(e.start, e.duration, e.rise)}'${i === entering.length - 1 ? `,format=yuv420p${outputColor},trim=duration=${a.outro},setpts=PTS-STARTPTS[outro]` : `[o${i}]`};`),
       `[0:v]fps=${fpsRate},${mainColor},setpts=PTS-STARTPTS[main];`,
       ...sourceOutroTransition(dur, xfade, outputColor),
     ];

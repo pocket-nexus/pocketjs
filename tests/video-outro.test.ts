@@ -4,7 +4,7 @@ import { basename, join } from "node:path";
 import {
   ASSETS,
   DEFAULT_TAGLINE,
-  dropIn,
+  riseIn,
   parseArgs,
   parseProbeOutput,
   resolveOutputSpec,
@@ -14,11 +14,11 @@ import {
 } from "../skills/pocketjs-video-outro/scripts/make-outro.ts";
 
 describe("branding defaults", () => {
-  test("uses the three lines of the pocketjs.dev hero", () => {
+  test("uses the two lines of the pocketjs.dev hero", () => {
     const result = parseArgs(["-i", import.meta.path]);
     expect(result.brand).toBe("pocketjs");
     expect(result.tagline).toBe(DEFAULT_TAGLINE);
-    expect(result.tagline.split("\n")).toEqual(["Create UI on", "every screen", "you love"]);
+    expect(result.tagline.split("\n")).toEqual(["Modern UI.", "Minimal footprint."]);
     expect(result.url).toBe("pocketjs.dev");
   });
 
@@ -26,7 +26,7 @@ describe("branding defaults", () => {
     for (const name of ["pocket3d", "Pocket3D"]) {
       const result = parseArgs(["-i", import.meta.path, "--brand", name]);
       expect(result.brand).toBe("pocket3d");
-      expect(result.tagline.split("\n")).toEqual(["Create 3D on", "every device", "you love"]);
+      expect(result.tagline.split("\n")).toEqual(["Create 3D for", "every machine", "you love"]);
       expect(result.url).toBe("3d.pocket.nexus");
     }
   });
@@ -56,9 +56,12 @@ describe("card assets", () => {
     expect(mark("pocket3d-mark.svg")).toBe(readFileSync(join(root, "site/pocket3d/mark.svg"), "utf8"));
   });
 
-  test("the pixel face is the one the sites self-host", () => {
-    const face = ASSETS.find((path) => basename(path) === "press-start-2p-latin.woff2")!;
-    expect(readFileSync(face).equals(readFileSync(join(root, "site/assets/fonts/press-start-2p-latin.woff2")))).toBe(true);
+  test("the card's face is bundled with its licence and is the only one the template loads", () => {
+    const template = readFileSync(join(root, "skills/pocketjs-video-outro/assets/outro.html"), "utf8");
+    const faces = [...template.matchAll(/url\("\.\/([^"]+)"\)/g)].map((m) => m[1]);
+    expect(faces).toEqual(["InterTight.ttf"]);
+    expect(ASSETS.some((path) => basename(path) === "InterTight.ttf")).toBe(true);
+    expect(readFileSync(join(root, "skills/pocketjs-video-outro/assets/OFL-InterTight.txt"), "utf8")).toContain("SIL Open Font License");
   });
 });
 
@@ -92,16 +95,22 @@ describe("short outro timing", () => {
     }
   });
 
-  test("drops a layer in three held steps and rests at zero", () => {
-    // evaluate the FFmpeg expression with the same three functions it calls
-    const expr = dropIn(1, 0.3, 30).replaceAll("if(", "when(");
-    const y = (t: number) => new Function("t", "clip", "lt", "when", `return ${expr}`)(
+  test("raises a layer from below with an ease-out and rests at zero", () => {
+    // evaluate the FFmpeg expression with the same two functions it calls
+    const expr = riseIn(1, 0.3, 30);
+    const y = (t: number) => new Function("t", "clip", "pow", `return ${expr}`)(
       t,
       (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v)),
-      (a: number, b: number) => (a < b ? 1 : 0),
-      (c: number, a: number, b: number) => (c ? a : b),
+      Math.pow,
     );
-    expect([1.05, 1.15, 1.25, 1.3, 2].map(y)).toEqual([-30, -15, 6, 0, 0]);
+    const samples = [0.5, 1, 1.1, 1.2, 1.3, 2].map(y);
+    expect(samples[0]).toBe(30);
+    expect(samples[1]).toBe(30);
+    expect(samples[4]).toBe(0);
+    expect(samples[5]).toBe(0);
+    for (let i = 2; i < samples.length; i++) expect(samples[i]).toBeLessThanOrEqual(samples[i - 1]);
+    // an ease-out covers most of the distance in the first third
+    expect(samples[2]).toBeLessThan(10);
   });
 
   test("rejects a transition that would consume the whole card", () => {
