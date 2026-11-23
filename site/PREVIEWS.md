@@ -51,12 +51,12 @@ build step: `public/index.html` carries its styles and script inline.
 
 | Route | Contents |
 | --- | --- |
-| `/` | The homepage: the extruded title, a strip of console captures, and four chapters with one diagram each |
+| `/` | The homepage: the title, a wall of console captures, and five chapters with one diagram each |
 | `/logo/` | The mark study, in the preview only: six extrusions of the PocketJS mark beside the cube and the flat mark, with sliders for turn, tilt, depth and camera distance |
 
-The title holds one pose and leans about two degrees toward the pointer. With
-reduced motion set, the title stays still, the diagrams show their final state
-and the capture strip scrolls by hand.
+The page takes the PocketJS homepage's look (`site/assets/landing.css`) with
+the Pocket3D mark's gold as its accent. With reduced motion set, the diagrams
+show their final state and the capture wall stands still.
 
 `site/pocket3d/logo/` sits outside `public/`, so the Worker does not deploy
 it. Its `mark3d.js` draws the mark: it extrudes the PocketJS outline, turns it
@@ -68,7 +68,7 @@ then write the same string to those four places.
 After the mark or `site/pocket3d/og-card.html` changes, run
 `bun run pocket3d:icons`. It rasterizes the favicon family from the mark and
 captures `og-image.png` from the card page at 1200x630. The card page loads
-Titan One and Fredoka from Google Fonts, so the command needs a network.
+Inter Tight and Inter from Google Fonts, so the command needs a network.
 
 `site/pocket3d/title-card.html` is the art of the title card that Pocket3D
 games show at launch. `bun tools/pocket3d-title.ts` bakes it into
