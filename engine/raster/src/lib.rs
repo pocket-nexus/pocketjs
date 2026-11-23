@@ -1013,6 +1013,10 @@ fn render_scaled_clipped<T: RenderTarget>(
 
 // ---- GRAD_RECT: per-axis gouraud lerp ---------------------------------------------
 
+/// Pixels the interpreter shades into a stack buffer before one
+/// `RenderTarget::blend_span` call.
+const SPAN: usize = 64;
+
 #[allow(clippy::too_many_arguments)]
 fn grad_rect<T: RenderTarget>(
     target: &mut T,
@@ -1044,20 +1048,26 @@ fn grad_rect<T: RenderTarget>(
     let reversed = dir == spec::GradDir::ToTop as u32 || dir == spec::GradDir::ToLeft as u32;
     let (a, b) = if reversed { (to, from) } else { (from, to) };
     if horizontal {
+        // One colour per column: shade a band of columns once, then blend
+        // it over every row. A colour without alpha blends nothing.
         let inv = 1.0f32 / w as f32;
-        for px in c.x0..c.x1 {
-            let f = ((px - x) as f32 + 0.5) * inv;
-            let col = lerp_color(a, b, f);
-            let (r, g, bb, al) = channels(col);
-            if al == 0 {
-                continue;
+        let mut colors = [0u32; SPAN];
+        let mut band = c.x0;
+        while band < c.x1 {
+            let count = ((c.x1 - band) as usize).min(SPAN);
+            for (index, color) in colors[..count].iter_mut().enumerate() {
+                let px = band + index as i32;
+                let f = ((px - x) as f32 + 0.5) * inv;
+                *color = lerp_color(a, b, f);
             }
             for py in c.y0..c.y1 {
-                target.blend((py * stride + px) as usize, r, g, bb, al);
+                target.blend_span((py * stride + band) as usize, &colors[..count]);
             }
+            band += count as i32;
         }
     } else {
         let inv = 1.0f32 / h as f32;
+        let row_pixels = (c.x1 - c.x0) as usize;
         for py in c.y0..c.y1 {
             let f = ((py - y) as f32 + 0.5) * inv;
             let col = lerp_color(a, b, f);
@@ -1065,14 +1075,12 @@ fn grad_rect<T: RenderTarget>(
             if al == 0 {
                 continue;
             }
+            let start = (py * stride + c.x0) as usize;
             if al >= 255 {
-                let start = (py * stride + c.x0) as usize;
-                target.fill_opaque(start, (c.x1 - c.x0) as usize, r, g, bb);
+                target.fill_opaque(start, row_pixels, r, g, bb);
                 continue;
             }
-            for px in c.x0..c.x1 {
-                target.blend((py * stride + px) as usize, r, g, bb, al);
-            }
+            target.blend_fill(start, row_pixels, r, g, bb, al);
         }
     }
 }
@@ -1102,6 +1110,17 @@ fn edge_bias(u: (i64, i64), v: (i64, i64)) -> i64 {
     }
 }
 
+/// `n / d` for `n >= 0` and `d > 0`. Operands that fit 32 bits divide as
+/// such: a 32-bit target has no 64-bit divide instruction.
+#[inline]
+fn div_nonnegative(n: i64, d: i64) -> i64 {
+    if n <= u32::MAX as i64 && d <= u32::MAX as i64 {
+        (n as u32 / d as u32) as i64
+    } else {
+        n / d
+    }
+}
+
 /// Exact covered interval on one pixel row of a counter-clockwise triangle.
 /// Each doubled-coordinate edge is linear in x. Intersect the half-line where
 /// it reaches its `edge_bias` with the clip, then advance the original integer
@@ -1118,25 +1137,39 @@ impl TriangleRow {
     fn new(a: (i64, i64), b: (i64, i64), c: (i64, i64), y: i32, min_x: i32, max_x: i32) -> Self {
         let sx = 2 * min_x as i64 + 1;
         let sy = 2 * y as i64 + 1;
-        let mut weights = [
+        let weights = [
             orient(b.0, b.1, c.0, c.1, sx, sy),
             orient(c.0, c.1, a.0, a.1, sx, sy),
             orient(a.0, a.1, b.0, b.1, sx, sy),
         ];
         let step = [-2 * (c.1 - b.1), -2 * (a.1 - c.1), -2 * (b.1 - a.1)];
         let bias = [edge_bias(b, c), edge_bias(c, a), edge_bias(a, b)];
+        Self::from_weights(weights, step, bias, min_x, max_x)
+    }
+
+    /// The row whose edge weights at the centre of pixel `min_x` are
+    /// `weights` and change by `step` per pixel; a covered centre has at
+    /// least `bias` on every edge.
+    fn from_weights(
+        mut weights: [i64; 3],
+        step: [i64; 3],
+        bias: [i64; 3],
+        min_x: i32,
+        max_x: i32,
+    ) -> Self {
         let mut first = 0i64;
         let mut end = (max_x as i64 - min_x as i64).max(0);
         for ((&w, &dx), &bias) in weights.iter().zip(&step).zip(&bias) {
             if dx > 0 {
                 if w < bias {
-                    first = first.max((bias - w + dx - 1) / dx);
+                    // bias - w >= 1: the numerator is positive.
+                    first = first.max(div_nonnegative(bias - w + dx - 1, dx));
                 }
             } else if dx < 0 {
                 if w < bias {
                     end = 0;
                 } else {
-                    end = end.min((w - bias) / -dx + 1);
+                    end = end.min(div_nonnegative(w - bias, -dx) + 1);
                 }
             } else if w < bias {
                 end = 0;
@@ -1178,6 +1211,54 @@ impl Iterator for TriangleRow {
     }
 }
 
+/// The rows of one triangle from a first row down. An edge function is
+/// linear in y as in x, so the weights at the clip's first column advance
+/// from row to row by one addition each. The `edge_bias` of an edge is the
+/// same on every row.
+struct TriangleRows {
+    weights: [i64; 3],
+    step: [i64; 3],
+    row_step: [i64; 3],
+    bias: [i64; 3],
+    min_x: i32,
+    max_x: i32,
+}
+
+impl TriangleRows {
+    fn new(a: (i64, i64), b: (i64, i64), c: (i64, i64), y: i32, min_x: i32, max_x: i32) -> Self {
+        let sx = 2 * min_x as i64 + 1;
+        let sy = 2 * y as i64 + 1;
+        Self {
+            weights: [
+                orient(b.0, b.1, c.0, c.1, sx, sy),
+                orient(c.0, c.1, a.0, a.1, sx, sy),
+                orient(a.0, a.1, b.0, b.1, sx, sy),
+            ],
+            step: [-2 * (c.1 - b.1), -2 * (a.1 - c.1), -2 * (b.1 - a.1)],
+            row_step: [2 * (c.0 - b.0), 2 * (a.0 - c.0), 2 * (b.0 - a.0)],
+            bias: [edge_bias(b, c), edge_bias(c, a), edge_bias(a, b)],
+            min_x,
+            max_x,
+        }
+    }
+
+    /// The covered interval of the current row; moves to the row below.
+    #[inline]
+    fn next_row(&mut self) -> TriangleRow {
+        let row = TriangleRow::from_weights(
+            self.weights,
+            self.step,
+            self.bias,
+            self.min_x,
+            self.max_x,
+        );
+        for (w, &dy) in self.weights.iter_mut().zip(&self.row_step) {
+            *w += dy;
+        }
+        row
+    }
+}
+
 fn tri<T: RenderTarget>(target: &mut T, stride: i32, scale: i32, clip: Clip, p: &[u32]) {
     let (x0, y0) = xy(p[0], scale);
     let (x1, y1) = xy(p[1], scale);
@@ -1207,27 +1288,83 @@ fn tri<T: RenderTarget>(target: &mut T, stride: i32, scale: i32, clip: Clip, p: 
     let (r1, g1, b1, a1) = channels(c1);
     let (r2, g2, b2, a2) = channels(c2);
     let flat = c0 == c1 && c1 == c2;
-    let flat_opaque = flat && a0 >= 255;
     let half = area / 2;
-    for py in min_y..max_y {
-        for (px, [w0, w1, w2]) in TriangleRow::new((ax, ay), (bx, by), (cx, cy), py, min_x, max_x) {
-            if flat_opaque {
-                target.fill_opaque((py * stride + px) as usize, 1, r0, g0, b0);
-            } else if flat {
-                target.blend((py * stride + px) as usize, r0, g0, b0, a0);
-            } else {
-                // Integer barycentric interpolation, round-to-nearest.
-                let mix = |v0: u32, v1: u32, v2: u32| {
-                    ((v0 as i64 * w0 + v1 as i64 * w1 + v2 as i64 * w2 + half) / area) as u32
-                };
-                target.blend(
-                    (py * stride + px) as usize,
-                    mix(r0, r1, r2),
-                    mix(g0, g1, g2),
-                    mix(b0, b1, b2),
-                    mix(a0, a1, a2),
-                );
+    let mut rows = TriangleRows::new((ax, ay), (bx, by), (cx, cy), min_y, min_x, max_x);
+    if flat {
+        // One colour: every covered row is one span.
+        if a0 == 0 {
+            return;
+        }
+        for py in min_y..max_y {
+            let row = rows.next_row();
+            if row.x >= row.end {
+                continue;
             }
+            let start = (py * stride + row.x) as usize;
+            let len = (row.end - row.x) as usize;
+            if a0 >= 255 {
+                target.fill_opaque(start, len, r0, g0, b0);
+            } else {
+                target.blend_fill(start, len, r0, g0, b0, a0);
+            }
+        }
+        return;
+    }
+    // Integer barycentric interpolation, round-to-nearest:
+    // (v0*w0 + v1*w1 + v2*w2 + half) / area per channel. A covered centre
+    // has every weight at or above its `edge_bias` (0 or 1), so the weights
+    // are nonnegative, and they sum to `area`: the numerator is at most
+    // 255 * area + half. When that fits 32 bits (every triangle below
+    // two million pixels) the numerators step by addition along the row
+    // and divide as u32: the same quotients without 64-bit arithmetic.
+    if area <= (u32::MAX as i64 - half) / 255 {
+        let (area, half) = (area as u32, half as u32);
+        let channel = [(r0, r1, r2), (g0, g1, g2), (b0, b1, b2), (a0, a1, a2)];
+        let step = rows.step;
+        let numerator_step = channel.map(|(v0, v1, v2)| {
+            (v0 as i64 * step[0] + v1 as i64 * step[1] + v2 as i64 * step[2]) as u32
+        });
+        let mut colors = [0u32; SPAN];
+        for py in min_y..max_y {
+            let row = rows.next_row();
+            if row.x >= row.end {
+                // The weights of a row without a covered pixel are not
+                // barycentric.
+                continue;
+            }
+            let [w0, w1, w2] = row.weights.map(|w| w as u32);
+            let mut numerator =
+                channel.map(|(v0, v1, v2)| v0 * w0 + v1 * w1 + v2 * w2 + half);
+            let mut px = row.x;
+            while px < row.end {
+                let count = ((row.end - px) as usize).min(SPAN);
+                for color in &mut colors[..count] {
+                    *color = (numerator[0] / area)
+                        | ((numerator[1] / area) << 8)
+                        | ((numerator[2] / area) << 16)
+                        | ((numerator[3] / area) << 24);
+                    for (n, &step) in numerator.iter_mut().zip(&numerator_step) {
+                        *n = n.wrapping_add(step);
+                    }
+                }
+                target.blend_span((py * stride + px) as usize, &colors[..count]);
+                px += count as i32;
+            }
+        }
+        return;
+    }
+    for py in min_y..max_y {
+        for (px, [w0, w1, w2]) in rows.next_row() {
+            let mix = |v0: u32, v1: u32, v2: u32| {
+                ((v0 as i64 * w0 + v1 as i64 * w1 + v2 as i64 * w2 + half) / area) as u32
+            };
+            target.blend(
+                (py * stride + px) as usize,
+                mix(r0, r1, r2),
+                mix(g0, g1, g2),
+                mix(b0, b1, b2),
+                mix(a0, a1, a2),
+            );
         }
     }
 }
@@ -1265,16 +1402,19 @@ fn glyph_run<T: RenderTarget>(
     let Some(atlas) = ui.font_atlas(slot) else {
         return;
     };
-    let (r, g, b, a) = channels(color);
+    let (_, _, _, a) = channels(color);
     if a == 0 {
         return;
     }
+    let rgb = color & 0x00ff_ffff;
     let cell_w = atlas.cell_w as i32 * output_scale;
     let cell_h = atlas.cell_h as i32 * output_scale;
     let atlas_density = atlas.raster_density as i32;
     let coverage_w = atlas.coverage_width() as i32;
     let coverage_h = atlas.coverage_height() as i32;
     let bpr = atlas.bytes_per_row();
+    let mut columns = [0usize; SPAN];
+    let mut colors = [0u32; SPAN];
     for pair in glyphs.as_chunks::<2>().0.iter() {
         let (gx, gy) = xy(pair[0], output_scale);
         let gid = (pair[1] & 0xffff) as u16;
@@ -1290,16 +1430,30 @@ fn glyph_run<T: RenderTarget>(
             continue;
         }
         let rows = atlas.glyph_rows(gid);
-        for py in y0..y1 {
-            let sy = coverage_index(py - gy, output_scale, atlas_density, coverage_h);
-            let row = &rows[sy * bpr..];
-            for px in x0..x1 {
-                let cx = coverage_index(px - gx, output_scale, atlas_density, coverage_w);
-                let cov = row[cx] as u32;
-                if cov != 0 {
-                    target.blend((py * stride + px) as usize, r, g, b, (a * cov + 127) / 255);
-                }
+        // The coverage column of a pixel is the same on every row: look a
+        // band of columns up once, then shade and blend it row by row.
+        let mut band = x0;
+        while band < x1 {
+            let count = ((x1 - band) as usize).min(SPAN);
+            for (index, column) in columns[..count].iter_mut().enumerate() {
+                let px = band + index as i32;
+                *column = coverage_index(px - gx, output_scale, atlas_density, coverage_w);
             }
+            for py in y0..y1 {
+                let sy = coverage_index(py - gy, output_scale, atlas_density, coverage_h);
+                let row = &rows[sy * bpr..];
+                for (color, &cx) in colors[..count].iter_mut().zip(&columns[..count]) {
+                    let cov = row[cx] as u32;
+                    // No coverage leaves the alpha at zero: nothing blends.
+                    *color = if cov != 0 {
+                        rgb | (((a * cov + 127) / 255) << 24)
+                    } else {
+                        0
+                    };
+                }
+                target.blend_span((py * stride + band) as usize, &colors[..count]);
+            }
+            band += count as i32;
         }
     }
 }
