@@ -12,6 +12,7 @@ import { flushLifecycleHooks, resetLifecycleHooks } from "./lifecycle-vue-aot.ts
 import { reactModelRegions } from "./model-reactive.ts";
 import { resumeModelTasks, resetModelTaskClock } from "./model-tasks.ts";
 import { pollModelAnimations } from "./model-animation.ts";
+import { buttonEvents, type ButtonEventCallbacks } from "./button-events.ts";
 
 export { __setAnalog, analogRaw, analogX, analogY, rightAnalogRaw, rightAnalogX, rightAnalogY } from "./analog.ts";
 
@@ -101,16 +102,23 @@ export function onButtonPress(
   opts: ButtonPressOptions = {},
   placement?: NodeMirror,
 ): void {
-  let prevButtons = opts.latched ? ~0 : 0; // latched: "everything held" until released
-  registerFrame((buttons) => {
-    const pressed = buttons & ~prevButtons;
-    prevButtons = buttons;
-    if (!(pressed & mask)) return;
+  const callbacks: ButtonEventCallbacks = { onPress: callback };
+  onButtonEvents(mask, () => callbacks, opts, placement);
+}
+
+/** Press, hold and release delivery for one ActionHandler (button-events.ts). */
+export function onButtonEvents(
+  mask: number,
+  callbacks: () => ButtonEventCallbacks,
+  opts: ButtonPressOptions = {},
+  placement?: NodeMirror,
+): void {
+  const sample = buttonEvents(mask, opts.latched, callbacks);
+  const accepts = (): boolean => {
     const active = typeof opts.active === "function" ? opts.active() : opts.active ?? true;
-    if (!active) return;
-    if (buttonHandlerBlockDepth > 0 && !opts.allowWhenBlocked) return;
-    callback(pressed, buttons);
-  }, placement);
+    return active && (buttonHandlerBlockDepth === 0 || !!opts.allowWhenBlocked);
+  };
+  registerFrame((buttons) => sample(buttons, accepts), placement);
 }
 
 export interface SpriteAnimationOptions {

@@ -14,10 +14,12 @@ export const MICROTS_RELATIVE_AXES = { primary: RelativeAxis.Primary, secondary:
 export const MICROTS_UNIT_TYPES = { Px: { base: "f32" }, Ms: { base: "f32" }, Deg: { base: "f32" }, Color: { base: "u32" } } as const;
 export type MicroTsUnitType = keyof typeof MICROTS_UNIT_TYPES;
 export const MICROTS_INPUT_ELEMENTS = {
-  ActionHandler: { attributes: ["button", "active", "latched"], events: ["press"] },
+  ActionHandler: { attributes: ["button", "active", "latched", "holdMs", "repeatMs"], events: ["press", "hold", "release"] },
   AxisHandler: { attributes: ["axis", "active"], events: ["delta"] },
   MotionHandler: { attributes: ["value", "minQuality", "active"], events: ["update"] },
 } as const;
+/** `ActionHandler`'s hold delay when `onHold` is given without `holdMs`, in model-clock milliseconds. */
+export const ACTION_HOLD_DEFAULT_MS = 500;
 
 /** CSS hexadecimal RGB(A) syntax converted to core's ABGR bits. */
 export function parseMicroTsColor(value: string): number {
@@ -166,7 +168,7 @@ export function generateMicroTsComponentTypes(): string {
     lines.push("}");
     if (element === "View") lines.push('export type MicroTsViewProps = MicroTsViewBaseProps & ({ focusable: true; onPress?: () => void } | { focusable?: false; onPress?: never });');
   }
-  lines.push('export interface MicroTsActionHandlerProps { button: number; active?: MicroTsValue<boolean>; latched?: boolean; onPress?: (pressed: number, buttons: number) => void }',
+  lines.push('export interface MicroTsActionHandlerProps { button: number; active?: MicroTsValue<boolean>; latched?: boolean; holdMs?: MicroTsValue<number>; repeatMs?: MicroTsValue<number>; onPress?: (pressed: i32, buttons: i32) => void; onHold?: (held: i32, buttons: i32) => void; onRelease?: (released: i32, buttons: i32) => void }',
     'export interface MicroTsAxisHandlerProps { axis: "primary" | "secondary"; active?: MicroTsValue<boolean>; onDelta?: (delta: i32) => void }',
     `export type MicroTsMotionHandlerProps = { active?: MicroTsValue<boolean>; minQuality?: ${Object.keys(MOTION_MIN_QUALITIES).map(name => JSON.stringify(name)).join(" | ")} } & (${(Object.keys(MOTION_VALUES) as MotionValueName[]).map(name => `\n  | { value: ${JSON.stringify(name)}; onUpdate?: (${motionValueParameters(name).map(p => `${p.name}: ${p.type}`).join(", ")}) => void }`).join("")});`);
   return lines.join("\n") + "\n";

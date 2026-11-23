@@ -10,7 +10,8 @@ import {
 import type { JSX as SolidJSX } from "solid-js";
 import { ENUMS, SCREEN_H, SCREEN_W } from "../../contracts/spec/spec.ts";
 import { animate, type EasingName } from "./animation.ts";
-import { pushButtonHandlerBlock, onButtonPress, onAxisDelta, onMotion, onFrame, type ButtonPressOptions } from "./frame-vue-vapor.ts";
+import { pushButtonHandlerBlock, onButtonEvents, onButtonPress, onAxisDelta, onMotion, onFrame, type ButtonPressOptions } from "./frame-vue-vapor.ts";
+import type { ButtonEventCallbacks } from "./button-events.ts";
 import { MICROTS_RELATIVE_AXES } from "../../contracts/spec/microts.ts";
 import { MOTION_DEFAULT_MIN_QUALITY, type MotionMinQualityName, type MotionValueName } from "./motion.ts";
 import { BTN } from "./input-api.ts";
@@ -355,9 +356,8 @@ export const FocusGrid = definePocketVueComponent((_props: FocusGridProps, { att
   return node;
 }, NO_FALLTHROUGH);
 
-export interface ActionHandlerProps extends ButtonPressOptions {
+export interface ActionHandlerProps extends ButtonPressOptions, ButtonEventCallbacks {
   button: number;
-  onPress: (pressed: number, buttons: number) => void;
   children?: VNodeChild;
 }
 
@@ -375,9 +375,15 @@ function inputBlock(marker: NodeMirror, slots: SlotBag): unknown {
 
 export const ActionHandler = definePocketVueComponent((_props: ActionHandlerProps, { attrs, slots }: VaporCtx) => {
   const marker = inputPlacement("action");
-  onButtonPress(
+  onButtonEvents(
     valueOf(attrs.button) as number,
-    (pressed, buttons) => callbackOf<ActionHandlerProps["onPress"]>(attrs.onPress)?.(pressed, buttons),
+    (): ButtonEventCallbacks => ({
+      onPress: callbackOf<NonNullable<ActionHandlerProps["onPress"]>>(attrs.onPress),
+      onHold: callbackOf<NonNullable<ActionHandlerProps["onHold"]>>(attrs.onHold),
+      onRelease: callbackOf<NonNullable<ActionHandlerProps["onRelease"]>>(attrs.onRelease),
+      holdMs: valueOf(attrs.holdMs ?? attrs["hold-ms"]) as number | undefined,
+      repeatMs: valueOf(attrs.repeatMs ?? attrs["repeat-ms"]) as number | undefined,
+    }),
     {
       allowWhenBlocked: booleanOption(attrs.allowWhenBlocked),
       active: () => resolveActive(attrs.active),

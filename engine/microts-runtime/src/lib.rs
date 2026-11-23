@@ -44,7 +44,7 @@ pub use display::{
     template_option_display,
 };
 pub use host::{CoreHost, HasButton, HasButtons, HasMotion, HasRelativeAxis, HasTouch, Host};
-pub use input::{ButtonLatch, Dispatch, DispatchCursor, DispatchFn, EventSink, dispatch_fn};
+pub use input::{ButtonEvent, ButtonLatch, Dispatch, DispatchCursor, DispatchFn, EventSink, dispatch_fn};
 pub use model::{Cmd, NodeSlot, Ready, RequestId, TaskId};
 pub use model_regions::{CommandQueue, ModelPhase, ModelRegions, New};
 pub use motion::{

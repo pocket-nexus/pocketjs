@@ -193,6 +193,9 @@ Three inputs act on the frame after a switch without a direction press:
 
 - **An `ActionHandler` runs for its named button with or without focus.** Use
   one for back navigation, as the root view above does with `BTN.CROSS`.
+  The handler on the removed page receives no `onRelease` for the press that
+  switched pages. A handler on the new page that mounts while its button is
+  still down reads that button as a press unless it is `latched`.
 - **A focused node outside the page branch keeps focus across the swap.** A
   tab row or a toolbar placed beside the `Switch` stays focused while the
   pages under it change.

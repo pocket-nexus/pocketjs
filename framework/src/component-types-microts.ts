@@ -89,7 +89,7 @@ export interface MicroTsImageProps {
   "class"?: MicroTsValue<string>;
   "src"?: MicroTsValue<string>;
 }
-export interface MicroTsActionHandlerProps { button: number; active?: MicroTsValue<boolean>; latched?: boolean; onPress?: (pressed: number, buttons: number) => void }
+export interface MicroTsActionHandlerProps { button: number; active?: MicroTsValue<boolean>; latched?: boolean; holdMs?: MicroTsValue<number>; repeatMs?: MicroTsValue<number>; onPress?: (pressed: i32, buttons: i32) => void; onHold?: (held: i32, buttons: i32) => void; onRelease?: (released: i32, buttons: i32) => void }
 export interface MicroTsAxisHandlerProps { axis: "primary" | "secondary"; active?: MicroTsValue<boolean>; onDelta?: (delta: i32) => void }
 export type MicroTsMotionHandlerProps = { active?: MicroTsValue<boolean>; minQuality?: "unreliable" | "low" | "medium" | "high" } & (
   | { value: "gravityDirection"; onUpdate?: (x: f32, y: f32, z: f32, quality: u8, timestamp: u64) => void }

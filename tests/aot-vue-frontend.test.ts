@@ -75,13 +75,30 @@ test("Vue motion method handlers receive the payload values they declare", () =>
     { kind: "motion", name: "orientation", value: 4, minQuality: 3 },
   ]);
   const first = inputs[0]!;
-  expect(first.kind === "input" && first.handler.kind === "call" && first.handler.expression.kind === "call" && first.handler.expression.arguments.map(a => a.kind === "binding" && a.name)).toEqual(["$event", "$event1"]);
+  const update = first.kind === "input" ? first.events[0]!.handler : undefined;
+  expect(update?.kind === "call" && update.expression.kind === "call" && update.expression.arguments.map(a => a.kind === "binding" && a.name)).toEqual(["$event", "$event1"]);
   expect(program.demands).toEqual({ buttons: [], axes: [], motion: [4, 7], capabilities: ["motion"] });
   // Vue has no names for later payload values in an inline statement; Vapor guests would leave them undefined.
   expect(() => vue(source("w = $event1"), contract)).toThrow("$event1");
   // Only the whole attribute is a method handler: inside a statement, Vue evaluates the reference without calling it.
   expect(() => vue(source("if (w > 0) { lean; }"), contract)).toThrow("A reference to lean does nothing");
   expect(() => vue(source("lean; w = $event"), contract)).toThrow("A reference to lean does nothing");
+});
+test("Vue ActionHandler admits @press, @hold and @release with timing bindings", () => {
+  const contract = 'import type { i32 } from "@pocketjs/framework/vue-vapor/std"; export declare function press(pressed: i32, buttons: i32): void; export declare function release(): void; export declare let delay: i32; export declare let held: i32;';
+  const source = (attributes: string) => `<script setup lang="ts">import { ActionHandler } from "@pocketjs/framework/vue-vapor/components"; import { BTN } from "@pocketjs/framework/vue-vapor/input"; import { press, release, delay, held } from "./App";</script><template><ActionHandler :button="BTN.CROSS" ${attributes} /></template>`;
+  const program = vue(source('@release="release" @hold="held = $event" :holdMs="delay" :repeatMs="40" @press="press"'), contract);
+  const node = program.components.find(c => c.root)!.nodes[0]!;
+  if (node.kind !== "input") throw new Error("expected an input node");
+  expect(node.events.map(event => event.name)).toEqual(["press", "hold", "release"]);
+  expect(node.events[0]!.handler).toMatchObject({ kind: "call", expression: { name: "press", arguments: [{ name: "$event" }, { name: "$event1" }] } });
+  expect(node.events[1]!.handler).toMatchObject({ kind: "assign", name: "held", value: { name: "$event", type: { name: "i32" } } });
+  expect(node.input).toMatchObject({ kind: "button", button: 16384, hold: { delay: { kind: "cast", value: { kind: "binding", name: "delay" } }, repeat: { kind: "cast", value: { kind: "literal", value: 40 } } } });
+  const file = resolve(root, "tests/fixtures/aot/vue/App.vue");
+  expect(() => vue(source(""), contract)).toThrow(`${file}:1:229: error: ActionHandler requires @press, @hold or @release`);
+  expect(() => vue(source(':holdMs="300" @press="release"'), contract)).toThrow(`${file}:1:264: error: holdMs requires @hold`);
+  expect(() => vue(source('holdMs="300" @hold="release"'), contract)).toThrow(`${file}:1:264: error: ActionHandler requires typed bindings for holdMs`);
+  expect(() => vue(source('@tap="release"'), contract)).toThrow(`${file}:1:264: error: ActionHandler accepts @press, @hold and @release with one handler each`);
 });
 test("Vue Text :style binds textColor and opacity; Image :src selects among literal image names", () => {
   const contract = 'import type { Color, i32 } from "@pocketjs/framework/vue-vapor/std"; export declare const tint: Color; export declare const level: i32; export declare const icon: string;';

@@ -52,7 +52,8 @@ export type AotHandler = (
 export interface AotMemo { id: number; expression: AotExpr }
 export interface AotStyleBinding { prop: number; name: string; value: AotExpr; memo: number }
 export type AotNode =
-  | { kind: "input"; id: number; input: { kind: "button"; name: string; button: number; latched: boolean } | { kind: "axis"; name: string; axis: number } | { kind: "motion"; name: string; value: number; minQuality: number }; active: AotExpr; handler: AotHandler; children: AotNode[]; loc: SourceLocation }
+  /** `events` are in `MICROTS_INPUT_ELEMENTS` order. A button's `hold` delay is read at an accepted press and its repeat interval at each hold, in model-clock milliseconds. */
+  | { kind: "input"; id: number; input: { kind: "button"; name: string; button: number; latched: boolean; hold?: { delay: AotExpr; repeat?: AotExpr } } | { kind: "axis"; name: string; axis: number } | { kind: "motion"; name: string; value: number; minQuality: number }; active: AotExpr; events: { name: string; handler: AotHandler }[]; children: AotNode[]; loc: SourceLocation }
   | { kind: "element"; id: number; tag: "View" | "Text" | "Image"; style: number; dynamicStyle?: AotMemo; props: AotStyleBinding[]; text?: { parts: (string | AotExpr)[]; memo: number }; focusable: boolean; debugName?: string; src?: string; dynamicSrc?: AotMemo; ref?: string; events: { name: string; handler: AotHandler }[]; children: AotNode[]; loc: SourceLocation }
   | { kind: "if"; id: number; branches: { condition?: AotExpr; children: AotNode[] }[]; loc: SourceLocation }
   | { kind: "for"; id: number; source: AotExpr; item: string; index?: string; itemType: AotType; key: AotExpr; children: AotNode[]; loc: SourceLocation }

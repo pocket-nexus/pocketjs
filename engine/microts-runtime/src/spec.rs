@@ -195,7 +195,7 @@ pub const STYLE_UNITS: &[(&str, &str)] = &[
     ("skewX", "Deg"),
 ];
 pub const INPUT_ELEMENTS: &[(&str, &[&str], &[&str])] = &[
-    ("ActionHandler", &["button", "active", "latched"], &["press"]),
+    ("ActionHandler", &["button", "active", "latched", "holdMs", "repeatMs"], &["press", "hold", "release"]),
     ("AxisHandler", &["axis", "active"], &["delta"]),
     ("MotionHandler", &["value", "minQuality", "active"], &["update"]),
 ];

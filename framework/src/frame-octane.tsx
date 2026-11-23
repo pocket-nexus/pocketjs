@@ -8,6 +8,7 @@
 
 import { useEffect, useEffectEvent, useRef, useState } from "octane";
 import { __resetAnalog } from "./analog.ts";
+import { buttonEvents, type ButtonEventCallbacks } from "./button-events.ts";
 
 export { __setAnalog, analogRaw, analogX, analogY, rightAnalogRaw, rightAnalogX, rightAnalogY } from "./analog.ts";
 
@@ -58,14 +59,24 @@ export function useButtonPress(
   callback: (pressed: number, buttons: number) => void,
   opts: ButtonPressOptions = {},
 ): void {
-  const prevButtons = useRef(opts.latched ? ~0 : 0); // latched: "everything held" until released
+  useButtonEvents(mask, { onPress: callback }, opts);
+}
+
+/** Press, hold and release delivery for one ActionHandler (button-events.ts). */
+export function useButtonEvents(
+  mask: number,
+  events: ButtonEventCallbacks,
+  opts: ButtonPressOptions = {},
+): void {
+  const latest = useRef(events);
+  const sample = useRef<((buttons: number, accepts: () => boolean) => void) | null>(null);
   const handler = useEffectEvent((buttons: number) => {
-    const pressed = buttons & ~prevButtons.current;
-    prevButtons.current = buttons;
-    const active = typeof opts.active === "function" ? opts.active() : opts.active ?? true;
-    if (!active) return;
-    if (buttonHandlerBlockDepth > 0 && !opts.allowWhenBlocked) return;
-    if (pressed & mask) callback(pressed, buttons);
+    latest.current = events;
+    if (!sample.current) sample.current = buttonEvents(mask, opts.latched, () => latest.current);
+    sample.current(buttons, () => {
+      const active = typeof opts.active === "function" ? opts.active() : opts.active ?? true;
+      return active && (buttonHandlerBlockDepth === 0 || !!opts.allowWhenBlocked);
+    });
   });
   useEffect(() => {
     callbacks.add(handler);

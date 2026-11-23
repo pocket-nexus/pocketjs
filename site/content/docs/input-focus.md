@@ -350,15 +350,37 @@ Use `latched: true` when a screen or overlay mounts under the same held button
 that opened it. The handler stays armed-off until that button is observed up
 for a frame, so the held opener cannot become a second press.
 
-The declarative equivalent is the [`ActionHandler`](/docs/app-shell/) component, which
-wraps `onButtonPress`:
+The declarative equivalent is the [`ActionHandler`](/docs/app-shell/) component. It
+takes the same options and adds `onHold` and `onRelease`:
 
 ```tsx
 import { ActionHandler } from "@pocketjs/framework/components";
 import { BTN } from "@pocketjs/framework/input";
 
 <ActionHandler button={BTN.START} onPress={() => togglePause()} />;
+
+// Step once on the press, repeat every 100 ms after a 400 ms hold.
+<ActionHandler button={BTN.RIGHT} holdMs={400} repeatMs={100}
+  onPress={() => step()} onHold={() => step()} onRelease={() => settle()} />;
 ```
+
+`onHold` and `onRelease` receive `(mask, buttons)` like `onPress`: the
+handler's held buttons or the buttons that went up, and the held mask.
+
+- **`onRelease` runs for a press the handler accepted**, on the frame its button
+  goes up, even when `active` has become false or a modal block has started
+  since. A press that `active` or the block rejected has no release, and an
+  unmounted handler receives none.
+- **`onHold` runs `holdMs` milliseconds after the accepted press while the
+  button stays down**, then every `repeatMs` milliseconds when `repeatMs` is
+  set. `holdMs` defaults to `500`; without `repeatMs`, `onHold` runs once per
+  press. The deadlines are on the virtual clock (`virtualNow() * 1000`), so a
+  delay lasts the same time at every simulation rate. A hold runs on the first
+  frame whose time reaches its deadline, at most once per frame and never on
+  the press frame, and frames where the handler is inactive run no hold.
+
+The same rules apply in a [MicroTS](/docs/microts-solid/#input-and-lifecycle)
+native build of the component.
 
 ## Keyboard text
 

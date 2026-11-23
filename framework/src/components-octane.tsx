@@ -10,11 +10,13 @@ import type { JSX as SolidJSX } from "solid-js";
 import { ENUMS, SCREEN_H, SCREEN_W } from "../../contracts/spec/spec.ts";
 import { animate, type EasingName } from "./animation.ts";
 import {
+  useButtonEvents,
   useButtonPress,
   useFrame,
   pushButtonHandlerBlock,
   type ButtonPressOptions,
 } from "./frame-octane.tsx";
+import type { ButtonEventCallbacks } from "./button-events.ts";
 import { BTN } from "./input-api.ts";
 import { pushFocusGrid, pushFocusScope, type FocusGridOptions, type FocusScopeOptions } from "./input.ts";
 import {
@@ -224,16 +226,16 @@ export function FocusGrid(props: FocusGridProps) {
   return <View {...rest} nodeRef={mergeRefs(ref, props.nodeRef)} />;
 }
 
-export interface ActionHandlerProps extends ButtonPressOptions {
+export interface ActionHandlerProps extends ButtonPressOptions, ButtonEventCallbacks {
   button: number;
-  onPress: (pressed: number, buttons: number) => void;
   children?: VNodeChild;
 }
 
+/** Press, hold and release of `button` (framework/src/button-events.ts). */
 export function ActionHandler(props: ActionHandlerProps) {
-  useButtonPress(
+  useButtonEvents(
     props.button,
-    (pressed, buttons) => props.onPress?.(pressed, buttons),
+    props,
     {
       allowWhenBlocked: props.allowWhenBlocked,
       active: () => resolveActive(props.active),

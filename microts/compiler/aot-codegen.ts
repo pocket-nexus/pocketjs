@@ -376,7 +376,10 @@ class Lowerer {
       }
       if (node.kind === "if") return [{ ...node, branches: node.branches.map(b => ({ condition: b.condition ? this.rewriteExpr(b.condition, context) : undefined, children: this.expand(b.children, context) })) }];
       if (node.kind === "for") return [{ ...node, source: this.rewriteExpr(node.source, context), key: this.rewriteExpr(node.key, context), children: this.expand(node.children, context) }];
-      if (node.kind === "input") return [{ ...node, active: this.rewriteExpr(node.active, context), handler: this.rewriteHandler(node.handler, context) ?? { kind: "emit", name: "__discard", arguments: [], id: node.handler.id, loc: node.handler.loc }, children: this.expand(node.children, context) }];
+      if (node.kind === "input") {
+        const input = node.input.kind === "button" && node.input.hold ? { ...node.input, hold: { delay: this.rewriteExpr(node.input.hold.delay, context), ...(node.input.hold.repeat ? { repeat: this.rewriteExpr(node.input.hold.repeat, context) } : {}) } } : node.input;
+        return [{ ...node, input, active: this.rewriteExpr(node.active, context), events: node.events.map(e => ({ ...e, handler: this.rewriteHandler(e.handler, context) ?? { kind: "emit", name: "__discard", arguments: [], id: e.handler.id, loc: e.handler.loc } })), children: this.expand(node.children, context) }];
+      }
       return [{ ...node, dynamicStyle: node.dynamicStyle ? { ...node.dynamicStyle, expression: this.rewriteExpr(node.dynamicStyle.expression, context) } : undefined, dynamicSrc: node.dynamicSrc ? { ...node.dynamicSrc, expression: this.rewriteExpr(node.dynamicSrc.expression, context) } : undefined, props: node.props.map(p => ({ ...p, value: this.rewriteExpr(p.value, context) })), text: node.text ? { ...node.text, parts: node.text.parts.map(p => typeof p === "string" ? p : this.rewriteExpr(p, context)) } : undefined, events: node.events.flatMap(e => { const handler = this.rewriteHandler(e.handler, context); return handler ? [{ ...e, handler }] : []; }), children: this.expand(node.children, context) }];
     }) as ExpandedNode[];
   }
@@ -735,21 +738,31 @@ class Lowerer {
     const input = node.input;
     if (input.kind === "button") { fields.push({ name: "latch", type: rt("microts::ButtonLatch") }); init.push({ name: "latch", value: rc(rp("microts", "ButtonLatch", "new"), rl(input.latched)) }); }
     const pending = input.kind === "button" ? rm(rf(self, "latch"), "pending", rp("input"), rl(input.button, "u32")) : input.kind === "axis" ? binary("!=", rm(rp("input"), "axis_delta", rl(input.axis, "u8")), rl(0, "i32")) : rm(rp("input"), "has_motion", rl(input.value, "u8"), rl(input.minQuality, "u8"));
-    this.inputTraversal(name, binary("||", pending, rm(rf(self, "children"), "pending", rp("input"))), [...(node.input.kind === "button" ? [re(rm(rf(self, "latch"), "sample", rp("input"), rl(node.input.button, "u32"), rl(false)))] : []), re(rm(rf(self, "children"), "sample_idle", rp("input")))]);
+    const none = rp("None");
+    this.inputTraversal(name, binary("||", pending, rm(rf(self, "children"), "pending", rp("input"))), [...(node.input.kind === "button" ? [re(rm(rf(self, "latch"), "sample", rp("input"), rl(node.input.button, "u32"), rl(false), none, none))] : []), re(rm(rf(self, "children"), "sample_idle", rp("input")))]);
     this.structure(name, binary("+", rl(1, "usize"), rm(rf(self, "children"), "handler_count")), [re(rm(rf(self, "children"), "refresh_slot_placement", ui, parent, anchor))], rb([re(ifExpr(binary("&&", binary("==", rp("skip"), rl(0, "usize")), pending), [{ kind: "return", value: rl(true) }]))], rm(rf(self, "children"), "pending_after", rp("input"), rm(rp("skip"), "saturating_sub", rl(1, "usize")))));
     const dispatch: RustStatement[] = [stmtLet("handled", rl(false), true)];
     let condition: RustExpr;
     let eventValues = new Map<string, RustExpr>();
-    if (input.kind === "button") condition = rm(rf(self, "latch"), "sample", rp("input"), rl(input.button, "u32"), binary("&&", pending, this.expr(node.active, locals)));
-    else if (input.kind === "axis") { dispatch.push(stmtLet("axis_delta", rm(rp("input"), "axis_delta", rl(input.axis, "u8")))); condition = binary("&&", binary("!=", rp("axis_delta"), rl(0, "i32")), this.expr(node.active, locals)); eventValues = new Map([["$event", rp("axis_delta")]]); }
+    if (input.kind === "button") {
+      // One button changes state at most once per frame, so one ordinal covers press, hold and release.
+      const some = (value: AotExpr | undefined) => value ? rc(rp("Some"), this.expr(value, locals)) : none;
+      const sample = rm(rf(self, "latch"), "sample", rp("input"), rl(input.button, "u32"), binary("&&", pending, this.expr(node.active, locals)), some(input.hold?.delay), some(input.hold?.repeat));
+      const payload = new Map([["$event", cast(rm(rp("event"), "buttons"), rt("i32"))], ["$event1", cast(rf(rp("input"), "buttons"), rt("i32"))]]);
+      const variant = { press: "Press", hold: "Hold", release: "Release" } as Record<string, string>;
+      const arms = node.events.map((event): RustStatement => re({ kind: "ifLet", pattern: { kind: "variant", path: ["microts", "ButtonEvent", variant[event.name]!], tuple: [emptyPattern] }, value: rp("event"), then: rb([...this.withEventValues(payload, () => this.handler(event.handler, locals)), assign(rp("handled"), rl(true))]) }));
+      dispatch.push(re(ifExpr(rm(rp("cursor"), "visit"), [stmtLet("event", sample), ...arms])));
+    } else if (input.kind === "axis") { dispatch.push(stmtLet("axis_delta", rm(rp("input"), "axis_delta", rl(input.axis, "u8")))); condition = binary("&&", binary("!=", rp("axis_delta"), rl(0, "i32")), this.expr(node.active, locals)); eventValues = new Map([["$event", rp("axis_delta")]]); }
     else {
       dispatch.push(stmtLet("motion", rm(rp("input"), "motion_sample", rl(input.value, "u8"), rl(input.minQuality, "u8"))));
       condition = binary("&&", rm(rp("motion"), "is_present"), this.expr(node.active, locals));
       const name = motionValueName(input.value);
       eventValues = new Map(motionValueParameters(name).map((parameter, index) => [index ? `$event${index}` : "$event", parameter.field.startsWith("component") ? rm(rp("motion"), "component", rl(Number(parameter.field.slice(9)), "u8")) : rm(rp("motion"), { referenceFrame: "reference_frame" }[parameter.field] ?? parameter.field)]));
     }
-    const handler = this.withEventValues(eventValues, () => this.handler(node.handler, locals));
-    dispatch.push(re(ifExpr(binary("&&", rm(rp("cursor"), "visit"), condition), [...handler, assign(rp("handled"), rl(true))])));
+    if (input.kind !== "button") {
+      const handler = this.withEventValues(eventValues, () => this.handler(node.events[0]!.handler, locals));
+      dispatch.push(re(ifExpr(binary("&&", rm(rp("cursor"), "visit"), condition!), [...handler, assign(rp("handled"), rl(true))])));
+    }
     this.items.push({ kind: "struct", name, fields }, { kind: "impl", type: rt(name), methods: [
       this.method("mount", this.mountParams(), rb([], { kind: "struct", path: ["Self"], fields: init }), rt("Self")),
       this.method("contains_node", [receiver(), param("target", rt("NodeId"))], rb([], rm(rf(self, "children"), "contains_node", rp("target"))), rt("bool")),

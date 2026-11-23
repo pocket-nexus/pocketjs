@@ -177,7 +177,22 @@ for built-ins and optional array indexing.
 ## Input and lifecycle
 
 `ActionHandler` takes a static `button={BTN.CROSS}`, an optional boolean
-`active` and bare `latched`. `AxisHandler` takes `axis="primary"` or
+`active`, bare `latched` and numeric `holdMs` and `repeatMs`, with at least one
+of `onPress`, `onHold` and `onRelease`. Each receives `(mask, buttons)` as
+`i32` values, the guest component's payload: the buttons that went down, stay
+held or went up, and the frame's held mask. `onRelease` reaches the handler
+that accepted the press even after `active` turns false; `onHold` runs
+`holdMs` (default `500`) model-clock milliseconds after the press, then every
+`repeatMs`. The [reference](/docs/microts-reference/#press-hold-and-release)
+lists the delivery rules.
+
+```tsx
+<ActionHandler button={BTN.CROSS} holdMs={400} repeatMs={100}
+  onPress={() => down()} onHold={() => step()} onRelease={() => up()} />
+<ActionHandler button={BTN.CIRCLE} onPress={(pressed, buttons) => chord(buttons)} />
+```
+
+`AxisHandler` takes `axis="primary"` or
 `axis="secondary"`; `onDelta` receives signed `i32` millidegrees through the
 hardware-neutral relative-axis contract. `MotionHandler` takes a static
 `value` and optional `minQuality`; `onUpdate` receives the fused motion

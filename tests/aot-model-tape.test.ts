@@ -29,6 +29,21 @@ test("button tape dispatch refreshes active memos and later handler arguments be
   expect(frames[3]!.state).toEqual({ count: 4, recorded: 2, double: 8 });
 });
 
+test("button tape delivers press, model-clock holds and the release with (mask, buttons) payloads", () => {
+  const view = program({
+    "App.ts": imports + 'export const [log,setLog]=createSignal("");export const [live,setLive]=createSignal(true);export function note(name:string,mask:i32,buttons:i32){setLog(s=>s+name+":"+mask+":"+buttons+" ");}export function off(){setLive(false);}',
+    "App.tsx": 'import {ActionHandler,View} from "@pocketjs/framework/solid/components";import {BTN} from "@pocketjs/framework/input";import {live,note,off} from "./App";export default function App(){return <View><ActionHandler button={BTN.CIRCLE} onPress={off}/><ActionHandler button={BTN.CROSS} active={live()} holdMs={40} repeatMs={30} onPress={(m,b)=>note("press",m,b)} onHold={(m,b)=>note("hold",m,b)} onRelease={(m,b)=>note("release",m,b)}/></View>;}',
+  });
+  // 60 Hz: the hold is due at 16.7 + 40 ms (frame 4), repeats at 86.7 ms (frame 6); CIRCLE, earlier in document order, deactivates CROSS before its frame-7 repeat; the release still arrives and the later press is ignored.
+  const tape = [0, BTN.CROSS, BTN.CROSS, BTN.CROSS, BTN.CROSS, BTN.CROSS, BTN.CROSS, BTN.CROSS | BTN.CIRCLE, BTN.CROSS, 0, BTN.CROSS, 0];
+  const frames = replayModelTape(view, { hz: 60, frames: tape.map(buttons => ({ buttons })) });
+  expect(frames.map(frame => frame.state.log).filter((log, index, all) => log !== all[index - 1])).toEqual([
+    "", "press:16384:16384 ", "press:16384:16384 hold:16384:16384 ", "press:16384:16384 hold:16384:16384 hold:16384:16384 ",
+    "press:16384:16384 hold:16384:16384 hold:16384:16384 release:16384:0 ",
+  ]);
+  expect(frames.map(frame => frame.state.log).findIndex(log => log.includes("release"))).toBe(9);
+});
+
 test("motion tape states fire handlers at their quality with driver values and metadata", () => {
   const view = program({
     "App.ts": imports + 'import type {f32,u8,u64} from "@pocketjs/framework/solid/std";export const [angle,setAngle]=createSignal<f32>(0);export const [stamp,setStamp]=createSignal<u64>(0);export const [spins,setSpins]=createSignal<i32>(0);export function upright(degrees:f32,quality:u8,timestamp:u64){setAngle(degrees);setStamp(timestamp);}export function spin(x:f32){setSpins(n=>n+1);}',
