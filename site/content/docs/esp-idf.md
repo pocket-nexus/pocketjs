@@ -288,7 +288,8 @@ The library crate:
 - uses `no_std` with `alloc`, and depends on `microts` with the `runtime`
   feature, `pocket-runtime`, `pocket-drivers` and `pocket-raster`;
 - includes the generated `include.rs`, which declares `mod generated`,
-  `TICK_HZ`, `load_fonts` and `load_images`;
+  `TICK_HZ`, `load_fonts`, `load_images`, `load_fonts_in_place` and
+  `load_images_in_place`;
 - implements `microts::runtime::AotApp`: `mount` loads `styles.bin`, the fonts
   and the images and constructs the generated `AppApp`; `frame` converts a
   `GuestFrame` into `microts::Input`;
@@ -406,10 +407,20 @@ target by default`. The library enables the `critical-section` feature of
 its own stack for the Runtime.
 
 **The generated `load_fonts` and `load_images` copy their data into the
-heap.** `Ui::load_font_atlas` parses each atlas into an owned buffer and
-`upload_img_entry` copies the pixels, while the `include_bytes!` originals stay
-in flash. A library that needs the atlases in place writes its own loader
-over `load_font_atlas_shared`. A `DisplayOutput` that keeps a full frame, as
+heap; `load_fonts_in_place` and `load_images_in_place` read it from flash.**
+Both pairs take `&mut microts::Ui`, and `mount` calls one of them.
+`load_fonts` parses each atlas into an owned buffer with `load_font_atlas`
+and `load_images` copies each image's pixels with `upload_img_entry`, while
+the `include_bytes!` originals stay in flash. `load_fonts_in_place` passes
+each atlas to `load_font_atlas_shared`, which reads the coverage cells from
+the `include_bytes!` data. `load_images_in_place` passes each image to
+`upload_img_entry_from`: **a texture's pixels are copied into the heap when a
+frame first draws it**, and `set_texture_budget` releases textures beyond the
+budget that the previous frame did not draw. Reading flash costs more per
+access than reading internal RAM. On the host, an application with 119,952
+bytes of atlases and one 128 × 128 RGBA image held 186,408 heap bytes after
+the copying pair and 3,400 after the in-place pair; its first frame added the
+image's 65,536 bytes. A `DisplayOutput` that keeps a full frame, as
 the iPod nano program's does, holds two bytes per RGB565 pixel: 153,600 bytes
 at 320 × 240.
 
