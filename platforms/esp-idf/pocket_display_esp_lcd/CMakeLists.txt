@@ -1,1 +1,1 @@
-idf_component_register(SRCS "src/display.c" INCLUDE_DIRS "include" REQUIRES pocket_runtime esp_lcd)
+idf_component_register(SRCS "src/display.c" INCLUDE_DIRS "include" REQUIRES pocket_runtime esp_lcd PRIV_REQUIRES esp_timer)
