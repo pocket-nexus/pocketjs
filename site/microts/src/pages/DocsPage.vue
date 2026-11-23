@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import CandyText from "../components/CandyText.vue";
 import { DOC_ITEMS, DOC_NAV, loadDoc } from "../docs/nav";
 import { GITHUB_POCKETJS } from "../site";
 import { COMMIT } from "microts:build";
@@ -83,23 +82,23 @@ onBeforeUnmount(() => observer?.disconnect());
 <template>
   <div class="mx-auto w-full max-w-[84rem] lg:grid lg:grid-cols-[250px_minmax(0,1fr)] xl:grid-cols-[250px_minmax(0,1fr)_210px]">
     <!-- Sidebar -->
-    <aside class="hidden lg:block" style="border-right: 3px dotted rgba(203, 189, 226, 0.12)">
-      <nav class="sticky top-[calc(3.6rem+3px)] max-h-[calc(100vh-3.6rem)] overflow-y-auto px-5 py-8">
-        <div v-for="sec in DOC_NAV" :key="sec.title" class="mb-6">
-          <div class="mb-2 px-2.5 font-round text-[0.86rem] font-semibold tracking-[0.02em] text-pink-l">{{ sec.title }}</div>
+    <aside class="hidden border-r border-line lg:block">
+      <nav class="sticky top-[61px] max-h-[calc(100vh-61px)] overflow-y-auto px-5 py-9">
+        <div v-for="sec in DOC_NAV" :key="sec.title" class="mb-7">
+          <div class="kick mb-2 px-2.5 !text-[11.5px]">{{ sec.title }}</div>
           <RouterLink
             v-for="item in sec.items"
             :key="item.slug"
             :to="`/docs/${item.slug}`"
-            class="block rounded-[9px] px-2.5 py-1.5 text-[0.9rem] leading-snug text-[#ab9ccb] transition-colors hover:text-ink"
-            :class="item.slug === slug ? '!text-out bg-yellow font-medium shadow-[0_2px_0_#0a0614]' : ''"
+            class="block rounded-[9px] px-2.5 py-1.5 text-[0.9rem] leading-snug text-ink-2 transition-colors hover:text-ink"
+            :class="item.slug === slug ? 'bg-[rgba(255,255,255,0.08)] font-medium !text-ink' : ''"
           >
             {{ item.title }}
           </RouterLink>
         </div>
-        <div class="mt-8 grid gap-2 px-2.5 text-[0.84rem]">
-          <RouterLink to="/playground" class="font-round font-semibold text-cyan hover:text-yellow">Open the playground →</RouterLink>
-          <a href="https://pocketjs.pocket.nexus/docs/styling/" target="_blank" rel="noopener" class="font-round font-semibold text-[#ab9ccb] hover:text-yellow">
+        <div class="mt-8 grid gap-2 border-t border-line px-2.5 pt-6 text-[0.86rem]">
+          <RouterLink to="/playground" class="font-semibold text-cyan hover:text-cyan-l">Open the playground →</RouterLink>
+          <a href="https://pocketjs.pocket.nexus/docs/styling/" target="_blank" rel="noopener" class="font-semibold text-ink-2 hover:text-ink">
             PocketJS styling ↗
           </a>
         </div>
@@ -107,20 +106,20 @@ onBeforeUnmount(() => observer?.disconnect());
     </aside>
 
     <!-- Mobile docs index -->
-    <details ref="mobileNav" class="sticky top-[calc(3.6rem+3px)] z-30 border-b-[3px] border-drop bg-[rgba(20,14,34,0.97)] lg:hidden">
-      <summary class="wrap flex cursor-pointer items-center justify-between py-3 font-round text-[0.98rem] font-semibold">
-        <span><span class="text-pink-l">Docs</span> · {{ current?.title ?? "MicroTS" }}</span>
+    <details ref="mobileNav" class="sticky top-[61px] z-30 border-b border-line bg-[rgba(11,10,16,0.92)] backdrop-blur-[14px] lg:hidden">
+      <summary class="wrap flex cursor-pointer items-center justify-between gap-3 py-3 text-[0.95rem] font-semibold">
+        <span class="min-w-0 truncate"><span class="text-muted">Docs</span> · {{ current?.title ?? "MicroTS" }}</span>
         <span class="text-muted">▾</span>
       </summary>
       <div class="wrap grid gap-1 pb-4">
         <template v-for="sec in DOC_NAV" :key="sec.title">
-          <div class="mt-2 font-round text-[0.8rem] font-semibold text-pink-l">{{ sec.title }}</div>
+          <div class="kick mt-3 mb-1 !text-[11.5px]">{{ sec.title }}</div>
           <RouterLink
             v-for="item in sec.items"
             :key="item.slug"
             :to="`/docs/${item.slug}`"
             class="rounded-[9px] px-2.5 py-1.5 text-[0.92rem] text-ink-2"
-            :class="item.slug === slug ? 'bg-yellow !text-out' : ''"
+            :class="item.slug === slug ? 'bg-[rgba(255,255,255,0.08)] !text-ink' : ''"
           >
             {{ item.title }}
           </RouterLink>
@@ -129,10 +128,10 @@ onBeforeUnmount(() => observer?.disconnect());
     </details>
 
     <!-- Article -->
-    <article class="min-w-0 px-[clamp(1.25rem,4vw,3rem)] pt-10 pb-20">
+    <article class="min-w-0 px-[clamp(18px,4vw,3rem)] pt-12 pb-20">
       <div v-if="missing" class="py-20">
-        <CandyText tag="h1" text="Page not found" class="text-[1.6rem] leading-[1.45]" :start="1" />
-        <p class="mt-6 text-soft">
+        <h1 class="h-page">Page not found</h1>
+        <p class="mt-6 text-ink-2">
           There is no MicroTS page at this address. Start from
           <RouterLink to="/docs/microts" class="olink text-cyan">Build a native Vue app</RouterLink>.
         </p>
@@ -140,34 +139,28 @@ onBeforeUnmount(() => observer?.disconnect());
       <template v-else-if="doc">
         <div class="mb-5 flex flex-wrap items-center gap-2">
           <span class="badge">{{ DOC_NAV.find((s) => s.items.some((i) => i.slug === slug))?.title }}</span>
-          <a :href="editUrl" target="_blank" rel="noopener" class="badge hover:text-yellow">Source · pocketjs@{{ COMMIT.slice(0, 7) }}</a>
+          <a :href="editUrl" target="_blank" rel="noopener" class="badge hover:border-[rgba(255,255,255,0.35)] hover:text-ink">Source · pocketjs@{{ COMMIT.slice(0, 7) }}</a>
         </div>
-        <CandyText
-          :key="slug"
-          tag="h1"
-          :text="doc.title"
-          :start="1"
-          class="drop-in block pb-2 text-[1.9rem] leading-[1.5] max-[620px]:text-[1.35rem]"
-        />
+        <h1 class="h-page max-w-[52rem] !text-[clamp(34px,4.2vw,50px)] !leading-[1.05]">{{ doc.title }}</h1>
         <div ref="body" class="doc mt-8 max-w-[52rem]" @click="onClick" v-html="doc.html" />
 
-        <nav class="mt-14 grid max-w-[52rem] gap-4 pt-8 sm:grid-cols-2" style="border-top: 3px dotted rgba(203, 189, 226, 0.14)">
+        <nav class="mt-14 grid max-w-[52rem] gap-[14px] border-t border-line pt-8 sm:grid-cols-2">
           <RouterLink
             v-if="prev"
             :to="`/docs/${prev.slug}`"
-            class="group grid gap-1 rounded-2xl border-[2.5px] border-[rgba(169,139,255,0.4)] bg-panel px-5 py-4 shadow-[0_4px_0_#0a0614] transition hover:-translate-y-0.5 hover:border-yellow"
+            class="card card-link grid gap-1 px-5 py-4"
           >
-            <span class="font-round text-[0.8rem] font-semibold tracking-[0.02em] text-lilac-l">← Previous</span>
-            <span class="font-round text-[1.05rem] font-semibold text-ink">{{ prev.title }}</span>
+            <span class="text-[0.8rem] font-semibold text-muted">← Previous</span>
+            <span class="font-disp text-[1.08rem] font-bold tracking-[-0.01em] text-ink">{{ prev.title }}</span>
           </RouterLink>
           <span v-else />
           <RouterLink
             v-if="next"
             :to="`/docs/${next.slug}`"
-            class="group grid gap-1 rounded-2xl border-[2.5px] border-[rgba(169,139,255,0.4)] bg-panel px-5 py-4 text-right shadow-[0_4px_0_#0a0614] transition hover:-translate-y-0.5 hover:border-yellow"
+            class="card card-link grid gap-1 px-5 py-4 text-right"
           >
-            <span class="font-round text-[0.8rem] font-semibold tracking-[0.02em] text-lilac-l">Next →</span>
-            <span class="font-round text-[1.05rem] font-semibold text-ink">{{ next.title }}</span>
+            <span class="text-[0.8rem] font-semibold text-muted">Next →</span>
+            <span class="font-disp text-[1.08rem] font-bold tracking-[-0.01em] text-ink">{{ next.title }}</span>
           </RouterLink>
         </nav>
       </template>
@@ -175,14 +168,14 @@ onBeforeUnmount(() => observer?.disconnect());
 
     <!-- On this page -->
     <aside class="hidden xl:block">
-      <nav v-if="toc.length" class="sticky top-[calc(3.6rem+3px)] max-h-[calc(100vh-3.6rem)] overflow-y-auto py-10 pr-5">
-        <div class="mb-3 font-mono text-[0.72rem] font-medium tracking-[0.09em] text-muted uppercase">On this page</div>
+      <nav v-if="toc.length" class="sticky top-[61px] max-h-[calc(100vh-61px)] overflow-y-auto py-12 pr-5">
+        <div class="kick mb-3 !text-[11.5px]">On this page</div>
         <a
           v-for="t in toc"
           :key="t.id"
           :href="`#${t.id}`"
-          class="block border-l-[3px] py-1 pl-3 text-[0.84rem] leading-snug transition-colors"
-          :class="activeId === t.id ? 'border-yellow text-ink' : 'border-[rgba(203,189,226,0.12)] text-muted hover:text-ink-2'"
+          class="block border-l-2 py-1 pl-3 text-[0.84rem] leading-snug transition-colors"
+          :class="activeId === t.id ? 'border-cyan text-ink' : 'border-line text-muted hover:text-ink-2'"
           @click.prevent="onClick($event)"
         >
           {{ t.text }}

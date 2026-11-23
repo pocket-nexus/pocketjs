@@ -30,21 +30,21 @@ const states = new Map<string, EditorState>();
 
 const pocketTheme = EditorView.theme(
   {
-    "&": { backgroundColor: "#120c21", color: "#e8e0f5", height: "100%", fontSize: "13px" },
+    "&": { backgroundColor: "#0d0c12", color: "#ddd6ea", height: "100%", fontSize: "13px" },
     ".cm-scroller": { fontFamily: "var(--font-mono)", lineHeight: "1.65" },
-    ".cm-content": { padding: "12px 0", caretColor: "#ffd23f" },
-    ".cm-gutters": { backgroundColor: "#120c21", color: "#5d5279", border: "none", paddingLeft: "6px" },
-    ".cm-activeLineGutter": { backgroundColor: "transparent", color: "#cbbde2" },
-    ".cm-activeLine": { backgroundColor: "rgba(169,139,255,0.07)" },
-    "&.cm-focused .cm-cursor": { borderLeftColor: "#ffd23f", borderLeftWidth: "2px" },
+    ".cm-content": { padding: "12px 0", caretColor: "#3fd0e8" },
+    ".cm-gutters": { backgroundColor: "#0d0c12", color: "#4d475c", border: "none", paddingLeft: "6px" },
+    ".cm-activeLineGutter": { backgroundColor: "transparent", color: "#a9a3b8" },
+    ".cm-activeLine": { backgroundColor: "rgba(255,255,255,0.035)" },
+    "&.cm-focused .cm-cursor": { borderLeftColor: "#3fd0e8", borderLeftWidth: "2px" },
     "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection": {
-      backgroundColor: "rgba(255,210,63,0.22) !important",
+      backgroundColor: "rgba(63,208,232,0.22) !important",
     },
     ".cm-matchingBracket": { backgroundColor: "rgba(63,208,232,0.18)", outline: "1px solid rgba(63,208,232,0.5)" },
-    ".cm-tooltip": { backgroundColor: "#231b3b", border: "2px solid #a98bff", borderRadius: "10px" },
+    ".cm-tooltip": { backgroundColor: "#17151f", border: "1px solid rgba(255,255,255,0.16)", borderRadius: "10px" },
     ".cm-diagnostic-error": { borderLeft: "3px solid #ff5f9e" },
-    ".cm-panels": { backgroundColor: "#1c1630", color: "#cbbde2" },
-    ".cm-foldPlaceholder": { backgroundColor: "#2b2148", border: "none", color: "#cbbde2" },
+    ".cm-panels": { backgroundColor: "#13111b", color: "#a9a3b8" },
+    ".cm-foldPlaceholder": { backgroundColor: "rgba(255,255,255,0.08)", border: "none", color: "#a9a3b8" },
   },
   { dark: true },
 );
@@ -65,8 +65,9 @@ function createState(file: string, doc: string): EditorState {
         { key: "Mod-s", run: () => (emit("run"), true), preventDefault: true },
       ]),
       language(file),
-      oneDark,
+      // Earlier extensions take precedence: the page's colors go before one-dark's
       pocketTheme,
+      oneDark,
       EditorState.tabSize.of(2),
       EditorView.updateListener.of((u) => {
         if (u.docChanged) emit("change", file, u.state.doc.toString());

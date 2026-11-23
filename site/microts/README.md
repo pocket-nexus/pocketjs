@@ -59,7 +59,7 @@ and the router renders the 404 page.
 | `pocket/` | the UI preview kit (`lib/kit.ts`): `kit/` compiler worker and preview iframe, the framework subpaths, Vue Vapor and Solid runtimes, `platforms/web/pocketjs.wasm`, Inter |
 | `retro/<id>/` | baked assets and a poster frame per game (`lib/retro.ts`) |
 | `shells/` | the playground devices' pictures and their credits (`lib/shells.ts`): `shells/` here and the Pocket3D player's PSP and 3DS |
-| `fonts/`, `pocket3d-mark.svg` | copied from `site/assets/fonts/` and `site/pocket3d/mark.svg` |
+| `pocket3d-mark.svg` | copied from `site/pocket3d/mark.svg` |
 | `favicon.svg`, `favicon.ico`, `*.png`, `site.webmanifest` | copied from `public/`; `bun run microts:icons` writes the icons there from `mark.svg` |
 
 The app imports build-time data through virtual modules (`src/env.d.ts` has
@@ -106,13 +106,13 @@ shells/                the devices' pictures and profiles (tools/handheld-shells
 src/docs/              which docs pages render (catalog.ts) and the sidebar (nav.ts)
 src/pages/             Home, Docs, Playground start page, Playground, 404
 src/playground/        presets, templates, project storage, editor, devices, retro host, UI preview
-src/styles/main.css    Tailwind v4 theme tokens and the Arcade component classes
+src/styles/main.css    Tailwind v4 theme tokens and the component classes
 ```
 
 ## Licenses
 
 Bundled third-party content keeps its own license, published next to it:
-PocketJS (`/pocket/LICENSE.txt`), Inter (`/pocket/fonts/LICENSE.txt`), Press
-Start 2P (`/fonts/OFL-PressStart2P.txt`), the Pocket Retro SDK and games
+PocketJS (`/pocket/LICENSE.txt`), Inter (`/pocket/fonts/LICENSE.txt`), the
+Pocket Retro SDK and games
 (`/retro/LICENSE.txt`, `/retro/THIRD_PARTY_NOTICES.md`), and the device
 pictures (`/shells/ATTRIBUTION.md`, `/shells/LICENSE-Pocket3D.txt`).

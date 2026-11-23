@@ -1,9 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, useTemplateRef } from "vue";
-import CandyText from "../components/CandyText.vue";
 import CodeTabs from "../components/CodeTabs.vue";
 import SectionHead from "../components/SectionHead.vue";
-import MicroTSMark from "../components/MicroTSMark.vue";
 import counterSolid from "../../content/home/counter-solid.md?tabs";
 import counterVue from "../../content/home/counter-vue.md?tabs";
 import counterRust from "../../content/home/counter-rust.md?tabs";
@@ -34,8 +32,8 @@ type Tabs = { title: string; html: string }[];
 // One source: the counter in each front end, view file first, then the Rust program that runs either
 // one. Both generate the same gen/counter.rs; the view and model files are the playground starters.
 const frameworks = [
-  { title: "Solid", preset: "counter-solid", tabs: [...counterSolid, ...counterRust] },
-  { title: "Vue", preset: "counter-vue", tabs: [...counterVue, ...counterRust] },
+  { title: "Solid", color: "#4f88c6", preset: "counter-solid", tabs: [...counterSolid, ...counterRust] },
+  { title: "Vue", color: "#42b883", preset: "counter-vue", tabs: [...counterVue, ...counterRust] },
 ];
 const framework = ref(0);
 const current = computed(() => frameworks[framework.value]!);
@@ -45,6 +43,20 @@ const oneSourceLede =
   "with its state and actions typed in a TypeScript module. Both front ends produce the same View IR: " +
   "<b>the Solid and Vue counters generate the same <code>gen/counter.rs</code> and run on the same Rust model.</b> " +
   "Either source runs in a browser, in QuickJS on a device, or as native Rust.";
+
+// Three build paths for the same source
+const buildPaths = [
+  { k: "Browser preview", hue: "hue-cyan", v: "Edit the view and run it in a browser on the PocketJS web host. The playground on this site runs this build." },
+  { k: "QuickJS guest", hue: "hue-lilac", v: "Bundle the same source as JavaScript for a device that runs the QuickJS engine." },
+  { k: "Native AOT", hue: "hue-pink", v: "Compile the view to Rust and build it with Cargo, together with your model. The app ships without a JavaScript engine." },
+];
+
+// The hero's three facts, colored with the mark's hues
+const proof = [
+  { dt: "Vue SFC · Solid TSX", dd: "Two front ends, one View IR", color: "var(--color-cyan)" },
+  { dt: "Rust", dd: "View and model compiled ahead of time", color: "var(--color-lilac)" },
+  { dt: "No JavaScript engine", dd: "in the native app", color: "var(--color-pink)" },
+];
 
 const picked = ref(showcase[0]!);
 const code = reactive<Record<string, Tabs>>({});
@@ -82,6 +94,8 @@ const pipeline = [
   { n: "05", title: "Cargo", body: "Build the generated view with your model and the <code>microts</code> crate. Your host supplies input, fonts and presentation." },
 ];
 
+const stepHues = ["hue-cyan", "hue-lilac", "hue-pink", "hue-yellow", "hue-cyan"];
+
 // A row without a Vue form is written the same way in both front ends.
 const bindings: { solid: string; vue?: string; rust: string }[] = [
   { solid: "<View> and <Text>", rust: "Create nodes with ui.create_node(...) and attach them with ui.insert_before(...)" },
@@ -95,304 +109,279 @@ const bindings: { solid: string; vue?: string; rust: string }[] = [
 <template>
   <div>
     <!-- ================= hero ================= -->
-    <section class="hue-pink wrap grid items-center gap-12 pt-[clamp(2.5rem,7vw,5rem)] pb-[clamp(3rem,7vw,5rem)] lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
-      <div>
-        <div class="mb-6 flex flex-wrap items-center gap-2.5">
-          <span class="kicker">PocketJS · ahead-of-time mode</span>
-          <span class="badge text-orange-l">In development</span>
+    <section class="relative pt-[110px] max-[640px]:pt-16">
+      <div class="glow" aria-hidden="true" />
+      <div class="wrap relative grid items-center gap-14 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,0.75fr)]">
+        <div class="min-w-0">
+          <div class="flex flex-wrap items-center gap-3">
+            <span class="kick">PocketJS · ahead-of-time mode</span>
+            <span class="tag hue-yellow">In development</span>
+          </div>
+          <h1 class="h-hero mt-6">
+            <span class="block">TypeScript</span>
+            <span class="grad block pb-[0.08em]">to native code.</span>
+          </h1>
+          <p class="intro mt-7 !max-w-[600px] !text-[20px] max-[640px]:!text-[17.5px]">
+            MicroTS compiles Vue single-file components, Solid TSX views and TypeScript models into Rust.
+            <b>The native app runs its view and model without a JavaScript engine.</b>
+          </p>
+          <div class="mt-9 flex flex-wrap gap-3">
+            <RouterLink to="/playground" class="btn btn-pri">Open the playground</RouterLink>
+            <RouterLink to="/docs/microts" class="btn">Read the guide</RouterLink>
+            <a :href="GITHUB_MICROTS" target="_blank" rel="noopener" class="btn">GitHub</a>
+          </div>
         </div>
-        <div class="plate px-[clamp(1.2rem,2.8vw,2rem)] pt-[clamp(1.3rem,2.8vw,2rem)] pb-[clamp(1.9rem,3.4vw,2.5rem)]">
-          <span class="spark twinkle absolute -top-[19px] -right-[15px] z-10 !size-[35px] !bg-yellow max-[700px]:!size-7" aria-hidden="true" />
-          <CandyText
-            tag="h1"
-            :text="'TypeScript\nto native code'"
-            class="drop-in relative z-10 block text-[clamp(1.15rem,3.3vw,2.4rem)] leading-[1.45]"
-          />
-          <div class="bulbs bulbs-run absolute right-6 bottom-[15px] left-6" aria-hidden="true" />
-        </div>
-        <p class="mt-8 max-w-[36rem] text-[1.08rem] leading-relaxed text-ink-2">
-          MicroTS compiles Vue single-file components, Solid TSX views and TypeScript models into Rust.
-          <b class="font-semibold text-ink">The native app runs its view and model without a JavaScript engine.</b>
-        </p>
-        <div class="mt-8 flex flex-wrap gap-4">
-          <RouterLink to="/playground" class="btn btn-primary">Open the playground</RouterLink>
-          <RouterLink to="/docs/microts" class="btn">Read the guide</RouterLink>
-          <a :href="GITHUB_MICROTS" target="_blank" rel="noopener" class="btn btn-heart">GitHub</a>
-        </div>
-      </div>
 
-      <!-- Handheld: cycles Pocket Retro screenshots -->
-      <figure class="mx-auto w-full max-w-[420px]" aria-label="Pocket Retro game screenshots">
-        <div
-          class="hue-lilac relative rounded-[34px] border-[3px] border-out px-5 pt-5 pb-6"
-          style="
-            background: linear-gradient(180deg, #3a2d63, #2b2148 60%);
-            box-shadow: inset 0 3px 0 rgba(255, 255, 255, 0.12), inset 0 -6px 0 rgba(0, 0, 0, 0.25), 0 8px 0 #7155d8, 0 8px 0 3px #0a0614, 0 30px 50px -20px rgba(0, 0, 0, 0.8);
-          "
-        >
-          <div class="rounded-[18px] bg-shade p-3 shadow-[inset_0_0_0_2px_#0a0614]">
-            <div class="mb-2 flex items-center justify-between px-1">
-              <span class="font-px text-[0.5rem] tracking-[0.08em] text-muted">POCKET RETRO</span>
-              <span class="flex items-center gap-1.5" aria-hidden="true">
-                <i v-for="(id, i) in showcase" :key="id" class="inline-block size-1.5 rounded-[1px] transition-colors" :class="i === shown ? 'bg-pink' : 'bg-out'" />
-              </span>
-            </div>
-            <div class="scanlines relative overflow-hidden rounded-[10px] bg-black shadow-[0_0_0_2px_#0a0614]" style="aspect-ratio: 4 / 3">
-              <img
-                v-for="(id, i) in showcase"
-                :key="id"
-                :src="`/retro/${id}/poster.png`"
-                :alt="gameById(id).title"
-                :aria-hidden="i !== shown"
-                class="absolute inset-0 h-full w-full object-contain [image-rendering:pixelated] transition-opacity duration-300"
-                :class="i === shown ? 'opacity-100' : 'opacity-0'"
-              />
-            </div>
+        <!-- Cycles Pocket Retro screenshots -->
+        <figure class="frame mx-auto w-full max-w-[460px]" aria-label="Pocket Retro game screenshots">
+          <div class="relative bg-black" style="aspect-ratio: 4 / 3">
+            <img
+              v-for="(id, i) in showcase"
+              :key="id"
+              :src="`/retro/${id}/poster.png`"
+              :alt="gameById(id).title"
+              :aria-hidden="i !== shown"
+              class="absolute inset-0 h-full w-full object-contain [image-rendering:pixelated] transition-opacity duration-300"
+              :class="i === shown ? 'opacity-100' : 'opacity-0'"
+            />
           </div>
-          <div class="mt-5 flex items-center justify-between px-2">
-            <div class="relative size-[68px]" aria-hidden="true">
-              <span class="absolute top-[22px] left-0 h-6 w-[68px] rounded-[6px] bg-out shadow-[0_3px_0_#0a0614]" />
-              <span class="absolute top-0 left-[22px] h-[68px] w-6 rounded-[6px] bg-out shadow-[0_3px_0_#0a0614]" />
+          <figcaption class="flex items-center justify-between gap-4 border-t border-line px-5 py-4">
+            <div class="min-w-0">
+              <div class="kick !text-[11px]">Pocket Retro</div>
+              <div class="h-card mt-1.5 truncate !text-[17px]">{{ gameById(showcase[shown]!).title }}</div>
+              <div class="truncate text-[13px] text-ink-2">
+                {{ gameById(showcase[shown]!).width }}×{{ gameById(showcase[shown]!).height }} · by {{ gameById(showcase[shown]!).author }}
+              </div>
             </div>
-            <div class="text-center">
-              <div class="font-round text-[1.02rem] font-semibold text-ink">{{ gameById(showcase[shown]!).title }}</div>
-              <div class="font-mono text-[0.7rem] text-soft">{{ gameById(showcase[shown]!).width }}×{{ gameById(showcase[shown]!).height }} · by {{ gameById(showcase[shown]!).author }}</div>
-            </div>
-            <div class="flex items-end gap-2" aria-hidden="true">
-              <span class="size-8 rounded-full bg-pink shadow-[0_3px_0_#c23a73,0_3px_0_2px_#0a0614]" />
-              <span class="mb-3 size-8 rounded-full bg-yellow shadow-[0_3px_0_#c99400,0_3px_0_2px_#0a0614]" />
-            </div>
+            <span class="flex flex-none items-center gap-1.5" aria-hidden="true">
+              <i v-for="(id, i) in showcase" :key="id" class="block h-1.5 rounded-full transition-all" :class="i === shown ? 'w-4 bg-ink' : 'w-1.5 bg-line-2'" />
+            </span>
+          </figcaption>
+        </figure>
+      </div>
+      <div class="wrap relative">
+        <dl class="mt-16 grid rounded-[20px] bg-[rgba(23,21,31,0.7)] shadow-[0_0_0_1px_var(--color-line)] md:grid-cols-3">
+          <div v-for="(p, i) in proof" :key="p.dt" class="px-6 py-5" :class="i > 0 && 'border-line max-md:border-t md:border-l'">
+            <dt class="font-disp text-[22px] leading-tight font-bold tracking-[-0.02em]" :style="{ color: p.color }">{{ p.dt }}</dt>
+            <dd class="mt-1 text-[14.5px] text-ink-2">{{ p.dd }}</dd>
           </div>
-        </div>
-      </figure>
+        </dl>
+      </div>
     </section>
 
-    <!-- ================= write ================= -->
-    <section class="hue-cyan wrap py-[clamp(2.6rem,6.5vw,4.2rem)]">
-      <SectionHead title="One source" :start="2" :lede="oneSourceLede" />
-      <div class="grid items-start gap-8 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
-        <CodeTabs :tabs="current.tabs">
-          <template #head>
-            <div class="flex flex-wrap items-center gap-x-4 gap-y-3 px-3 pt-3">
-              <div class="flex gap-2" role="tablist" aria-label="Framework">
-                <button
-                  v-for="(f, i) in frameworks"
-                  :key="f.title"
-                  type="button"
-                  role="tab"
-                  :aria-selected="framework === i"
-                  class="h-10 rounded-[10px] border-2 px-4 font-round text-[1rem] leading-none font-semibold transition"
-                  :class="
-                    framework === i
-                      ? 'translate-y-[2px] border-[var(--hue)] bg-[var(--hue)] text-out shadow-[0_1px_0_#0a0614,inset_0_-2px_0_rgba(0,0,0,0.18)]'
-                      : 'border-[rgba(203,189,226,0.18)] bg-key text-ink-2 shadow-[0_3px_0_#0a0614] hover:bg-key-hi hover:text-ink'
-                  "
-                  @click="framework = i"
-                >
-                  {{ f.title }}
-                </button>
+    <!-- ================= one source ================= -->
+    <section class="pt-[136px] max-[640px]:pt-24">
+      <div class="wrap">
+        <SectionHead kick="One source" title="Solid or Vue. The same Rust." :lede="oneSourceLede" />
+        <div class="grid items-start gap-[18px] lg:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
+          <CodeTabs :tabs="current.tabs">
+            <template #head>
+              <div class="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line bg-bg-2 p-2.5">
+                <div class="flex gap-1" role="tablist" aria-label="Framework">
+                  <button
+                    v-for="(f, i) in frameworks"
+                    :key="f.title"
+                    type="button"
+                    role="tab"
+                    :aria-selected="framework === i"
+                    class="codetab codetab-fw"
+                    @click="framework = i"
+                  >
+                    <i :style="{ background: f.color }" />{{ f.title }}
+                  </button>
+                </div>
+                <RouterLink :to="`/playground/${current.preset}`" class="arrow-link ml-auto px-2"> Edit the {{ current.title }} counter in the playground → </RouterLink>
               </div>
-              <RouterLink
-                :to="`/playground/${current.preset}`"
-                class="ml-auto font-round text-[0.84rem] font-semibold text-soft underline decoration-dotted underline-offset-4 hover:text-yellow"
-              >
-                Edit the {{ current.title }} counter in the playground
-              </RouterLink>
+            </template>
+          </CodeTabs>
+          <div class="grid gap-[18px]">
+            <div v-for="row in buildPaths" :key="row.k" class="card px-6 pt-5 pb-6" :class="row.hue">
+              <div class="flex items-center gap-2.5">
+                <i class="size-2 flex-none rounded-full bg-[var(--hue)]" aria-hidden="true" />
+                <h3 class="h-card !text-[18px]">{{ row.k }}</h3>
+              </div>
+              <p class="mt-2 text-[15px] leading-relaxed text-ink-2">{{ row.v }}</p>
             </div>
-            <div class="dotted-rule mx-3 mt-3" aria-hidden="true" />
-          </template>
-        </CodeTabs>
-        <div class="grid gap-4">
-          <div v-for="(row, i) in [
-            { k: 'Browser preview', v: 'Edit the view and run it in a browser on the PocketJS web host. The playground on this site runs this build.' },
-            { k: 'QuickJS guest', v: 'Bundle the same source as JavaScript for a device that runs the QuickJS engine.' },
-            { k: 'Native AOT', v: 'Compile the view to Rust and build it with Cargo, together with your model. The app ships without a JavaScript engine.' },
-          ]" :key="row.k" class="shell px-5 py-4" :class="['hue-cyan', 'hue-lilac', 'hue-yellow'][i]">
-            <div class="label mb-2">{{ row.k }}</div>
-            <p class="text-[0.95rem] leading-relaxed text-soft">{{ row.v }}</p>
           </div>
         </div>
       </div>
     </section>
 
     <!-- ================= compile ================= -->
-    <section class="hue-lilac wrap py-[clamp(2.6rem,6.5vw,4.2rem)]">
-      <SectionHead
-        title="How it compiles"
-        :start="4"
-        lede="The MicroTS compiler turns each component into Rust source and a compiled style table, and Cargo builds them into your native app. <b>You edit the TypeScript; the compiler maintains <code>gen/</code>.</b>"
-      />
-      <ol class="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <li v-for="(step, i) in pipeline" :key="step.n" class="shell card-hover relative px-4 pt-4 pb-5" :class="['hue-pink', 'hue-yellow', 'hue-cyan', 'hue-lilac', 'hue-orange'][i]">
-          <div class="mb-3 flex items-center justify-between">
-            <span class="font-px text-[0.7rem] text-[var(--hue)]">{{ step.n }}</span>
-            <span v-if="i < pipeline.length - 1" class="font-px text-[0.7rem] text-dim max-lg:hidden" aria-hidden="true">→</span>
+    <section class="pt-[136px] max-[640px]:pt-24">
+      <div class="wrap">
+        <SectionHead
+          kick="How it compiles"
+          title="TypeScript in. Rust and a style table out."
+          lede="The MicroTS compiler turns each component into Rust source and a compiled style table, and Cargo builds them into your native app. <b>You edit the TypeScript; the compiler maintains <code>gen/</code>.</b>"
+        />
+        <ol class="grid gap-[18px] sm:grid-cols-2 lg:grid-cols-5">
+          <li v-for="(step, i) in pipeline" :key="step.n" class="card px-6 pt-6 pb-7" :class="stepHues[i]">
+            <span class="num">{{ step.n }}</span>
+            <h3 class="h-card mt-5">{{ step.title }}</h3>
+            <p class="inline-code mt-2.5 text-[14.5px] leading-relaxed text-ink-2" v-html="step.body" />
+          </li>
+        </ol>
+        <div class="card mt-[18px] overflow-hidden">
+          <div class="flex flex-wrap items-baseline justify-between gap-2 border-b border-line px-6 pt-5 pb-4">
+            <h3 class="h-card">Follow one binding</h3>
+            <span class="font-mono text-[12.5px] text-muted">Counter.tsx · Counter.vue → gen/counter.rs</span>
           </div>
-          <h3 class="font-round text-[1.18rem] leading-tight font-semibold">{{ step.title }}</h3>
-          <p class="mt-2 text-[0.88rem] leading-relaxed text-soft [&_code]:font-mono [&_code]:text-[0.8em] [&_code]:text-[var(--hue-l)]" v-html="step.body" />
-        </li>
-      </ol>
-      <div class="mt-10 overflow-hidden rounded-[22px] border-[3px] border-lilac bg-panel shadow-[0_6px_0_#7155d8,0_24px_40px_-22px_rgba(0,0,0,0.85)]">
-        <div class="flex flex-wrap items-center justify-between gap-2 px-5 pt-4 pb-3">
-          <span class="label">Follow one binding</span>
-          <span class="font-mono text-[0.75rem] text-muted">Counter.tsx · Counter.vue → gen/counter.rs</span>
-        </div>
-        <div class="overflow-x-auto px-3 pb-3">
-          <table class="w-full min-w-[760px] border-separate border-spacing-x-1 border-spacing-y-1.5 text-left text-[0.9rem]">
-            <thead>
-              <tr class="font-round text-[0.82rem] text-pink-l">
-                <th class="px-3 font-semibold">Solid TSX</th>
-                <th class="px-3 font-semibold">Vue template</th>
-                <th class="px-3 font-semibold">Generated Rust behavior</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="b in bindings" :key="b.solid">
-                <td :colspan="b.vue ? 1 : 2" class="screen rounded-[10px] px-3 py-2.5 align-top font-mono text-[0.82rem] whitespace-nowrap text-yellow">{{ b.solid }}</td>
-                <td v-if="b.vue" class="screen rounded-[10px] px-3 py-2.5 align-top font-mono text-[0.82rem] whitespace-nowrap text-yellow">{{ b.vue }}</td>
-                <td class="rounded-[10px] bg-[rgba(18,12,33,0.55)] px-3 py-2.5 text-soft">{{ b.rust }}</td>
-              </tr>
-            </tbody>
-          </table>
+          <div class="overflow-x-auto px-4 pt-2 pb-4">
+            <table class="w-full min-w-[760px] border-separate border-spacing-x-1.5 border-spacing-y-1.5 text-left text-[14.5px]">
+              <thead>
+                <tr class="text-[13px] text-muted">
+                  <th class="px-3 py-1.5 font-semibold">Solid TSX</th>
+                  <th class="px-3 py-1.5 font-semibold">Vue template</th>
+                  <th class="px-3 py-1.5 font-semibold">Generated Rust behavior</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="b in bindings" :key="b.solid">
+                  <td :colspan="b.vue ? 1 : 2" class="screen !rounded-[10px] px-3 py-2.5 align-top font-mono text-[13px] whitespace-nowrap text-cyan-l">{{ b.solid }}</td>
+                  <td v-if="b.vue" class="screen !rounded-[10px] px-3 py-2.5 align-top font-mono text-[13px] whitespace-nowrap text-cyan-l">{{ b.vue }}</td>
+                  <td class="px-3 py-2.5 text-ink-2">{{ b.rust }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </section>
 
     <!-- ================= model ================= -->
-    <section class="hue-yellow wrap py-[clamp(2.6rem,6.5vw,4.2rem)]">
-      <SectionHead
-        title="Pick a model"
-        :start="1"
-        lede="Write the app logic in Rust, or write it in TypeScript and compile it to Rust as well. <code>app.model</code> in <code>pocket.host.config.ts</code> selects the mode; the view stays the same."
-      />
-      <div class="grid gap-6 md:grid-cols-2">
-        <div class="shell hue-yellow px-6 pt-5 pb-6">
-          <div class="flex items-center justify-between">
-            <span class="label">"rust" · default</span>
-            <span class="font-mono text-[0.75rem] text-muted">src/lib.rs</span>
+    <section class="pt-[136px] max-[640px]:pt-24">
+      <div class="wrap">
+        <SectionHead
+          kick="Pick a model"
+          title="Rust by hand, or TypeScript compiled."
+          lede="Write the app logic in Rust, or write it in TypeScript and compile it to Rust as well. <code>app.model</code> in <code>pocket.host.config.ts</code> selects the mode; the view stays the same."
+        />
+        <div class="grid gap-[18px] md:grid-cols-2">
+          <div class="card card-top hue-lilac px-7 pt-7 pb-8 max-[640px]:px-6">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <span class="tag">"rust" · default</span>
+              <span class="font-mono text-[12.5px] text-muted">src/lib.rs</span>
+            </div>
+            <h3 class="h-sub mt-5">Handwritten Rust model</h3>
+            <p class="inline-code mt-3 text-[16px] leading-relaxed text-ink-2">
+              Implement the generated trait's methods and computed getters in Rust. The <code>.ts</code> module runs the browser preview, and its types define
+              the native contract.
+            </p>
           </div>
-          <h3 class="mt-4 font-round text-[1.3rem] font-semibold">Handwritten Rust model</h3>
-          <p class="mt-2 leading-relaxed text-soft">
-            Implement the generated trait's methods and computed getters in Rust. The <code class="font-mono text-[0.85em] text-yellow-l">.ts</code> module runs the
-            browser preview, and its types define the native contract.
-          </p>
-        </div>
-        <div class="shell hue-cyan px-6 pt-5 pb-6">
-          <div class="flex items-center justify-between">
-            <span class="label">"compiled"</span>
-            <span class="font-mono text-[0.75rem] text-muted">app.ts → Model IR → Rust</span>
+          <div class="card card-top hue-cyan px-7 pt-7 pb-8 max-[640px]:px-6">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <span class="tag">"compiled"</span>
+              <span class="font-mono text-[12.5px] text-muted">app.ts → Model IR → Rust</span>
+            </div>
+            <h3 class="h-sub mt-5">TypeScript model, compiled</h3>
+            <p class="inline-code mt-3 text-[16px] leading-relaxed text-ink-2">
+              Write state, computed values, reactions and tasks in the <code>.ts</code> module. Model AOT compiles them to <code>gen/app_model.rs</code>, and the
+              browser preview runs the same bodies. <b class="font-semibold text-ink">Admission errors report <code>file:line:column</code></b> and do not fall
+              back to the Rust mode.
+            </p>
           </div>
-          <h3 class="mt-4 font-round text-[1.3rem] font-semibold">TypeScript model, compiled</h3>
-          <p class="mt-2 leading-relaxed text-soft">
-            Write state, computed values, reactions and tasks in the <code class="font-mono text-[0.85em] text-cyan-l">.ts</code> module. Model AOT compiles
-            them to <code class="font-mono text-[0.85em] text-cyan-l">gen/app_model.rs</code>, and the browser preview runs the same bodies.
-            <b class="font-semibold text-ink">Admission errors report <code class="font-mono text-[0.85em]">file:line:column</code></b> and do not fall back to the Rust mode.
-          </p>
         </div>
       </div>
     </section>
 
     <!-- ================= retro ================= -->
-    <section class="hue-pink wrap py-[clamp(2.6rem,6.5vw,4.2rem)]">
-      <SectionHead
-        title="Made with MicroTS"
-        :start="0"
-        lede="<b>Pocket Retro</b> builds Game Boy Advance ROMs from games written in TypeScript against a Pyxel-compatible SDK. MicroTS compiles each game and the SDK into one Rust model, and <b>no Python or JavaScript runs on the console</b>. Pick a game to read its source."
-      />
-      <div class="grid gap-8 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
-        <div class="grid grid-cols-2 gap-4 sm:grid-cols-3">
-          <button
-            v-for="(id, i) in showcase"
-            :key="id"
-            type="button"
-            class="shell card-hover block cursor-pointer overflow-hidden text-left"
-            :class="id === picked ? 'hue-yellow -translate-y-1' : ['hue-pink', 'hue-cyan', 'hue-lilac', 'hue-orange', 'hue-pink', 'hue-cyan'][i]"
-            :aria-pressed="id === picked"
-            @click="pick(id)"
-            @pointerenter="load(id)"
-            @focus="load(id)"
-          >
-            <div class="scanlines relative m-2 overflow-hidden rounded-[12px] bg-black shadow-[0_0_0_2px_#0a0614]" style="aspect-ratio: 1">
-              <img :src="`/retro/${id}/poster.png`" :alt="gameById(id).title" loading="lazy" class="h-full w-full object-contain [image-rendering:pixelated]" />
-            </div>
-            <div class="px-3 pt-1 pb-3">
-              <div class="font-round text-[0.98rem] leading-tight font-bold">{{ gameById(id).title }}</div>
-              <div class="mt-1 flex flex-wrap gap-1">
-                <span class="tag">{{ gameById(id).fps }} fps</span>
-                <span class="badge">{{ gameById(id).lines }} lines</span>
+    <section class="pt-[136px] max-[640px]:pt-24">
+      <div class="wrap">
+        <SectionHead
+          kick="Made with MicroTS"
+          title="Game Boy Advance games in TypeScript."
+          lede="<b>Pocket Retro</b> builds Game Boy Advance ROMs from games written in TypeScript against a Pyxel-compatible SDK. MicroTS compiles each game and the SDK into one Rust model, and <b>no Python or JavaScript runs on the console</b>. Pick a game to read its source."
+        />
+        <div class="grid gap-[18px] lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+          <div class="grid min-w-0 grid-cols-2 gap-[14px] sm:grid-cols-3">
+            <button
+              v-for="id in showcase"
+              :key="id"
+              type="button"
+              class="card card-link block min-w-0 cursor-pointer overflow-hidden text-left"
+              :class="id === picked && '!shadow-[0_0_0_2px_var(--color-cyan)]'"
+              :aria-pressed="id === picked"
+              @click="pick(id)"
+              @pointerenter="load(id)"
+              @focus="load(id)"
+            >
+              <div class="p-2.5 pb-0">
+                <div class="overflow-hidden rounded-[12px] bg-black shadow-[0_0_0_1px_var(--color-line)]" style="aspect-ratio: 1">
+                  <img :src="`/retro/${id}/poster.png`" :alt="gameById(id).title" loading="lazy" class="h-full w-full object-contain [image-rendering:pixelated]" />
+                </div>
               </div>
-            </div>
-          </button>
+              <div class="px-3.5 pt-3 pb-4">
+                <div class="truncate font-disp text-[16px] leading-tight font-bold tracking-[-0.01em]">{{ gameById(id).title }}</div>
+                <div class="mt-2 flex flex-wrap gap-1">
+                  <span class="tag hue-cyan">{{ gameById(id).fps }} fps</span>
+                  <span class="badge">{{ gameById(id).lines }} lines</span>
+                </div>
+              </div>
+            </button>
+          </div>
+          <!-- From lg up the panel takes the grid's height, so a long game.ts does not stretch the row -->
+          <div ref="codePanel" class="relative h-[30rem] min-w-0 scroll-mb-6 lg:h-auto">
+            <CodeTabs class="absolute inset-0" fill :tabs="pickedTabs" :loading="!code[picked]">
+              <template #actions>
+                <RouterLink :to="`/playground/${presetId(picked)}`" class="arrow-link ml-auto px-2"> Edit {{ gameById(picked).title }} in the playground → </RouterLink>
+              </template>
+            </CodeTabs>
+          </div>
+          <a :href="GITHUB_RETRO" target="_blank" rel="noopener" class="card card-link flex items-center gap-4 px-5 py-4 lg:col-span-2">
+            <span class="grid size-11 flex-none place-items-center rounded-xl bg-bg shadow-[0_0_0_1px_var(--color-line)] [&_svg]:size-8" v-html="ICON_RETRO" />
+            <span class="grid min-w-0 gap-0.5">
+              <strong class="font-disp text-[17px] font-bold tracking-[-0.01em]">pocket-nexus/pocket-retro</strong>
+              <span class="text-[14.5px] text-ink-2">{{ games.length }} games in the playground, each one editable. The ROM build needs Bun and Rust nightly.</span>
+            </span>
+            <span class="ml-auto text-ink-2 max-sm:hidden" aria-hidden="true">↗</span>
+          </a>
         </div>
-        <!-- From lg up the panel takes the grid's height, so a long game.ts does not stretch the row -->
-        <div ref="codePanel" class="relative h-[30rem] scroll-mb-6 lg:h-auto">
-          <CodeTabs class="absolute inset-0" fill :tabs="pickedTabs" :loading="!code[picked]">
-            <template #actions>
-              <RouterLink
-                :to="`/playground/${presetId(picked)}`"
-                class="ml-auto font-round text-[0.84rem] font-semibold text-soft underline decoration-dotted underline-offset-4 hover:text-yellow"
-              >
-                Edit {{ gameById(picked).title }} in the playground
-              </RouterLink>
-            </template>
-          </CodeTabs>
-        </div>
-        <a
-          :href="GITHUB_RETRO"
-          target="_blank"
-          rel="noopener"
-          class="flex items-center gap-4 rounded-2xl border-2 border-[rgba(255,95,158,0.6)] bg-[rgba(255,95,158,0.09)] px-4 py-3.5 shadow-[0_4px_0_#0a0614] transition hover:-translate-y-0.5 lg:col-span-2"
-        >
-          <span class="grid size-11 flex-none place-items-center rounded-xl bg-bg-2 [&_svg]:size-9" v-html="ICON_RETRO" />
-          <span class="grid gap-0.5">
-            <strong class="font-round text-[1.08rem] font-semibold">pocket-nexus/pocket-retro</strong>
-            <span class="text-[0.9rem] text-soft">{{ games.length }} games in the playground, each one editable. The ROM build needs Bun and Rust nightly.</span>
-          </span>
-        </a>
       </div>
     </section>
 
     <!-- ================= start ================= -->
-    <section class="hue-orange wrap py-[clamp(2.6rem,6.5vw,4.2rem)]">
-      <SectionHead title="Start here" :start="3" lede="Install Bun and a Rust toolchain, then build the supplied Vue lab from a PocketJS checkout." />
-      <div class="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+    <section class="pt-[136px] max-[640px]:pt-24">
+      <div class="wrap">
         <div
-          class="overflow-hidden rounded-[22px] border-[3px] border-pink bg-panel"
-          style="box-shadow: 0 6px 0 var(--color-pink-d), 0 24px 40px -22px rgba(0, 0, 0, 0.85)"
+          class="grid items-center gap-12 rounded-[32px] px-14 py-16 shadow-[0_0_0_1px_var(--color-line)] max-lg:px-8 max-lg:py-12 max-[640px]:px-6 max-[640px]:py-10 lg:grid-cols-2"
+          style="
+            background:
+              radial-gradient(500px 260px at 15% 0%, rgba(63, 208, 232, 0.16), transparent 70%),
+              radial-gradient(500px 260px at 90% 100%, rgba(169, 139, 255, 0.16), transparent 70%),
+              var(--color-bg-2);
+          "
         >
-          <div class="flex items-center gap-1.5 px-3.5 pt-3 pb-1" aria-hidden="true">
-            <i class="size-3 rounded-[3px] bg-yellow shadow-[0_2px_0_#0a0614]" />
-            <i class="size-3 rounded-[3px] bg-pink shadow-[0_2px_0_#0a0614]" />
-            <i class="size-3 rounded-[3px] bg-cyan shadow-[0_2px_0_#0a0614]" />
+          <div class="min-w-0">
+            <div class="kick">Start here</div>
+            <h2 class="h-sec mt-3.5">Build the Vue lab.</h2>
+            <p class="intro mt-4">
+              Install Bun and a Rust toolchain, then build the supplied Vue lab from a PocketJS checkout. Or edit a counter, a feature lab or a GBA game in
+              the playground and watch it run.
+            </p>
+            <div class="mt-7 flex flex-wrap gap-3">
+              <RouterLink to="/playground" class="btn btn-pri">Open the playground</RouterLink>
+              <RouterLink to="/docs/microts" class="btn">Read the guide</RouterLink>
+            </div>
           </div>
-          <div class="screen mx-3 mt-2 mb-3.5 overflow-x-auto" v-html="startTabs[0]?.html" />
+          <div class="start-cmd min-w-0 overflow-x-auto rounded-[16px] bg-[rgba(0,0,0,0.45)] shadow-[0_0_0_1px_var(--color-line)]" v-html="startTabs[0]?.html" />
         </div>
-        <div class="grid gap-3 sm:grid-cols-2">
-          <RouterLink
-            v-for="d in DOC_ITEMS"
-            :key="d.slug"
-            :to="`/docs/${d.slug}`"
-            class="group rounded-[18px] border-[2.5px] border-[rgba(169,139,255,0.32)] bg-panel px-4 py-3.5 shadow-[0_4px_0_#0a0614] transition hover:-translate-y-0.5 hover:border-yellow"
-          >
-            <div class="font-round text-[1rem] font-semibold text-ink group-hover:text-yellow">{{ d.title }}</div>
-            <p class="mt-1 text-[0.84rem] leading-snug text-soft">{{ d.blurb }}</p>
+        <div class="mt-[18px] grid gap-[14px] sm:grid-cols-2 lg:grid-cols-4">
+          <RouterLink v-for="d in DOC_ITEMS" :key="d.slug" :to="`/docs/${d.slug}`" class="card card-link px-5 pt-4 pb-5">
+            <div class="font-disp text-[16.5px] font-bold tracking-[-0.01em] text-ink">{{ d.title }}</div>
+            <p class="mt-1.5 text-[14px] leading-snug text-ink-2">{{ d.blurb }}</p>
           </RouterLink>
         </div>
-      </div>
-      <div class="mt-14 flex flex-wrap items-center justify-center gap-4 text-center">
-        <MicroTSMark :size="40" />
-        <span class="font-round text-[1.1rem] font-semibold text-ink-2">Edit a counter, a feature lab or a GBA game, and watch it run.</span>
-        <RouterLink to="/playground" class="btn btn-primary">Open the playground</RouterLink>
       </div>
     </section>
   </div>
 </template>
 
 <style scoped>
-:deep(.screen pre.shiki) {
+.start-cmd :deep(pre.shiki) {
   margin: 0;
-  padding: 1rem 1.1rem;
+  padding: 1.4rem 1.5rem;
   background: transparent !important;
-  font: 400 12.5px/1.65 var(--font-mono);
+  font: 400 13.5px/1.85 var(--font-mono);
 }
 </style>
