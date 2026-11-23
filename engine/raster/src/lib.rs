@@ -1579,6 +1579,161 @@ fn sample_linear(view: &TexView, u: f32, v: f32) -> Option<(u32, u32, u32, u32)>
     ))
 }
 
+// ---- validated views: one fetch per pixel format ----------------------------------
+
+/// The storage of a view whose every texel has its bytes: the loops below
+/// fetch without the per-texel format match of [`texel`], and no fetch can
+/// leave the storage. Other views take the per-pixel loops, which keep the
+/// behaviour of [`texel`] for them.
+#[derive(Clone, Copy)]
+enum Texels<'a> {
+    Rgb565(&'a [u8]),
+    Rgba8888(&'a [u8]),
+    Rgba4444(&'a [u8]),
+    Indexed(&'a [u8], &'a [u8]),
+}
+
+impl<'a> Texels<'a> {
+    /// None for an unknown format, a view without texels, T8 without a
+    /// whole palette, more texels than an `i32` index reaches, or fewer
+    /// bytes than `w * h` texels need.
+    fn new(view: &TexView<'a>) -> Option<Self> {
+        let texels = (view.w as usize).checked_mul(view.h as usize)?;
+        if texels == 0 || texels > i32::MAX as usize {
+            return None;
+        }
+        let holds = |bytes_per_texel: usize| {
+            texels
+                .checked_mul(bytes_per_texel)
+                .is_some_and(|bytes| bytes <= view.pixels.len())
+        };
+        match view.psm {
+            spec::psm::PSM_5650 if holds(2) => Some(Self::Rgb565(view.pixels)),
+            spec::psm::PSM_8888 if holds(4) => Some(Self::Rgba8888(view.pixels)),
+            spec::psm::PSM_4444 if holds(2) => Some(Self::Rgba4444(view.pixels)),
+            spec::psm::PSM_T8 if holds(1) => {
+                let palette = view.palette.filter(|palette| palette.len() >= 1024)?;
+                Some(Self::Indexed(view.pixels, palette))
+            }
+            _ => None,
+        }
+    }
+}
+
+/// Texel `index` (row-major) as a packed colour, `r | g << 8 | b << 16 |
+/// a << 24`: the channels [`texel`] returns for the format.
+trait Fetch: Copy {
+    fn fetch(self, index: usize) -> u32;
+}
+
+#[derive(Clone, Copy)]
+struct FetchRgb565<'a>(&'a [u8]);
+#[derive(Clone, Copy)]
+struct FetchRgba8888<'a>(&'a [u8]);
+#[derive(Clone, Copy)]
+struct FetchRgba4444<'a>(&'a [u8]);
+#[derive(Clone, Copy)]
+struct FetchIndexed<'a>(&'a [u8], &'a [u8]);
+
+impl Fetch for FetchRgb565<'_> {
+    #[inline(always)]
+    fn fetch(self, index: usize) -> u32 {
+        let texel = &self.0[index * 2..index * 2 + 2];
+        let px16 = texel[0] as u32 | ((texel[1] as u32) << 8);
+        let r5 = px16 & 0x1f;
+        let g6 = (px16 >> 5) & 0x3f;
+        let b5 = (px16 >> 11) & 0x1f;
+        ((r5 << 3) | (r5 >> 2))
+            | (((g6 << 2) | (g6 >> 4)) << 8)
+            | (((b5 << 3) | (b5 >> 2)) << 16)
+            | (255 << 24)
+    }
+}
+
+impl Fetch for FetchRgba8888<'_> {
+    #[inline(always)]
+    fn fetch(self, index: usize) -> u32 {
+        let texel = &self.0[index * 4..index * 4 + 4];
+        u32::from_le_bytes([texel[0], texel[1], texel[2], texel[3]])
+    }
+}
+
+impl Fetch for FetchRgba4444<'_> {
+    #[inline(always)]
+    fn fetch(self, index: usize) -> u32 {
+        let texel = &self.0[index * 2..index * 2 + 2];
+        let px16 = texel[0] as u32 | ((texel[1] as u32) << 8);
+        ((px16 & 0xf) * 17)
+            | ((((px16 >> 4) & 0xf) * 17) << 8)
+            | ((((px16 >> 8) & 0xf) * 17) << 16)
+            | ((((px16 >> 12) & 0xf) * 17) << 24)
+    }
+}
+
+impl Fetch for FetchIndexed<'_> {
+    #[inline(always)]
+    fn fetch(self, index: usize) -> u32 {
+        let entry = self.0[index] as usize * 4;
+        let color = &self.1[entry..entry + 4];
+        u32::from_le_bytes([color[0], color[1], color[2], color[3]])
+    }
+}
+
+/// Run `$body` with `$fetch` bound to the fetch of `$texels`' format: one
+/// copy of the loop per format, selected once per operation.
+macro_rules! with_fetch {
+    ($texels:expr, $fetch:ident => $body:expr) => {
+        match $texels {
+            Texels::Rgb565(pixels) => {
+                let $fetch = FetchRgb565(pixels);
+                $body
+            }
+            Texels::Rgba8888(pixels) => {
+                let $fetch = FetchRgba8888(pixels);
+                $body
+            }
+            Texels::Rgba4444(pixels) => {
+                let $fetch = FetchRgba4444(pixels);
+                $body
+            }
+            Texels::Indexed(pixels, palette) => {
+                let $fetch = FetchIndexed(pixels, palette);
+                $body
+            }
+        }
+    };
+}
+
+/// The blend of [`sample_linear`] over four fetched neighbours. Two
+/// channels share a word, eight bits apart: `a * (256 - f) + b * f` is at
+/// most 255 * 256, so no lane carries into the next.
+#[inline(always)]
+fn lerp_neighbours(c00: u32, c01: u32, c10: u32, c11: u32, fx: u32, fy: u32) -> u32 {
+    const LANES: u32 = 0x00ff_00ff;
+    let lerp = |a: u32, b: u32, f: u32| ((a * (256 - f) + b * f) >> 8) & LANES;
+    let mix = |shift: u32| {
+        lerp(
+            lerp((c00 >> shift) & LANES, (c01 >> shift) & LANES, fx),
+            lerp((c10 >> shift) & LANES, (c11 >> shift) & LANES, fx),
+            fy,
+        )
+    };
+    mix(0) | (mix(8) << 8)
+}
+
+/// The integer modulate of TEX_QUAD and TEX_TRI, round-to-nearest, on every
+/// colour of a shaded span.
+#[inline]
+fn modulate_span(colors: &mut [u32], [mr, mg, mb, ma]: [u32; 4]) {
+    for color in colors {
+        let (r, g, b, a) = channels(*color);
+        *color = ((r * mr + 127) / 255)
+            | (((g * mg + 127) / 255) << 8)
+            | (((b * mb + 127) / 255) << 16)
+            | (((a * ma + 127) / 255) << 24);
+    }
+}
+
 // ---- TEX_TRI: barycentric textured triangle (affine UV; nearest, or integer
 //      bilinear when the texture carries the linear flag) --------------------
 
@@ -1627,6 +1782,30 @@ fn tex_tri<T: RenderTarget>(
     // Covered weights are in 0..=area. The narrow conversion has the same
     // IEEE-754 result and avoids software i64-to-f32 helpers on Cortex-M.
     let narrow = area <= i32::MAX as i64;
+    if narrow {
+        if let Some(texels) = Texels::new(&view) {
+            // The common case: shade each covered row into a span with the
+            // format's fetch, the weights stepping as i32.
+            let triangle = TexTriangle {
+                rows: TriangleRows::new((ax, ay), (bx, by), (cx, cy), min_y, min_x, max_x),
+                min_y,
+                max_y,
+                u: [u0, u1, u2],
+                v: [v0, v1, v2],
+                inv_area,
+                width: view.w,
+                height: view.h,
+                modulate: (!identity).then_some([mr, mg, mb, ma]),
+            };
+            let target: &mut dyn RenderTarget = target;
+            if view.linear {
+                with_fetch!(texels, fetch => tex_tri_linear(target, stride, triangle, fetch));
+            } else {
+                with_fetch!(texels, fetch => tex_tri_nearest(target, stride, triangle, fetch));
+            }
+            return;
+        }
+    }
     for py in min_y..max_y {
         for (px, [w0, w1, w2]) in TriangleRow::new((ax, ay), (bx, by), (cx, cy), py, min_x, max_x) {
             let (f0, f1, f2) = if narrow {
@@ -1665,6 +1844,105 @@ fn tex_tri<T: RenderTarget>(
             target.blend((py * stride + px) as usize, r, g, b, a);
         }
     }
+}
+
+/// One textured triangle over a validated view, wound counter-clockwise,
+/// with weights that fit `i32`.
+struct TexTriangle {
+    rows: TriangleRows,
+    min_y: i32,
+    max_y: i32,
+    u: [f32; 3],
+    v: [f32; 3],
+    inv_area: f32,
+    width: u32,
+    height: u32,
+    modulate: Option<[u32; 4]>,
+}
+
+impl TexTriangle {
+    /// The texture coordinate at weights `w`: the expression of the
+    /// per-pixel loop, operation for operation.
+    #[inline(always)]
+    fn uv(&self, w: [i32; 3]) -> (f32, f32) {
+        let f0 = w[0] as f32 * self.inv_area;
+        let f1 = w[1] as f32 * self.inv_area;
+        let f2 = w[2] as f32 * self.inv_area;
+        let u = self.u[0] * f0 + self.u[1] * f1 + self.u[2] * f2;
+        let v = self.v[0] * f0 + self.v[1] * f1 + self.v[2] * f2;
+        (u, v)
+    }
+
+    /// Shade every covered row with `sample` and blend it span by span.
+    #[inline(always)]
+    fn draw(mut self, target: &mut dyn RenderTarget, stride: i32, sample: impl Fn(f32, f32) -> u32) {
+        let step = self.rows.step.map(|step| step as i32);
+        let mut colors = [0u32; SPAN];
+        for py in self.min_y..self.max_y {
+            let row = self.rows.next_row();
+            if row.x >= row.end {
+                continue;
+            }
+            // Exact at every covered pixel, where a weight is in 0..=area.
+            let mut w = row.weights.map(|weight| weight as i32);
+            let mut px = row.x;
+            while px < row.end {
+                let count = ((row.end - px) as usize).min(SPAN);
+                for color in &mut colors[..count] {
+                    let (u, v) = self.uv(w);
+                    *color = sample(u, v);
+                    for (weight, &step) in w.iter_mut().zip(&step) {
+                        *weight = weight.wrapping_add(step);
+                    }
+                }
+                if let Some(modulate) = self.modulate {
+                    modulate_span(&mut colors[..count], modulate);
+                }
+                target.blend_span((py * stride + px) as usize, &colors[..count]);
+                px += count as i32;
+            }
+        }
+    }
+}
+
+fn tex_tri_nearest<F: Fetch>(
+    target: &mut dyn RenderTarget,
+    stride: i32,
+    triangle: TexTriangle,
+    fetch: F,
+) {
+    let (twf, thf) = (triangle.width as f32, triangle.height as f32);
+    let (tw_max, th_max) = (triangle.width as i32 - 1, triangle.height as i32 - 1);
+    let width = triangle.width as i32;
+    triangle.draw(target, stride, |u, v| {
+        let tx = ((u * twf) as i32).clamp(0, tw_max);
+        let ty = ((v * thf) as i32).clamp(0, th_max);
+        fetch.fetch((ty * width + tx) as usize)
+    });
+}
+
+fn tex_tri_linear<F: Fetch>(
+    target: &mut dyn RenderTarget,
+    stride: i32,
+    triangle: TexTriangle,
+    fetch: F,
+) {
+    let (width, height) = (triangle.width, triangle.height);
+    let row = width as usize;
+    triangle.draw(target, stride, |u, v| {
+        // A validated view has texels: the coordinates always exist.
+        let Some(sample) = linear_sample_coordinates(width, height, u, v) else {
+            return 0;
+        };
+        lerp_neighbours(
+            fetch.fetch(sample.y0 as usize * row + sample.x0 as usize),
+            fetch.fetch(sample.y0 as usize * row + sample.x1 as usize),
+            fetch.fetch(sample.y1 as usize * row + sample.x0 as usize),
+            fetch.fetch(sample.y1 as usize * row + sample.x1 as usize),
+            sample.fx,
+            sample.fy,
+        )
+    });
 }
 
 // ---- TEX_QUAD: textured rect (nearest, or integer bilinear when the texture
@@ -1707,6 +1985,31 @@ fn tex_quad<T: RenderTarget>(
     let (tw_max, th_max) = (view.w as i32 - 1, view.h as i32 - 1);
     let inv_w = 1.0f32 / w as f32;
     let inv_h = 1.0f32 / h as f32;
+    if let Some(texels) = Texels::new(&view) {
+        // The common case: the texel column of a pixel is the same on every
+        // row and the texel row the same on every column.
+        let quad = TexQuad {
+            clip: c,
+            x,
+            y,
+            u0,
+            v0,
+            u1,
+            v1,
+            inv_w,
+            inv_h,
+            width: view.w,
+            height: view.h,
+            modulate: (!identity).then_some([mr, mg, mb, ma]),
+        };
+        let target: &mut dyn RenderTarget = target;
+        if view.linear {
+            with_fetch!(texels, fetch => tex_quad_linear(target, stride, &quad, fetch));
+        } else {
+            with_fetch!(texels, fetch => tex_quad_nearest(target, stride, &quad, fetch));
+        }
+        return;
+    }
     for py in c.y0..c.y1 {
         let v = v0 + (v1 - v0) * ((py - y) as f32 + 0.5) * inv_h;
         let ty = ((v * thf) as i32).clamp(0, th_max);
@@ -1732,5 +2035,123 @@ fn tex_quad<T: RenderTarget>(
             }
             target.blend((py * stride + px) as usize, r, g, b, a);
         }
+    }
+}
+
+/// One textured rectangle over a validated view.
+struct TexQuad {
+    clip: Clip,
+    x: i32,
+    y: i32,
+    u0: f32,
+    v0: f32,
+    u1: f32,
+    v1: f32,
+    inv_w: f32,
+    inv_h: f32,
+    width: u32,
+    height: u32,
+    modulate: Option<[u32; 4]>,
+}
+
+impl TexQuad {
+    /// The texture coordinates of column `px` and of row `py`: the
+    /// expressions of the per-pixel loop, operation for operation.
+    #[inline(always)]
+    fn u(&self, px: i32) -> f32 {
+        self.u0 + (self.u1 - self.u0) * ((px - self.x) as f32 + 0.5) * self.inv_w
+    }
+
+    #[inline(always)]
+    fn v(&self, py: i32) -> f32 {
+        self.v0 + (self.v1 - self.v0) * ((py - self.y) as f32 + 0.5) * self.inv_h
+    }
+}
+
+fn tex_quad_nearest<F: Fetch>(
+    target: &mut dyn RenderTarget,
+    stride: i32,
+    quad: &TexQuad,
+    fetch: F,
+) {
+    let c = quad.clip;
+    let (twf, thf) = (quad.width as f32, quad.height as f32);
+    let (tw_max, th_max) = (quad.width as i32 - 1, quad.height as i32 - 1);
+    let width = quad.width as i32;
+    let mut columns = [0i32; SPAN];
+    let mut colors = [0u32; SPAN];
+    let mut band = c.x0;
+    while band < c.x1 {
+        let count = ((c.x1 - band) as usize).min(SPAN);
+        for (index, tx) in columns[..count].iter_mut().enumerate() {
+            let u = quad.u(band + index as i32);
+            *tx = ((u * twf) as i32).clamp(0, tw_max);
+        }
+        for py in c.y0..c.y1 {
+            let v = quad.v(py);
+            let ty = ((v * thf) as i32).clamp(0, th_max);
+            let row = ty * width;
+            for (color, &tx) in colors[..count].iter_mut().zip(&columns[..count]) {
+                *color = fetch.fetch((row + tx) as usize);
+            }
+            if let Some(modulate) = quad.modulate {
+                modulate_span(&mut colors[..count], modulate);
+            }
+            target.blend_span((py * stride + band) as usize, &colors[..count]);
+        }
+        band += count as i32;
+    }
+}
+
+fn tex_quad_linear<F: Fetch>(
+    target: &mut dyn RenderTarget,
+    stride: i32,
+    quad: &TexQuad,
+    fetch: F,
+) {
+    let c = quad.clip;
+    let (tw_max, th_max) = (quad.width as i32 - 1, quad.height as i32 - 1);
+    let width = quad.width as usize;
+    // Per column: the two texel columns and their weight, the horizontal
+    // half of `linear_sample_coordinates`.
+    let mut columns = [(0usize, 0usize, 0u32); SPAN];
+    let mut colors = [0u32; SPAN];
+    let mut band = c.x0;
+    while band < c.x1 {
+        let count = ((c.x1 - band) as usize).min(SPAN);
+        for (index, column) in columns[..count].iter_mut().enumerate() {
+            let u = quad.u(band + index as i32);
+            let uf = (u * quad.width as f32 * 256.0) as i32 - 128;
+            let x0 = (uf >> 8).clamp(0, tw_max);
+            *column = (
+                x0 as usize,
+                (x0 + 1).min(tw_max) as usize,
+                (uf & 255) as u32,
+            );
+        }
+        for py in c.y0..c.y1 {
+            // The vertical half.
+            let v = quad.v(py);
+            let vf = (v * quad.height as f32 * 256.0) as i32 - 128;
+            let y0 = (vf >> 8).clamp(0, th_max);
+            let y1 = (y0 + 1).min(th_max);
+            let fy = (vf & 255) as u32;
+            let (row0, row1) = (y0 as usize * width, y1 as usize * width);
+            for (color, &(x0, x1, fx)) in colors[..count].iter_mut().zip(&columns[..count]) {
+                *color = lerp_neighbours(
+                    fetch.fetch(row0 + x0),
+                    fetch.fetch(row0 + x1),
+                    fetch.fetch(row1 + x0),
+                    fetch.fetch(row1 + x1),
+                    fx,
+                    fy,
+                );
+            }
+            if let Some(modulate) = quad.modulate {
+                modulate_span(&mut colors[..count], modulate);
+            }
+            target.blend_span((py * stride + band) as usize, &colors[..count]);
+        }
+        band += count as i32;
     }
 }
