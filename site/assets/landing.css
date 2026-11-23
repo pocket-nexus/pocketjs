@@ -1,14 +1,11 @@
-/* site/assets/landing.css — the homepage. site/build.ts writes
-   assets/landing.css as tokens.css followed by this file; no other page
-   loads it. The three hues are the mark's: yellow shell, pink lens and key,
+/* site/assets/landing.css — the homepage and the /for/ pages. site/build.ts
+   writes assets/landing.css as tokens.css, chrome.css (header, buttons,
+   footer) and this file. The three hues are the mark's: yellow shell, pink lens and key,
    cyan key. */
 :root{
-  --bg:#0b0a10; --bg2:#13111b; --card:#17151f; --line:rgba(255,255,255,.08); --line-2:rgba(255,255,255,.16);
-  --ink:#f6f3fb; --ink2:#a9a3b8; --muted:#766f8a;
-  --y:#ffd23f; --p:#ff5f9e; --c:#3fd0e8;
-  --disp:"Inter Tight",system-ui,-apple-system,sans-serif;
-  --sans:"Inter",system-ui,-apple-system,sans-serif;
-  --code:ui-monospace,SFMono-Regular,Menlo,monospace;
+  --bg2:var(--bg-2); --card:var(--panel); --ink2:var(--ink-2);
+  --y:var(--accent); --p:var(--accent-2); --c:var(--accent-3);
+  --code:var(--mono);
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
@@ -17,18 +14,7 @@ a{color:inherit;text-decoration:none}
 img,video{display:block;max-width:100%}
 button{font:inherit;color:inherit}
 code{font:.88em var(--code);background:rgba(255,255,255,.07);padding:.1em .4em;border-radius:5px}
-.wrap{max-width:1200px;margin:0 auto;padding:0 28px}
 :focus-visible{outline:2px solid var(--y);outline-offset:3px;border-radius:6px}
-
-/* nav */
-.nav{position:sticky;top:0;z-index:20;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);background:rgba(11,10,16,.72);border-bottom:1px solid var(--line)}
-.nav .wrap{display:flex;align-items:center;gap:28px;height:60px}
-.brand{display:flex;gap:10px;align-items:center;font:700 17px var(--disp);letter-spacing:-.01em}
-.nav .links{margin-left:auto;display:flex;gap:26px;font-size:14.5px;color:var(--ink2)}
-.nav .links a:hover,.nav .icons a:hover{color:var(--ink)}
-.nav .icons{display:flex;gap:16px;align-items:center;color:var(--ink2)}
-.nav .icons svg{width:18px;height:18px;display:block}
-.nav .gh{background:var(--ink);color:var(--bg)!important;font:600 14px var(--sans);padding:7px 15px;border-radius:999px}
 
 /* hero */
 .hero{padding:120px 0 0;text-align:center;position:relative}
@@ -42,10 +28,6 @@ code{font:.88em var(--code);background:rgba(255,255,255,.07);padding:.1em .4em;b
 .sub{max-width:720px;margin:30px auto 0;font-size:20px;color:var(--ink2);position:relative}
 .sub b{color:var(--ink);font-weight:600}
 .ctas{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:34px;position:relative}
-.btn{display:inline-flex;align-items:center;font:600 15px var(--sans);padding:13px 22px;border-radius:999px;border:1px solid var(--line-2)}
-.btn:hover{border-color:rgba(255,255,255,.35)}
-.btn.pri{background:var(--y);color:#1b1405;border-color:var(--y)}
-.btn.pri:hover{background:#ffdc63}
 .proof{position:relative;display:grid;grid-template-columns:repeat(3,1fr);max-width:900px;margin:56px auto 0;border:1px solid var(--line);border-radius:20px;background:rgba(23,21,31,.7);text-align:left}
 .proof div{padding:20px 24px}
 .proof div+div{border-left:1px solid var(--line)}
@@ -164,8 +146,7 @@ section.s h2,.start h2{font:700 clamp(38px,5vw,62px)/1.03 var(--disp);letter-spa
 .mc h3{font:700 19px var(--disp)}
 .mc p{color:var(--ink2);font-size:15px;margin-top:6px}
 .mc.lead{grid-column:1/-1;display:grid;grid-template-columns:1.3fr 1fr;align-items:center}
-.mc.lead .pic{aspect-ratio:auto;height:440px;background:radial-gradient(70% 80% at 50% 60%,#fff,#ebe6f3 75%);display:flex;align-items:center;justify-content:center}
-.mc.lead .pic img{width:auto;height:88%;object-fit:contain;filter:drop-shadow(0 30px 40px rgba(22,18,31,.35))}
+.mc.lead .pic{aspect-ratio:16/9}
 .mc.lead .body{padding:40px}
 .mc.lead h3{font-size:32px;letter-spacing:-.02em}
 .mc.lead p{font-size:17px}
@@ -211,28 +192,27 @@ section.s h2,.start h2{font:700 clamp(38px,5vw,62px)/1.03 var(--disp);letter-spa
 .start pre{font:14.5px/1.9 var(--code);background:rgba(0,0,0,.45);border-radius:16px;padding:24px 26px;color:#e8e2f2;box-shadow:0 0 0 1px var(--line);overflow:auto}
 .start pre i{color:var(--muted);font-style:normal}
 
-/* footer */
-.foot{padding:64px 0 72px;color:var(--muted);font-size:14px}
-.foot .wrap{display:flex;align-items:center;gap:28px;flex-wrap:wrap}
-.foot .brand{color:var(--ink)}
-.foot nav{display:flex;gap:20px;flex-wrap:wrap}
-.foot nav a:hover,.foot .legal a:hover{color:var(--ink)}
-.foot .legal{margin-left:auto}
-.foot .legal a{border-bottom:1px solid var(--line-2)}
+/* /for/ pages */
+.forpage section.s{padding-top:96px}
+.forpage h1{font:800 clamp(40px,6vw,72px)/1.02 var(--disp);letter-spacing:-.04em;margin-top:14px;max-width:900px}
+.forgrid{grid-template-columns:repeat(2,1fr)}
+.forgrid .pc h3{margin-top:4px}
+.pc p{color:var(--ink2);font-size:15.5px}
+.pc p a{color:var(--c)}
+.forshot{margin-top:48px}
+.forshot .note{margin-top:12px}
+.forctas{justify-content:flex-start;margin-top:40px}
 
 /* grid children shrink below their code samples' widths */
 .fw>*,.pui>*,.feat>*,.start>*,.duo>*,.srow>*{min-width:0}
 
 /* narrow screens */
 @media (max-width:980px){
-  .nav .links{display:none}
-  .nav .icons{margin-left:auto}
   .fw,.pui,.start,.feat,.feat.flip{grid-template-columns:1fr}
   .feat.flip .txt{order:0}
   .feat{gap:28px;margin-top:64px}
   .plat,.made{grid-template-columns:1fr 1fr}
   .mc.lead{grid-template-columns:1fr}
-  .mc.lead .pic{height:320px}
   .fp{grid-template-columns:1fr}
   .srow{grid-template-columns:1fr}
   .srow .sbar+.sbar{grid-column:1}
@@ -249,5 +229,4 @@ section.s h2,.start h2{font:700 clamp(38px,5vw,62px)/1.03 var(--disp);letter-spa
   .scale{padding:24px 20px}
   .sbar .lbl{font-size:12px;right:8px}
   .start{padding:40px 24px}
-  .foot .legal{margin-left:0}
 }
