@@ -6,12 +6,20 @@ import { parse as parseTemplate, NodeTypes, type ElementNode } from "@vue/compil
 import ts from "typescript";
 import { analyzeVueAot, getAotDependencyVersions } from "./aot-frontend.ts";
 import { checkAotVersion, type AotComponent, type AotProgram, type AotType } from "./aot-ir.ts";
+import { modelConfiguration } from "./aot-model-config.ts";
 
-const analyzedComponents = new Map<string, { source: string; program: AotProgram }>();
+/** Class literals bake with the theme and tick rate registered for the file's
+ *  application (aot-model-config.ts), the values `pocket compile --aot` uses. */
+function animation(file: string) {
+  const { theme, tickHz } = modelConfiguration(file);
+  return { theme, tickHz, key: JSON.stringify({ theme, tickHz }) };
+}
+
+const analyzedComponents = new Map<string, { source: string; animation: string; program: AotProgram }>();
 export function getVueAotProgram(filename: string, source: string): AotProgram | undefined {
   const cached = analyzedComponents.get(resolve(filename));
   if (!cached) return;
-  if (cached.source !== source) return checkVueAotSource(source, filename);
+  if (cached.source !== source || cached.animation !== animation(filename).key) return checkVueAotSource(source, filename);
   const changed = getAotDependencyVersions(cached.program).some(version => {
     try {
       const current = statSync(version.file);
@@ -52,9 +60,10 @@ export function checkVueAotSource(source: string, filename: string, strict = fal
     if (cached && (unchanged || !version)) sources.set(component.file, cached.source);
   }
   sources.set(filename, source);
-  const program = analyzeVueAot(entry, { sources, strict });
+  const { theme, tickHz, key } = animation(entry);
+  const program = analyzeVueAot(entry, { sources, strict, theme, tickHz });
   for (const component of program.components) analyzedComponents.set(component.file, {
-    source: sources.get(component.file) ?? readFileSync(component.file, "utf8"), program,
+    source: sources.get(component.file) ?? readFileSync(component.file, "utf8"), animation: key, program,
   });
   for (const diagnostic of program.diagnostics) {
     if (diagnostic.severity === "warning") {

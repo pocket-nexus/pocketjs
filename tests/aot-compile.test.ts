@@ -158,6 +158,72 @@ import {label} from './App';
     } finally { rmSync(project, { recursive: true, force: true }); }
   }, 120_000);
 
+  // Solid views report the class string, Vue templates the class attribute.
+  test.each([
+    { framework: "solid", entry: "main.tsx", view: "app.tsx", wobble: "app.tsx:7:17" },
+    { framework: "vue-vapor", entry: "main.ts", view: "App.vue", wobble: "App.vue:9:11" },
+  ] as const)("the $framework guest build and compile --aot admit the same class literals under the app theme", async ({ framework, entry, view, wobble }) => {
+    const project = temporary();
+    try {
+      writeFileSync(join(project, "pocket.host.json"), JSON.stringify({
+        format: "pocket-host/2", id: "test-aot-theme", platform: "esp-idf", form: "takeover", cadences: [30],
+        display: { logicalViewports: [[240, 240]], presentations: ["native"], rasterDensity: 1, animation: "repaint" },
+        panel: { primary: [240, 240] }, capabilities: ["input.buttons", "text.glyphs.baked"],
+      }));
+      const app = { id: "dev.test.aot-theme", title: "AOT theme", version: "1.0.0", entry, output: "theme", framework,
+        viewport: { logical: [240, 240], presentation: "native" }, features: ["input.buttons", "text.glyphs.baked"], aot: true, model: "compiled",
+        theme: { keyframes: { blink: { "0%,49.99%": { opacity: 1 }, "50%,100%": { opacity: 0 } } }, animation: { blink: "blink 1s linear infinite" } } };
+      writeFileSync(join(project, "pocket.host.config.ts"), `import { defineHostConfig } from "@pocketjs/framework/host-config";\nexport default defineHostConfig({ host: "./pocket.host.json", app: ${JSON.stringify(app)} });\n`);
+      const source = (extra: string) => framework === "solid" ? `import { Text, View } from "@pocketjs/framework/solid/components";
+import { count } from "./app";
+export default function App() {
+  return <View class="w-full h-full">
+    <View class="w-8 h-8 animate-spin" />
+    <View class="w-8 h-8 animate-blink" />${extra}
+    <Text class="text-lg">{count()}</Text>
+  </View>;
+}
+` : `<script setup lang="ts">
+import { Text, View } from "@pocketjs/framework/vue-vapor/components";
+import { count } from "./App";
+</script>
+<template>
+  <View class="w-full h-full">
+    <View class="w-8 h-8 animate-spin" />
+    <View class="w-8 h-8 animate-blink" />${extra}
+    <Text class="text-lg">{{ count }}</Text>
+  </View>
+</template>
+`;
+      if (framework === "solid") {
+        writeFileSync(join(project, "main.tsx"), `import { mount } from "@pocketjs/framework/solid";\nimport App from "./app.tsx";\nmount(() => <App />);\n`);
+        writeFileSync(join(project, "app.ts"), `import { createSignal } from "solid-js";\nimport type { i32 } from "@pocketjs/framework/solid/std";\nexport const [count, setCount] = createSignal<i32>(0);\n`);
+      } else {
+        writeFileSync(join(project, "main.ts"), `import App from "./App.vue";\nexport default App;\n`);
+        writeFileSync(join(project, "App.ts"), `import { ref } from "vue";\nimport type { i32 } from "@pocketjs/framework/vue-vapor/std";\nexport const count = ref<i32>(0);\n`);
+      }
+      const compile = async (...args: string[]) => {
+        const child = Bun.spawn([process.execPath, resolve(ROOT, "tools/pocket.ts"), "compile", "--config", "pocket.host.config.ts", ...args], { cwd: project, stdout: "pipe", stderr: "pipe" });
+        const [status, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+        return { status, output: (stdout + stderr).replace(/\x1b\[[0-9;]*m/g, "") };
+      };
+      const guest = ["--output", "out/app.pkb"], aot = ["--aot", "--out", "gen"];
+      writeFileSync(join(project, view), source(""));
+      const built = await compile(...guest);
+      expect(built.status, built.output).toBe(0);
+      expect(built.output).toContain("2 baked timeline(s)");
+      const generated = await compile(...aot);
+      expect(generated.status, generated.output).toBe(0);
+      // An animation no theme defines is unsupported in both builds, reported at its literal.
+      writeFileSync(join(project, view), source(`\n    <View class="w-8 h-8 animate-wobble" />`));
+      for (const args of [guest, aot]) {
+        const rejected = await compile(...args);
+        expect(rejected.status).not.toBe(0);
+        expect(rejected.output).toContain(`${wobble}: error: Unsupported class literal "w-8 h-8 animate-wobble"`);
+      }
+    } finally { rmSync(project, { recursive: true, force: true }); }
+  }, 120_000);
+
   test("include.rs loaders compile without warnings with and without images", async () => {
     const project = temporary();
     try {

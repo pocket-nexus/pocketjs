@@ -92,9 +92,9 @@ export async function compileAot(options: AotCompileOptions): Promise<AotCompile
   options.dependencyFiles?.forEach(path => inputs.optional(path));
   const entry = resolve(projectRoot, plan.app.entry), component = componentEntry(entry);
   // The frontends consult the registered settings (aot-model-config.ts).
-  registerApplication({ directory: options.configPath ? dirname(resolve(options.configPath)) : dirname(entry), aot: plan.app.aot,
-    model: plan.app.model, recursionLimit: plan.app.recursionLimit, framework: plan.app.framework, entry });
   const theme = plan.app.theme, tickHz = plan.profile.tickHz;
+  registerApplication({ directory: options.configPath ? dirname(resolve(options.configPath)) : dirname(entry), aot: plan.app.aot,
+    model: plan.app.model, recursionLimit: plan.app.recursionLimit, framework: plan.app.framework, entry, theme, tickHz });
   const program = analyzeAot(component, { strict: true, theme, tickHz });
   const visited = new Set<string>();
   const collect = (path: string) => {

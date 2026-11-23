@@ -37,7 +37,7 @@ export function analyzeSolidAot(entry: string, options: AnalyzeSolidAotOptions =
   const files = new Map([...options.sources ?? []].map(([file, source]) => [resolve(file), source]));
   if (options.source !== undefined) files.set(entry, options.source);
   const exists = (file: string) => files.has(file) || existsSync(file);
-  const parsed = new Map<string, Parsed>(), visiting = new Set<string>(), classLiterals = new Set<string>();
+  const parsed = new Map<string, Parsed>(), visiting = new Set<string>(), classLiterals = new Map<string, SourceLocation>();
   function collect(file: string): Parsed {
     if (visiting.has(file)) fail(location(file, ""), "Recursive component imports are outside the view subset");
     const existing = parsed.get(file); if (existing) return existing;
@@ -308,7 +308,7 @@ export function analyzeSolidAot(entry: string, options: AnalyzeSolidAotOptions =
             if (literal.kind === "literal" && Array.isArray(literal.value) || literal.kind !== "literal" && !(literal.kind === "unary" && literal.operator === "-" && literal.operand.kind === "literal" && typeof literal.operand.value === "number")) fail(loc(property), "Defaults must be literal strings, numbers, booleans, or enum literals");
             prop.default = literal.kind === "literal" ? literal.value as string | number | boolean : -(literal.operand as Extract<AotExpr, {kind:"literal"}>).value as number;
             if (literal.kind === "literal" && literal.rawNumber !== undefined) prop.defaultRawNumber = literal.rawNumber;
-            if (expected.kind === "style" && typeof prop.default === "string" && prop.default.trim()) classLiterals.add(prop.default.trim());
+            if (expected.kind === "style" && typeof prop.default === "string" && prop.default.trim() && !classLiterals.has(prop.default.trim())) classLiterals.set(prop.default.trim(), loc(property.initializer));
             prop.type = expected; context.bindings.set(`props.${prop.name}`, { scope: "prop", type: expected });
           }
           context.propsName = name; continue;
@@ -627,7 +627,7 @@ export function analyzeSolidAot(entry: string, options: AnalyzeSolidAotOptions =
             host.ref = value.text;
           } else if (name === "class") {
             if (!attribute.initializer) fail(loc(attribute), "class requires a full class literal or literal ternary");
-            if (ts.isStringLiteral(attribute.initializer)) { const text = attribute.initializer.text.trim(); if (text) { classLiterals.add(text); (host as typeof host & { classLiteral?: string }).classLiteral = text; } }
+            if (ts.isStringLiteral(attribute.initializer)) { const text = attribute.initializer.text.trim(); if (text) { if (!classLiterals.has(text)) classLiterals.set(text, loc(attribute.initializer)); (host as typeof host & { classLiteral?: string }).classLiteral = text; } }
             else {
               const value = attrValue(attribute, ctx);
               if (value.kind !== "conditional" && !(value.kind === "binding" && value.scope === "prop" && value.type.kind === "style")) fail(loc(attribute), "class requires a ternary with full class literal leaves or a StyleClass prop");
@@ -672,7 +672,7 @@ export function analyzeSolidAot(entry: string, options: AnalyzeSolidAotOptions =
         if (value.kind === "conditional") return { ...value, consequent: styles(value.consequent, prop, true), alternate: styles(value.alternate, prop, true), type: prop ? { kind: "style" } : I32 };
         if (value.kind === "binding" && value.scope === "prop" && value.type.kind === "style" && !leaf) return value;
         if (value.kind !== "literal" || typeof value.value !== "string") fail(value.loc, "StyleClass values require full class literal leaves or a forwarded StyleClass prop");
-        const classes = value.value.trim(); if (classes) classLiterals.add(classes);
+        const classes = value.value.trim(); if (classes && !classLiterals.has(classes)) classLiterals.set(classes, value.loc);
         return { ...value, value: classes, type: prop ? { kind: "style" } : I32 };
       }
       if (!jsx(returned)) fail(loc(returned), "Return a JSX element or fragment");

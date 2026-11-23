@@ -1,6 +1,6 @@
 import { registerAppSettings, registerSourceApplication, resolveSourceEntry, sourceApplication, sourceOutputName } from "./source-app.ts";
 import { resolveSolidAotModel } from "../microts/compiler/aot-solid-browser.ts";
-import { modelConfiguration, registerApplication } from "../microts/compiler/aot-model-config.ts";
+import { modelConfiguration, registerApplication, setApplicationAnimation } from "../microts/compiler/aot-model-config.ts";
 import { loadHostConfig } from "./profile-resolver.ts";
 import { BuildInputs } from "../framework/compiler/build-inputs.ts";
 import { buildWorker } from "./build-worker.ts";
@@ -330,6 +330,10 @@ for (const layer of layerFlags) {
   if (!existsSync(layer)) throw new Error(`PocketJS build: --layer names ${layer}, which is not a file`);
   systemLayers.push(layer);
 }
+// Pass 1 admits an AOT application's Solid views, which compiles their class
+// literals; they bake with the theme and tick rate of this build's style table.
+const application = modelConfiguration(entry).directory;
+if (application) setApplicationAnimation(application, { theme: appContent.theme, tickHz });
 await walk(entry);
 for (const layer of systemLayers) await walk(layer);
 console.log(`  pass 1: ${visited.size} module(s), ${classStrings.length} candidate literal(s), ${codepoints.size} codepoint(s)`);

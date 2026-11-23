@@ -7,14 +7,17 @@ import { checkAotVersion, type AotProgram, type AotComponent } from "./aot-ir.ts
 import { defaultValue } from "./aot-browser.ts";
 import { modelConfiguration } from "./aot-model-config.ts";
 
-const graphs = new Map<string, { versions: [string, number, number][]; programs: AotProgram[] }>();
+const graphs = new Map<string, { animation: string; versions: [string, number, number][]; programs: AotProgram[] }>();
 const read = (file: string, sources?: ReadonlyMap<string, string>) => sources?.get(file) ?? readFileSync(file, "utf8");
 
-/** The application entry may be a mount module; every imported TSX component is checked. */
+/** The application entry may be a mount module; every imported TSX component is checked.
+ *  Class literals bake with the theme and tick rate registered for the entry's
+ *  application (aot-model-config.ts), the values `pocket compile --aot` uses. */
 export function checkSolidAotGraph(entry: string, options: { sources?: ReadonlyMap<string, string>; strict?: boolean } = {}): AotProgram[] {
   entry = resolve(entry);
+  const { theme, tickHz } = modelConfiguration(entry), animation = JSON.stringify({ theme, tickHz });
   const prior = graphs.get(entry);
-  if (!options.sources && !options.strict && prior && prior.versions.every(([file, mtime, size]) => {
+  if (!options.sources && !options.strict && prior?.animation === animation && prior.versions.every(([file, mtime, size]) => {
     try { const current = statSync(file); return current.mtimeMs === mtime && current.size === size; } catch { return mtime === -1; }
   })) return prior.programs;
   const visited = new Set<string>(), roots: string[] = [];
@@ -36,7 +39,7 @@ export function checkSolidAotGraph(entry: string, options: { sources?: ReadonlyM
   visit(entry);
   if (!roots.length) throw new Error(`Solid AOT: no default-exported TSX component is reachable from ${entry}`);
   const programs: AotProgram[] = [];
-  for (const file of roots) if (!programs.some(program => program.components.some(component => component.file === file))) programs.push(analyzeSolidAot(file, options));
+  for (const file of roots) if (!programs.some(program => program.components.some(component => component.file === file))) programs.push(analyzeSolidAot(file, { ...options, theme, tickHz }));
   const dependencies = new Set(visited);
   for (const program of programs) for (const component of program.components) {
     dependencies.add(component.file);
@@ -67,7 +70,7 @@ export function checkSolidAotGraph(entry: string, options: { sources?: ReadonlyM
     }
   }
   for (const file of dependencies) if (existsSync(file)) { const s = statSync(file); versions.push([file, s.mtimeMs, s.size]); }
-  if (!options.sources) graphs.set(entry, { versions, programs });
+  if (!options.sources) graphs.set(entry, { animation, versions, programs });
   return programs;
 }
 
