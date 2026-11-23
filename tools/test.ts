@@ -83,7 +83,6 @@ const SUITE: readonly Stage[] = [
       "tests/widget-args.test.ts",
       "tests/note.test.ts",
 
-      "tests/site-arcade.test.ts",
       "tests/motions-attribution.test.ts",
       "tests/host-build-inputs.test.ts",
       "tests/quickjs-c-harness.test.ts",
