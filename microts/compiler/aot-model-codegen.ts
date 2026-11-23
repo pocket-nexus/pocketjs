@@ -198,13 +198,17 @@ class ModelRust {
   rootType(id: number): AotType {
     return (this.binders.get(id) ?? this.task?.fields.find(field => field.id === id) ?? [...this.current.fields, ...this.current.params].find(field => field.id === id))!.type;
   }
+  /** The member and index steps from a target's root to its place. */
+  placeSteps(target: ModelTarget): ModelPathStep[] {
+    return target.kind === "path" ? target.steps : target.kind === "element" ? [{ kind: "index", index: target.index }] : target.kind === "member" ? [{ kind: "member", name: target.name }] : [];
+  }
   /**
    * Runs `body` with a mutable Rust place for a target. Index operands are bound to
    * locals first; an out-of-range element skips the body, as element writes do.
    */
   withPlace(target: ModelTarget, body: (place: RustExpr, type: AotType) => RustStatement[]): RustStatement[] {
     const root = target.kind === "path" ? target.root : target.kind === "element" || target.kind === "member" ? { kind: "local" as const, id: target.owner } : { kind: target.kind, id: target.id };
-    const steps: ModelPathStep[] = target.kind === "path" ? target.steps : target.kind === "element" ? [{ kind: "index", index: target.index }] : target.kind === "member" ? [{ kind: "member", name: target.name }] : [];
+    const steps = this.placeSteps(target);
     const prefix: RustStatement[] = [], names = steps.map(step => { if (step.kind !== "index") return ""; const name = `index_${this.serial++}`; prefix.push(let_(name, this.expr(step.index))); return name; });
     const nest = (place: RustExpr, type: AotType, index: number): RustStatement[] => {
       if (index === steps.length) return body(place, type);
@@ -249,7 +253,10 @@ class ModelRust {
       else if (!within) { const name = `source_${this.serial++}`; statements.push(let_(name, this.expr(value))); source = slice(ref(rp(name))); }
     }
     const result = `result_${this.serial++}`, returns = e.type.kind !== "void";
-    if (returns) statements.push(let_(result, this.defaultValue(e.type), true, this.type(e.type)));
+    // pop and removeAt assign the result once. It starts at the default only under an
+    // index step, where an out-of-range element skips the assignment.
+    const skippable = this.placeSteps(e.target).some(step => step.kind === "index");
+    if (returns) statements.push(skippable ? let_(result, this.defaultValue(e.type), true, this.type(e.type)) : { kind: "let", pattern: rn(result), type: this.type(e.type) });
     const builtin = (name: string, ...values: RustExpr[]) => rc(rp("microts", "builtins", name), ...values);
     statements.push(...this.withPlace(e.target, (place, type) => {
       const element = type.kind === "array" ? type.element : e.type;
@@ -874,10 +881,15 @@ class ModelRust {
   codecs() {
     const string = (value: string) => rc(rp("String", "from"), rl(value));
     const object = (fields: { name: string; value: RustExpr }[]) => rc(rp("Value", "Object"), { kind: "macro", name: ["alloc", "vec"], args: fields.map(f => ({ kind: "tuple", elements: [string(f.name), f.value] })) } as RustExpr);
-    const construct = (path: string[], fields: { name: string; type: AotType }[]): RustExpr => ({ kind: "match", value: { kind: "tuple", elements: fields.map(f => rc({ kind: "path", path: ["microts", "model", "decode_field"], typeArgs: [this.type(f.type)] }, rp("value"), rl(f.name))) }, arms: [
-      { pattern: { kind: "tuple", elements: fields.map(f => ({ kind: "variant", path: ["Some"], tuple: [rn(f.name)] })) }, body: rc(rp("Some"), { kind: "struct", path, fields: fields.map(f => ({ name: f.name, value: rp(f.name) })) }) },
-      { pattern: { kind: "wildcard" }, body: rp("None") },
-    ] });
+    const construct = (path: string[], fields: { name: string; type: AotType }[]): RustExpr => {
+      const built = rc(rp("Some"), { kind: "struct", path, fields: fields.map(f => ({ name: f.name, value: rp(f.name) })) });
+      // Without fields there is nothing to decode, and a match on () would never reach its wildcard.
+      if (!fields.length) return built;
+      return { kind: "match", value: { kind: "tuple", elements: fields.map(f => rc({ kind: "path", path: ["microts", "model", "decode_field"], typeArgs: [this.type(f.type)] }, rp("value"), rl(f.name))) }, arms: [
+        { pattern: { kind: "tuple", elements: fields.map(f => ({ kind: "variant", path: ["Some"], tuple: [rn(f.name)] })) }, body: built },
+        { pattern: { kind: "wildcard" }, body: rp("None") },
+      ] };
+    };
     for (const d of this.program.types) {
       let encode: RustExpr, decode: RustExpr;
       if (d.kind === "struct") {
@@ -1099,7 +1111,8 @@ class ModelRust {
           body.push(assign(field("building_wait"), bin("+", field("building_wait"), rl(1))), let_("wait", wait), re(rm(taskField, "suspend", rl(state.next ?? state.id + 1, "u32"), field("frame"), rp("wait"))), assign(field("building_wait"), bin("-", field("building_wait"), rl(1))), condition(rm(taskField, "has_cancelled_join", ref(field("outcomes"))), [re(rm(self, `cancel_reason_${func.id}`, rl("awaited task cancelled")))]), { kind: "return" });
         } else if (state.branch) body.push(assign(rp("state"), { kind: "if", condition: this.expr(state.branch.condition), then: rb([], rl(state.branch.then, "u32")), otherwise: rb([], rl(state.branch.else, "u32")) }), { kind: "continue" });
         else if (state.next !== undefined) body.push(assign(rp("state"), rl(state.next, "u32")), { kind: "continue" });
-        else body.push(re(rm(taskField, "finish", this.taskReturn(), ref(field("outcomes"), true))), { kind: "return" });
+        // A body that never completes, such as one ending in a return, gets no finish after it.
+        else if (!this.diverges(state.body)) body.push(re(rm(taskField, "finish", this.taskReturn(), ref(field("outcomes"), true))), { kind: "return" });
         return { pattern: { kind: "literal" as const, value: state.id }, body: block(body) };
       });
       arms.push({ pattern: { kind: "wildcard" } as never, body: { kind: "macro", name: ["unreachable"], args: [] } });
