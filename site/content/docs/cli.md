@@ -194,8 +194,16 @@ metadata, and `dependencies.json` with a depfile. Relative includes let the
 program's build consume the directory after relocation. GBA and iPod nano
 program builds use this source-generation path before their native build.
 
-The compiler requires its prebuilt Wasm layout oracle; a missing oracle is an
-error. `--aot` is a `compile` option and cannot be combined with `--output`.
+**The compiler reads its Wasm layout oracle, `platforms/web/pocketjs.wasm`
+in the `@pocketjs/framework` directory, and does not build it.** The npm
+package ships the file. A source checkout, including one pinned as a Git
+submodule, produces it with `bun tools/wasm.ts` run in the checkout, which
+needs the `wasm32-unknown-unknown` Rust target
+(`rustup target add wasm32-unknown-unknown`). A missing oracle is an error:
+in a checkout, the directory that contains `programs/web/wasm/Cargo.toml`, the
+message names `bun tools/wasm.ts`; in an installed package, which ships the
+`.wasm` without that crate, it names reinstalling the package.
+`--aot` is a `compile` option and cannot be combined with `--output`.
 The application's `app.tickHz` and `app.theme` apply to the generated
 animation data.
 

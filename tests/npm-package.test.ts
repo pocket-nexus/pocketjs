@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -48,6 +48,23 @@ console.log("npm consumer passed");
       expect(consumer.stdout.toString()).toContain("npm consumer passed");
       const version = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
       expect(readFileSync(join(scratch, "program/Cargo.toml"), "utf8")).toContain(`pocket-archive = { git = "https://github.com/pocket-nexus/pocketjs", tag = "v${version}", default-features = false, features = ["physics","software-renderer"] }`);
+    } finally { rmSync(scratch, { recursive: true, force: true }); }
+  }, 60_000);
+
+  test("the package ships pocketjs.wasm without its crate, and a missing copy names reinstalling the package", () => {
+    const scratch = mkdtempSync(join(tmpdir(), "pocketjs-npm-wasm-"));
+    try {
+      const archive = packArchive(root, scratch);
+      const extract = Bun.spawnSync(["tar", "-xf", archive, "-C", scratch], { stdout: "pipe", stderr: "pipe" });
+      expect(extract.success, extract.stderr.toString()).toBe(true);
+      const directory = realpathSync(join(scratch, "package")), wasm = join(directory, "platforms/web/pocketjs.wasm");
+      expect(existsSync(wasm)).toBe(existsSync(join(root, "platforms/web/pocketjs.wasm")));
+      expect(existsSync(join(directory, "programs/web/wasm/Cargo.toml"))).toBe(false);
+      rmSync(wasm, { force: true });
+      const consumer = Bun.spawnSync([process.execPath, "-e", `import { missingHostWasm } from "./tools/wasm.ts"; console.log(missingHostWasm("the layout oracle"));`],
+        { cwd: directory, stdout: "pipe", stderr: "pipe" });
+      expect(consumer.success, consumer.stderr.toString()).toBe(true);
+      expect(consumer.stdout.toString().trim()).toBe(`the layout oracle ${wasm} is missing from the installed @pocketjs/framework package, which ships it; reinstall the package`);
     } finally { rmSync(scratch, { recursive: true, force: true }); }
   }, 60_000);
 });

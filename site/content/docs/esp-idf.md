@@ -344,6 +344,12 @@ pocket build --config pocket.host.config.ts --aot-dir dist/aot --out dist/build
 Without `--aot-dir`, `pocket build` runs the AOT compile of the config's `app`
 section itself before the recipe.
 
+The AOT compile reads the layout oracle `platforms/web/pocketjs.wasm` from
+PocketJS. The npm package ships it; a project that pins PocketJS as a Git
+submodule runs `bun tools/wasm.ts` in the submodule before the first compile
+(needs `rustup target add wasm32-unknown-unknown`). See
+[AOT source generation](/docs/cli/#aot-source-generation).
+
 The crate's `build.rs` calls `pocket_profile_build::emit`, which copies the
 exported profile to `OUT_DIR/pocket_profile.rs`. The library includes that
 file and `$POCKETJS_AOT_DIR/include.rs`. **The Cargo step passes `--locked`**:

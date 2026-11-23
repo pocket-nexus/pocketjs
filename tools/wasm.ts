@@ -26,6 +26,25 @@ const env = {
   PATH: `${join(homedir(), ".cargo/bin")}${delimiter}${process.env.PATH ?? ""}`,
 };
 
+/** The wasm core: the AOT compiler's layout oracle and the core of the web and sim hosts. */
+export const HOST_WASM = OUT;
+
+/**
+ * The error text for a `pocketjs.wasm` that is not on disk, with its remedy.
+ * `role` names the file for the caller ("the layout oracle"); `passed` is a
+ * path the caller was given in place of HOST_WASM. A checkout contains the
+ * crate `bun tools/wasm.ts` builds; the npm package ships the `.wasm` without
+ * that crate (package.json `files`), so the crate's manifest tells the two
+ * layouts apart.
+ */
+export function missingHostWasm(role: string, passed?: { option: string; path: string }): string {
+  if (passed) return `${role} passed as ${passed.option} does not exist: ${resolve(passed.path)}`;
+  if (existsSync(join(WASM_DIR, "Cargo.toml"))) {
+    return `${role} ${OUT} is missing; build it with \`bun tools/wasm.ts\` in ${ROOT} (needs \`rustup target add wasm32-unknown-unknown\`)`;
+  }
+  return `${role} ${OUT} is missing from the installed @pocketjs/framework package, which ships it; reinstall the package`;
+}
+
 let pending: Promise<string> | undefined;
 /** Build the current checkout core once, for headless consumers and the web host. */
 export function ensureHostWasm(): Promise<string> {
