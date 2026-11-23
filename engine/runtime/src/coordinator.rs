@@ -1300,7 +1300,8 @@ fn inner_edges(moved: DamageRect, screen: DamageRect) -> Vec<DamageRect> {
 /// its refresh quantum, and for a filtering scaler grown by the pixel on
 /// every side whose shown value depends on the change. Strips are flushed
 /// and filtered one at a time, so a change at a strip's first or last row
-/// reaches no row of the next strip. The rectangles may overlap.
+/// reaches no row of the next strip. The rectangles are disjoint and ordered
+/// by row, then column (`disjoint`).
 fn physical_damage(
     regions: &[DamageRect],
     display: &DisplayDescriptor,
@@ -1339,7 +1340,51 @@ fn physical_damage(
             let bottom = up(y1, yq, display.height);
             Rect::new(x, y, right - x, bottom - y)
         })
-        .collect())
+        .collect::<Vec<_>>())
+    .map(disjoint)
+}
+
+/// Rectangles that cover the same pixels as `rects`, without overlap, ordered
+/// by row, then column. Alignment makes distinct changes cover the same
+/// pixels: on a display whose window spans its width, two changes side by
+/// side become the same rows twice. A renderer would draw those rows once
+/// per rectangle, and a display that transfers rows in order rejects them.
+///
+/// Two rectangles that overlap become their bounding rectangle, which covers
+/// pixels neither held when their spans differ on both axes. Two that touch
+/// with the same span on the other axis become one, which covers no more.
+fn disjoint(mut rects: Vec<Rect>) -> Vec<Rect> {
+    rects.retain(|r| r.width != 0 && r.height != 0);
+    let end = |start: u32, length: u32| start as u64 + length as u64;
+    let joins = |a: &Rect, b: &Rect| {
+        let (ax1, ay1) = (end(a.x, a.width), end(a.y, a.height));
+        let (bx1, by1) = (end(b.x, b.width), end(b.y, b.height));
+        let overlap = (a.x as u64) < bx1 && (b.x as u64) < ax1 && (a.y as u64) < by1 && (b.y as u64) < ay1;
+        let stacked = a.x == b.x && ax1 == bx1 && (a.y as u64) <= by1 && (b.y as u64) <= ay1;
+        let abreast = a.y == b.y && ay1 == by1 && (a.x as u64) <= bx1 && (b.x as u64) <= ax1;
+        overlap || stacked || abreast
+    };
+    let mut i = 0;
+    while i < rects.len() {
+        let mut grown = false;
+        let mut j = i + 1;
+        while j < rects.len() {
+            if joins(&rects[i], &rects[j]) {
+                let (a, b) = (rects[i], rects.swap_remove(j));
+                let (x, y) = (a.x.min(b.x), a.y.min(b.y));
+                let right = end(a.x, a.width).max(end(b.x, b.width));
+                let bottom = end(a.y, a.height).max(end(b.y, b.height));
+                rects[i] = Rect::new(x, y, (right - x as u64) as u32, (bottom - y as u64) as u32);
+                grown = true;
+            } else {
+                j += 1;
+            }
+        }
+        // A grown rectangle may reach one that an earlier pass kept apart.
+        i = if grown { 0 } else { i + 1 };
+    }
+    rects.sort_unstable_by_key(|r| (r.y, r.x));
+    rects
 }
 
 fn validate_display(display: &DisplayDescriptor, scale: u32) -> Result<(), PresentError> {
