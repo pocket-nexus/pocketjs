@@ -10,11 +10,12 @@ import { registerApplication } from "../microts/compiler/aot-model-config.ts";
 // One source graph, initial fixture, and input tape drive stock Solid and native
 // generated Rust. Trace order and every frame's tree are compared, including the
 // final disposal. Style values are resolved colors, never process-local IDs.
-test("Solid and Rust agree frame by frame on keyed dispatch, owned events and lifecycle rounds", async () => {
-  const fixture = resolve("tests/fixtures/aot/differential");
+interface DifferentialFrame { tree: unknown[]; trace: string[]; focus: string | null }
+async function differential(name: string): Promise<DifferentialFrame[]> {
+  const fixture = resolve("tests/fixtures/aot", name);
   // An AOT Solid application with a Rust model, as its host config would state.
   registerApplication({ directory: fixture, framework: "solid", aot: true, entry: "App.tsx" });
-  const run = resolve(".pocket-build/validation/solid-aot/differential", String(Date.now()));
+  const run = resolve(".pocket-build/validation/solid-aot", name, String(Date.now()));
   await mkdir(resolve(run, "src"), { recursive: true });
   const program = analyzeSolidAot(resolve(fixture, "App.tsx"), { strict: true });
   await Bun.write(resolve(run, "src/generated.rs"), emitAot(program).files["app.rs"]!);
@@ -73,4 +74,23 @@ console.log(JSON.stringify(check()));
   await Bun.write(resolve(run, "rust.json"), JSON.stringify(rust, null, 2));
   expect(rust.length).toBe(solid.length);
   for (let frame = 0; frame < solid.length; frame++) expect(rust[frame], `differential frame ${frame}; artifacts: ${run}`).toEqual(solid[frame]);
+  return solid;
+}
+
+test("Solid and Rust agree frame by frame on keyed dispatch, owned events and lifecycle rounds", async () => {
+  await differential("differential");
+}, 120_000);
+
+// 60 Hz frames: CROSS holds after 90 ms and repeats every 50 ms; SQUARE uses
+// the 500 ms default and toggles active while held; START is latched and
+// mounts under a held button.
+test("Solid and Rust agree on press, hold, release, held masks and active interplay", async () => {
+  const frames = await differential("input-events");
+  const events = frames.flatMap((frame, index) => frame.trace.map(entry => `${index}:${entry}`));
+  expect(events).toEqual([
+    "1:press:16384:16384", "7:hold:16384:16384", "10:hold:16384:16384", "11:first", "11:combo:8192:24576", "13:hold:16384:16384", "14:release:16384:0",
+    "15:square:press", "16:live:false", "18:square:release", "21:live:true", "24:square:press", "54:square:hold", "59:square:release",
+    "60:open:true", "63:start:press", "64:open:false", "66:open:true", "68:start:press", "69:start:release",
+  ]);
+  expect([frames[7]!.focus, frames[8]!.focus]).toEqual([null, "First"]);
 }, 120_000);

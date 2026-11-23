@@ -1,5 +1,6 @@
 /** Button/axis/motion tape adapter over the same mounted View IR used by native blocks. */
 import { BTN } from "../../contracts/spec/spec.ts";
+import { ButtonLatch } from "../../framework/src/button-events.ts";
 import { motionValueParameters, sampleMotion, type MotionState, type MotionValueName } from "../../contracts/spec/motion.ts";
 import type { AotComponent, AotExpr, AotHandler, AotNode, AotProgram } from "./aot-ir.ts";
 import { checkAotVersion } from "./aot-ir.ts";
@@ -31,7 +32,7 @@ interface Instance {
 }
 interface Mounted {
   node: AotNode; context: ContextSource; children: Mounted[]; uid: number;
-  previous?: number; branch?: number; instance?: Instance;
+  latch?: ButtonLatch; branch?: number; instance?: Instance;
   rows?: { key: any; children: Mounted[] }[];
 }
 const clone = <T>(value: T): T => value === undefined ? value : structuredClone(value);
@@ -44,6 +45,7 @@ export class ModelTapeInterpreter {
   private tree: Mounted[] = [];
   private nextNode = 0;
   private previousButtons = 0;
+  private now = 0;
   private rendering = false;
   private active = true;
 
@@ -173,7 +175,7 @@ export class ModelTapeInterpreter {
   private mountNodes(nodes: AotNode[], context: ContextSource): Mounted[] {
     return nodes.map(node => {
       const mounted: Mounted = { node, context, children: [], uid: ++this.nextNode };
-      if (node.kind === "input") mounted.previous = node.input.kind === "button" && node.input.latched ? 0xffffffff : 0;
+      if (node.kind === "input" && node.input.kind === "button") mounted.latch = new ButtonLatch(node.input.latched);
       if (node.kind === "element" || node.kind === "input") mounted.children = this.mountNodes(node.children, context);
       if (node.kind === "component") this.mountComponent(mounted, node);
       if (node.kind === "slot") {
@@ -269,6 +271,7 @@ export class ModelTapeInterpreter {
   }
   private dispatch(input: ModelTapeFrame): boolean {
     const buttons = input.buttons ?? 0, nodes = this.allNodes();
+    this.now = input.clock ?? this.now;
     const pressed = buttons & ~this.previousButtons; this.previousButtons = buttons;
     const targets = input.target === undefined ? [] : nodes.filter(node => node.node.kind === "element" && (node.uid === input.target || node.node.debugName === input.target));
     if (input.target !== undefined && targets.length !== 1) throw new Error(`Tape target ${input.target} must identify one mounted element; found ${targets.length}`);
@@ -277,14 +280,22 @@ export class ModelTapeInterpreter {
     let handled = false;
     for (const mounted of nodes) {
       const node = mounted.node;
-      if (node.kind === "input") {
+      if (node.kind === "input" && node.input.kind === "button") {
+        const button = node.input, latch = mounted.latch!;
+        const event = latch.sample(buttons, button.button, this.now, () => { const context = mounted.context(); return !!context && !!this.expression(node.active, context); }, () => {
+          const context = mounted.context()!, ms = (value: AotExpr | undefined) => value === undefined ? undefined : Number(this.expression(value, context));
+          return { holdMs: ms(button.hold?.delay), repeatMs: ms(button.hold?.repeat) };
+        });
+        const listener = event && node.events.find(candidate => candidate.name === event.name), context = listener && mounted.context();
+        if (!listener || !context) continue;
+        this.handler(listener.handler, { ...context, events: { ...context.events, $event: event.buttons, $event1: buttons } }); handled = true;
+      } else if (node.kind === "input") {
         const sample = node.input.kind === "motion" && input.motion ? sampleMotion(input.motion, node.input.name as MotionValueName, node.input.minQuality) : undefined;
-        const pending = node.input.kind === "button" ? (buttons & ~mounted.previous! & node.input.button) !== 0 : node.input.kind === "axis" ? axis(node.input.axis) !== 0 : sample !== undefined;
-        mounted.previous = buttons;
+        const pending = node.input.kind === "axis" ? axis(node.input.axis) !== 0 : sample !== undefined;
         if (!pending) continue;
         const context = mounted.context(); if (!context || !this.expression(node.active, context)) continue;
-        const payload = node.input.kind === "axis" ? { $event: axis(node.input.axis) } : sample ? Object.fromEntries(motionValueParameters(node.input.name as MotionValueName).map((parameter, index) => [index ? `$event${index}` : "$event", parameter.field.startsWith("component") ? sample.components[Number(parameter.field.slice(9))] : sample[parameter.field as "quality"]])) : { $event: undefined };
-        this.handler(node.handler, { ...context, events: { ...context.events, ...payload } }); handled = true;
+        const payload = node.input.kind === "axis" ? { $event: axis(node.input.axis) } : Object.fromEntries(motionValueParameters(node.input.name as MotionValueName).map((parameter, index) => [index ? `$event${index}` : "$event", parameter.field.startsWith("component") ? sample!.components[Number(parameter.field.slice(9))] : sample![parameter.field as "quality"]]));
+        this.handler(node.events[0]!.handler, { ...context, events: { ...context.events, ...payload } }); handled = true;
       } else if (node.kind === "element" && targets[0] === mounted) {
         const context = mounted.context(); if (!context) continue;
         for (const event of node.events) if (event.name === "press") { this.handler(event.handler, context); handled = true; }

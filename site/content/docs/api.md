@@ -275,15 +275,22 @@ Gives its subtree row/column d-pad semantics while `active`. Requires `columns`;
 ```ts
 interface ActionHandlerProps extends ButtonPressOptions {
   button: number;                                    // BTN mask
-  onPress: (pressed: number, buttons: number) => void;
+  onPress?: (pressed: i32, buttons: i32) => void;   // i32: a number
+  onHold?: (held: i32, buttons: i32) => void;
+  onRelease?: (released: i32, buttons: i32) => void;
+  holdMs?: number;                                   // default 500
+  repeatMs?: number;
   children?: JSX.Element;
 }
 function ActionHandler(props: ActionHandlerProps): JSX.Element
 ```
 
-Declarative wrapper over `onButtonPress`: fires `onPress` on the button edge.
-Inherits `allowWhenBlocked`, `active`, and `latched` from
-`ButtonPressOptions`. Renders `children` (or nothing).
+Fires `onPress` on the button edge, as `onButtonPress` does, `onHold` after
+`holdMs` virtual-clock milliseconds of holding and every `repeatMs` after
+that, and `onRelease` when the button of an accepted press goes up, active or
+not ([rules](/docs/input-focus/#button-press-hooks)). Inherits
+`allowWhenBlocked`, `active`, and `latched` from `ButtonPressOptions`.
+Renders `children` (or nothing).
 
 ### `Portal`
 

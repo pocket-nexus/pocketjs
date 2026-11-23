@@ -17,7 +17,8 @@ import {
 } from "solid-js";
 import { BTN, ENUMS, SCREEN_H, SCREEN_W } from "../../contracts/spec/spec.ts";
 import { animate, type EasingName } from "./anim.ts";
-import { pushButtonHandlerBlock, onButtonPress, onAxisDelta, onMotion, onFrame, type ButtonPressOptions } from "./frame.ts";
+import { pushButtonHandlerBlock, onButtonEvents, onButtonPress, onAxisDelta, onMotion, onFrame, type ButtonPressOptions } from "./frame.ts";
+import type { ButtonEventCallbacks } from "./button-events.ts";
 import { RelativeAxis } from "./relative-axis.ts";
 import { MOTION_DEFAULT_MIN_QUALITY } from "./motion.ts";
 import type { MicroTsMotionHandlerProps } from "./component-types-microts.ts";
@@ -188,15 +189,15 @@ export function FocusGrid(props: FocusGridProps): SolidJSX.Element {
   });
 }
 
-export interface ActionHandlerProps extends ButtonPressOptions {
+export interface ActionHandlerProps extends ButtonPressOptions, ButtonEventCallbacks {
   button: number;
-  onPress: (pressed: number, buttons: number) => void;
   children?: SolidJSX.Element;
 }
 
+/** Press, hold and release of `button` (framework/src/button-events.ts). */
 export function ActionHandler(props: ActionHandlerProps): SolidJSX.Element {
   const marker = inputPlacement("action");
-  onButtonPress(props.button, props.onPress, {
+  onButtonEvents(props.button, () => props, {
     allowWhenBlocked: props.allowWhenBlocked,
     active: () => resolveActive(props.active),
     latched: props.latched,

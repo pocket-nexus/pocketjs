@@ -5,6 +5,7 @@ import solid from "babel-preset-solid";
 import { analyzeSolidAot } from "../microts/compiler/aot-solid-frontend.ts";
 import { normalizeJsxText } from "../microts/compiler/aot-jsx-text.ts";
 import type { AotNode } from "../microts/compiler/aot-ir.ts";
+import { BTN } from "../contracts/spec/spec.ts";
 import { registerRepositoryApp } from "./app-fixtures.ts";
 const root = resolve(import.meta.dir, "..");
 const entry = resolve(root, "tests/fixtures/aot/solid/App.tsx");
@@ -84,6 +85,40 @@ test("signals, derived values, keyed lists and input lower directly to shared no
   expect(app.values.some(v => ["zero", "width", "setCount"].includes(v.name))).toBe(false);
   expect(flatten(app.nodes).map(n => n.kind)).toEqual(["element", "if", "element", "element", "for", "element", "input", "input"]);
   expect(program.demands).toEqual({ buttons: [16384], axes: [0], motion: [], capabilities: ["relative-axis"] });
+});
+
+test("ActionHandler admits press, hold and release with the guest's (mask, buttons) payload", () => {
+  const extra = 'import { press, hold, release } from "./App";';
+  const contract = model + "export declare function press(pressed: i32, buttons: i32): void;\nexport declare function hold(held: i32): void;\nexport declare function release(released: i32, buttons: i32): void;\nexport declare const delay: Accessor<i32>;\n";
+  const program = analyze(`return <View>
+      <ActionHandler button={BTN.CROSS} onRelease={release} onHold={held => hold(held)} holdMs={read()} repeatMs={80} onPress={(pressed, buttons) => press(pressed, buttons)} />
+      <ActionHandler button={BTN.CIRCLE} onHold={hold} />
+      <ActionHandler button={BTN.SQUARE} onRelease={() => reset()} />
+    </View>;`, extra, {}, contract);
+  const inputs = flatten(program.components.at(-1)!.nodes).filter(n => n.kind === "input");
+  const cross = inputs[0]!, circle = inputs[1]!, square = inputs[2]!;
+  if (cross.kind !== "input" || circle.kind !== "input" || square.kind !== "input") throw new Error("expected input nodes");
+  expect(cross.events.map(event => event.name)).toEqual(["press", "hold", "release"]);
+  expect(cross.input).toMatchObject({ kind: "button", button: BTN.CROSS, hold: { delay: { kind: "cast", type: { kind: "number", name: "f64" }, value: { kind: "call", name: "read" } }, repeat: { kind: "cast", value: { kind: "literal", value: 80 } } } });
+  expect(cross.events[0]!.handler).toMatchObject({ kind: "call", expression: { name: "press", arguments: [{ name: "$event", type: { name: "i32" } }, { name: "$event1", type: { name: "i32" } }] } });
+  expect(cross.events[2]!.handler).toMatchObject({ kind: "call", expression: { name: "release", arguments: [{ name: "$event" }, { name: "$event1" }] } });
+  // onHold without holdMs waits ACTION_HOLD_DEFAULT_MS; no repeat unless repeatMs is given.
+  expect(circle.input).toMatchObject({ hold: { delay: { kind: "literal", value: 500 } } });
+  expect(circle.input.kind === "button" && circle.input.hold?.repeat).toBeUndefined();
+  expect(square.events.map(event => event.name)).toEqual(["release"]);
+  expect(square.input.kind === "button" && square.input.hold).toBeUndefined();
+  expect(program.demands).toMatchObject({ buttons: [BTN.CIRCLE, BTN.CROSS, BTN.SQUARE] });
+});
+
+test.each([
+  ["<ActionHandler button={BTN.CROSS} active={enabled()} />", "7:40: error: ActionHandler requires onPress, onHold or onRelease"],
+  ["<ActionHandler button={BTN.CROSS} holdMs={300} onPress={reset} />", "7:74: error: holdMs requires onHold"],
+  ["<ActionHandler button={BTN.CROSS} repeatMs={300} onRelease={reset} />", "7:74: error: repeatMs requires onHold"],
+  ["<ActionHandler button={BTN.CROSS} holdMs={\"long\"} onHold={reset} />", "7:82: error: holdMs requires a number of milliseconds"],
+  ["<ActionHandler button={BTN.CROSS} onHold={(held, buttons, extra) => reset()} />", "7:82: error: Handlers accept only the declared event payload parameters"],
+  ["<ActionHandler button={BTN.CROSS} onTap={reset} />", "7:74: error: ActionHandler does not accept onTap"],
+])("ActionHandler rejects %s", (element, diagnostic) => {
+  expect(() => analyze(`return ${element};`)).toThrow(diagnostic);
 });
 
 test("motion handlers bind typed fused values with trailing metadata and demand their level", () => {

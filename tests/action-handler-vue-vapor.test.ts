@@ -14,6 +14,7 @@ mock.module("vue", createVueVaporTestRuntime);
 const { ActionHandler, MotionHandler, View } = await import("../framework/src/components-vue-vapor.ts");
 const { resetFrameHooks, runFrameHooks } = await import("../framework/src/frame-vue-vapor.ts");
 const { installHost } = await import("../framework/src/host.ts");
+const { __advanceClock, resetClock } = await import("../framework/src/clock.ts");
 
 function testHostOps(): HostOps {
   let nextId = 2;
@@ -89,6 +90,34 @@ describe("Vue Vapor ActionHandler", () => {
     runFrameHooks(0);
     runFrameHooks(BTN.SELECT);
     expect(presses).toBe(1);
+  });
+
+  test("delivers press, holds on the virtual clock and the release with unmasked edge bits", () => {
+    const calls: [string, number, number][] = [];
+    const setup = ActionHandler as unknown as (
+      props: Record<string, never>,
+      context: { attrs: Record<string, unknown>; slots: { default: () => unknown } },
+    ) => unknown;
+    const block = setup({}, {
+      attrs: {
+        button: BTN.CROSS,
+        "hold-ms": 25,
+        repeatMs: () => 30,
+        onPress: (pressed: number, buttons: number) => calls.push(["press", pressed, buttons]),
+        onHold: (held: number, buttons: number) => calls.push(["hold", held, buttons]),
+        onRelease: (released: number, buttons: number) => calls.push(["release", released, buttons]),
+      },
+      slots: { default: () => ({ testBlock: true }) },
+    });
+    insertNode(rootMirror, (block as NodeMirror[])[0]!);
+    resetClock();
+    // 60 Hz frames: t = 0, 16.7, 33.3, 50, 66.7, 83.3, 100, 116.7 ms.
+    const frames = [0, BTN.CROSS, BTN.CROSS, BTN.CROSS, BTN.CROSS, BTN.CROSS, BTN.CROSS | BTN.CIRCLE, 0];
+    const at = frames.map(buttons => { __advanceClock(); runFrameHooks(buttons); return calls.splice(0); });
+    expect(at).toEqual([
+      [], [["press", BTN.CROSS, BTN.CROSS]], [], [["hold", BTN.CROSS, BTN.CROSS]], [], [["hold", BTN.CROSS, BTN.CROSS]], [],
+      [["release", BTN.CROSS | BTN.CIRCLE, 0]],
+    ]);
   });
 
   test("MotionHandler reads kebab-case min-quality and delivers the sampled payload", () => {

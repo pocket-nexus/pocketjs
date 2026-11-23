@@ -37,7 +37,9 @@ impl Default for StyleId {
 
 /// A hardware-neutral input sample. `target` is a resolved press node.
 /// `motion` is the fused estimate the host's motion driver published since the
-/// previous frame; `None` means no new estimate.
+/// previous frame; `None` means no new estimate. `now_ms` is the frame's time
+/// on the model clock, which `Ui::resolve_input` sets; a host leaves it at its
+/// default.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Input {
     pub buttons: u32,
@@ -46,6 +48,7 @@ pub struct Input {
     pub target: NodeId,
     pub axis_deltas: [i32; 2],
     pub motion: Option<crate::motion::MotionState>,
+    pub now_ms: f64,
 }
 
 impl Input {
@@ -297,10 +300,14 @@ impl Ui {
         self.model_services.sort();
         self.model_services.dedup();
     }
+    /// Milliseconds on the model clock: one `tick` per frame at the core's tick rate.
+    fn model_now_ms(&self) -> f64 {
+        self.model_ticks as f64 / self.core.read().tick_rate() as f64 * 1000.0
+    }
     pub fn model_initial_ready(&self) -> crate::Ready {
         crate::Ready {
             frame: self.model_frame,
-            now_ms: self.model_ticks as f64 / self.core.read().tick_rate() as f64 * 1000.0,
+            now_ms: self.model_now_ms(),
             services: self.model_services.clone(),
             ..crate::Ready::default()
         }
@@ -329,7 +336,7 @@ impl Ui {
             .expect("model frame identity exhausted");
         crate::Ready {
             frame: self.model_frame,
-            now_ms: self.model_ticks as f64 / self.core.read().tick_rate() as f64 * 1000.0,
+            now_ms: self.model_now_ms(),
             deliveries: core::mem::take(&mut self.model_deliveries),
             services: self.model_services.clone(),
         }
@@ -579,6 +586,7 @@ impl Ui {
             buttons: input.buttons,
             axis_deltas: input.axis_deltas,
             motion: input.motion,
+            now_ms: self.model_now_ms(),
         }
     }
 }

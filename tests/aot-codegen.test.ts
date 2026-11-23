@@ -83,7 +83,7 @@ impl AppViewModel for Model {
 `);
 }, 120_000);
 
-function button(handler: AotHandler, mask = 1): AotNode { return { kind: "input", id: 0, input: { kind: "button", name: "CONFIRM", button: mask, latched: false }, active: { kind: "literal", value: true, type: boolean, loc }, handler, children: [], loc }; }
+function button(handler: AotHandler, mask = 1): AotNode { return { kind: "input", id: 0, input: { kind: "button", name: "CONFIRM", button: mask, latched: false }, active: { kind: "literal", value: true, type: boolean, loc }, events: [{ name: "press", handler }], children: [], loc }; }
 const eventRead = (): AotExpr => ({ kind: "binding", scope: "event", name: "$event", type: string, loc });
 const twice = (): AotHandler => ({ kind: "sequence", steps: [call("record", [eventRead()]), call("record", [eventRead()])], id: 0, loc });
 

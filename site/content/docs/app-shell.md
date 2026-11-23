@@ -155,6 +155,9 @@ override only — it does not lay anything out, so use flexbox
 Use it for global shortcuts — open a menu on SELECT, back out on CROSS, cycle a
 value on a shoulder button. `button` is a `BTN` value or several OR'd together,
 and `onPress(pressed, buttons)` receives the edge bits newly pressed this frame.
+`onHold` runs after `holdMs` of holding and every `repeatMs` after that;
+`onRelease` runs when the button of an accepted press goes up
+([rules](/docs/input-focus/#button-press-hooks)).
 It inherits `active` (`true`), `allowWhenBlocked` and `latched` from
 `ButtonPressOptions` ([signature](/docs/api/#actionhandler)).
 

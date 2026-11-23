@@ -68,7 +68,7 @@ Import these elements from `@pocketjs/framework/vue-vapor/components`.
 | `View` | `class`, `:class`, `:style`, bare `focusable`, static `debug-name`, `:ref` to a model node slot | `@press` requires `focusable` |
 | `Text` | `class`, `:class` | — |
 | `Image` | `class`, `:class`, static `src` asset name | — |
-| `ActionHandler` | Static `:button="BTN.NAME"`, boolean `active`, static `latched` | `@press` |
+| `ActionHandler` | Static `:button="BTN.NAME"`, boolean `active`, static `latched`, numeric `:holdMs` and `:repeatMs` | `@press`, `@hold`, `@release` (at least one) |
 | `AxisHandler` | Static `axis="primary"` or `"secondary"`, boolean `active` | `@delta` |
 | `MotionHandler` | Static `value` motion value, static `minQuality`, boolean `active` | `@update` |
 
@@ -116,10 +116,59 @@ for an axis sum with `i32` saturation. `active` gates delivery. A `latched`
 button handler waits for a release before accepting a press. Action and axis
 handlers run in document order.
 
+### Press, hold and release
+
+**`@press`, `@hold` and `@release` receive two `i32` values: the event's
+buttons and the frame's held button mask.** The first value holds the
+buttons that went down (`@press`), the handler's button that stays down
+(`@hold`) or the buttons that went up (`@release`) on that frame. A method
+handler receives the values its parameters name; an inline statement reads
+the first value as `$event`. A combination is a test against the held mask:
+
+```vue
+<ActionHandler :button="BTN.CIRCLE" @press="chord" />
+```
+
+```ts
+// Chord.ts, compiled model
+import { ref } from "vue";
+import type { i32 } from "@pocketjs/framework/vue-vapor/std";
+import { BTN } from "@pocketjs/framework/input";
+export const chords = ref<i32>(0);
+export function chord(pressed: i32, buttons: i32): void {
+  if ((buttons & BTN.CROSS) !== 0) chords.value += 1;
+}
+```
+
+The handler follows these rules on every frame, active or not:
+
+- **A press is an up-to-down edge of the button on a frame where `active` is
+  true.** A button already down when `active` turns true, or at the mount of a
+  `latched` handler, is not a press.
+- **The release of an accepted press reaches `@release` even when `active` has
+  become false since.** A press that `active` rejected has no release. An
+  unmounted handler receives no event.
+- **`@hold` runs `holdMs` milliseconds after the accepted press while the
+  button stays down, then every `repeatMs` milliseconds when `repeatMs` is
+  bound.** `holdMs` defaults to `500`; without `repeatMs`, `@hold` runs once per
+  press. The deadlines are on the model clock that `after(ms)` reads, so they do
+  not depend on the frame rate. A hold runs on the first frame whose time
+  reaches its deadline, at most once per frame and never on the press frame; a
+  frame later than an interval does not queue the intervals it skipped. Frames
+  where `active` is false run no hold.
+- `holdMs` is read at the press and `repeatMs` at each hold. Both accept any
+  numeric expression. `holdMs` and `repeatMs` require `@hold`.
+- One button produces at most one of the three events per frame.
+
+A long press that replaces a click sets model state in `@hold` and reads it in
+`@release`.
+
 Rust hosts provide motion through `Input::default().with_axis(0, delta)`;
 axis `0` is primary and axis `1` is secondary. A host needs
 the generated app's `HasButton<MASK>` and `HasRelativeAxis<ID>` implementations
-for the inputs the template uses.
+for the inputs the template uses. **`Input::now_ms` is the frame's model-clock
+time, which `Ui::resolve_input` sets before dispatch.** A host leaves it at its
+default; holds read it.
 
 ### Motion state
 

@@ -291,7 +291,9 @@ The library crate:
   `TICK_HZ`, `load_fonts` and `load_images`;
 - implements `microts::runtime::AotApp`: `mount` loads `styles.bin`, the fonts
   and the images and constructs the generated `AppApp`; `frame` converts a
-  `GuestFrame` into `microts::Input`;
+  `GuestFrame` into `microts::Input` and leaves `Input::now_ms` at its default,
+  which the generated `frame` replaces with the model-clock time that
+  `ActionHandler` holds read;
 - registers an `AotGuest`, its input sources, `pocket_raster::RasterRenderer`
   and a `DisplayOutput`, then calls `Runtime::boot_aot_deferred` with the
   exported `PROFILE_HASH`, the viewport and `TICK_HZ`;

@@ -15,6 +15,25 @@ test.each(["view-frame","negative/04-region-reset"])("generated model and view %
   expect(rust).toEqual(javascript);
 },120_000);
 
+// Issue #727's view: a compiled model counts presses down on onPress and up on
+// onRelease, tests a CROSS+CIRCLE combination with the held mask and repeats a
+// held CIRCLE. Both builds run the same tape at 60 Hz.
+test("compiled models receive release, hold and the held mask from ActionHandler in both builds", async () => {
+  const directory=resolve(".pocket-build/validation/model-aot/action-events",String(Date.now()));mkdirSync(directory,{recursive:true});
+  const files={
+    "App.ts":'import {createSignal} from "solid-js";import type {i32} from "@pocketjs/framework/solid/std";import {BTN} from "@pocketjs/framework/input";export const [presses,setPresses]=createSignal<i32>(0);export const [chords,setChords]=createSignal<i32>(0);export function down():void{setPresses(presses()+1);}export function up():void{setPresses(presses()-1);}export function chord(buttons:i32):void{if((buttons&BTN.CROSS)!==0)setChords(chords()+1);}export function repeat():void{console.log("repeat");}',
+    "App.tsx":'import {ActionHandler,Text,View} from "@pocketjs/framework/solid/components";import {BTN} from "@pocketjs/framework/input";import {chord,chords,down,presses,repeat,up} from "./App";export default function App(){return <View class="w-full h-full p-4 bg-slate-100"><ActionHandler button={BTN.CROSS} onPress={() => down()} onRelease={() => up()} /><ActionHandler button={BTN.CIRCLE} holdMs={40} repeatMs={40} onPress={(pressed, buttons) => chord(buttons)} onHold={repeat} /><Text class="text-lg text-slate-900">{presses()}</Text><Text>{chords()}</Text></View>;}',
+    "tape.json":JSON.stringify([16384,16384,24576,24576,24576,24576,24576,0,8192,0].map(buttons=>({buttons}))),
+  };
+  for(const[name,source]of Object.entries(files))writeFileSync(resolve(directory,name),source);
+  registerModelFixture(directory);
+  const {javascript}=await executeModelView(directory);
+  expect(javascript.frames).toEqual([
+    {text:["1","0"],commands:[]},{text:["1","0"],commands:[]},{text:["1","1"],commands:[]},{text:["1","1"],commands:[]},{text:["1","1"],commands:[]},
+    {text:["1","1"],commands:["repeat"]},{text:["1","1"],commands:[]},{text:["0","1"],commands:[]},{text:["0","1"],commands:[]},{text:["0","1"],commands:[]},
+  ]);
+},120_000);
+
 // A project is a directory under .pocket-build with a symbolic link beside it.
 const lookup=resolve(".pocket-build/validation/model-source-lookup");
 function project(name:string,files:Record<string,string>|string){

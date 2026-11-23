@@ -12,6 +12,7 @@ import { finalizeAotProgram } from "./aot-program.ts";
 import { PROP, BTN } from "../../contracts/spec/spec.ts";
 import { MICROTS_BUILTINS, MICROTS_ELEMENTS, MICROTS_STYLE_PROPS, MICROTS_INPUT_ELEMENTS, MICROTS_RELATIVE_AXES } from "../../contracts/spec/microts.ts";
 import { MOTION_DEFAULT_MIN_QUALITY, MOTION_MIN_QUALITIES, MOTION_VALUES, motionEvent } from "./aot-motion.ts";
+import { ACTION_EVENTS, actionEvent, actionInput, milliseconds, type ActionEventName } from "./aot-input.ts";
 import { BOOL, I32, STRING, sameType, type AotProgram, type AotComponent, type AotType, type AotNode, type AotExpr, type AotHandler, type AotProp, type AotEvent, type SourceLocation } from "./aot-ir.ts";
 import { TypeMapper, createTypeEnvironment, location, fail, typeName } from "./aot-types.ts";
 import { expression, requireType, numeric, displayable, narrowed, type ExpressionContext } from "./aot-expressions.ts";
@@ -535,6 +536,7 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
         let active: AotExpr = { kind: "literal", value: true, type: BOOL, loc: at }, latched = false;
         let button: { name: string; value: number } | undefined, axis: { name: string; value: number } | undefined, motion: keyof typeof MOTION_VALUES | undefined, minQuality: keyof typeof MOTION_MIN_QUALITIES = MOTION_DEFAULT_MIN_QUALITY;
         let action: AotHandler | undefined, pendingMotion: { content: string; at: SourceLocation } | undefined;
+        const actions: { name: ActionEventName; handler: AotHandler }[] = [], durations = new Map<"holdMs" | "repeatMs", { value: AotExpr; loc: SourceLocation }>();
         const seen = new Set<string>();
         for (const attribute of node.props) {
           if (attribute.type === NodeTypes.DIRECTIVE && ignored.has(attribute.name)) continue;
@@ -543,18 +545,23 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
           seen.add(name);
           if (attribute.type === NodeTypes.DIRECTIVE) {
             if (attribute.modifiers.length) fail(tplLoc(attribute), "Input directive modifiers are unsupported");
-            if (attribute.name === "on") {
+            if (attribute.name === "on" && inputTag === "ActionHandler") {
+              if (!(ACTION_EVENTS as readonly string[]).includes(name) || !attribute.exp || attribute.exp.type !== NodeTypes.SIMPLE_EXPRESSION) fail(tplLoc(attribute), "ActionHandler accepts @press, @hold and @release with one handler each");
+              actions.push({ name: name as ActionEventName, handler: handler(attribute.exp.content, tplLoc(attribute.exp), context, actionEvent(name as ActionEventName)) });
+            } else if (attribute.name === "on") {
               const eventName = MICROTS_INPUT_ELEMENTS[inputTag].events[0];
               if (name !== eventName || !attribute.exp || attribute.exp.type !== NodeTypes.SIMPLE_EXPRESSION) fail(tplLoc(attribute), `${inputTag} requires @${eventName} with one handler`);
               // A motion payload depends on :value, which may follow the handler.
               if (inputTag === "MotionHandler") pendingMotion = { content: attribute.exp.content, at: tplLoc(attribute.exp) };
-              else action = handler(attribute.exp.content, tplLoc(attribute.exp), context, inputTag === "AxisHandler" ? { name: "delta", parameters: [{ name: "delta", type: I32 }] } : undefined);
+              else action = handler(attribute.exp.content, tplLoc(attribute.exp), context, { name: "delta", parameters: [{ name: "delta", type: I32 }] });
             } else if (name === "active") {
               active = expr(attribute.exp as SimpleExpressionNode, context, BOOL); requireType(active, BOOL, context);
             } else if (name === "latched" && inputTag === "ActionHandler") {
               const value = expr(attribute.exp as SimpleExpressionNode, context, BOOL); requireType(value, BOOL, context);
               if (value.kind !== "literal" || typeof value.value !== "boolean") fail(tplLoc(attribute), "latched must be a static boolean");
               latched = value.value;
+            } else if ((name === "holdMs" || name === "repeatMs") && inputTag === "ActionHandler") {
+              durations.set(name, { value: milliseconds(expr(attribute.exp as SimpleExpressionNode, context), mapper, name), loc: tplLoc(attribute) });
             } else if (name === "button" && inputTag === "ActionHandler") {
               const value = attribute.exp as SimpleExpressionNode | undefined;
               const buttonSource = ts.createSourceFile("button.ts", `(${value?.content ?? ""})`, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
@@ -583,11 +590,13 @@ export function analyzeVueAot(entry: string, options: AnalyzeVueAotOptions = {})
         }
         if (inputTag === "MotionHandler" && !motion) fail(at, "MotionHandler requires a static value");
         if (motion && pendingMotion) action = handler(pendingMotion.content, pendingMotion.at, context, motionEvent(motion));
-        if (!action) fail(at, `${inputTag} requires its event handler`);
+        if (!action && inputTag !== "ActionHandler") fail(at, `${inputTag} requires its event handler`);
         if (inputTag === "ActionHandler" && !button) fail(at, "ActionHandler requires :button=BTN.NAME");
         if (inputTag === "AxisHandler" && !axis) fail(at, "AxisHandler requires a static axis");
-        const input: Extract<AotNode, { kind: "input" }>["input"] = button ? { kind: "button", name: button.name, button: button.value, latched } : axis ? { kind: "axis", name: axis.name, axis: axis.value } : { kind: "motion", name: motion!, value: MOTION_VALUES[motion!].id, minQuality: MOTION_MIN_QUALITIES[minQuality] };
-        return [{ kind: "input", id: component.nodeCount++, input, active, handler: action, children: nodes(node.children, context), loc: at }];
+        const buttonInput = inputTag === "ActionHandler" ? actionInput(actions, durations, at, name => `@${name}`) : undefined;
+        const input: Extract<AotNode, { kind: "input" }>["input"] = button ? { kind: "button", name: button.name, button: button.value, latched, ...(buttonInput?.hold ? { hold: buttonInput.hold } : {}) } : axis ? { kind: "axis", name: axis.name, axis: axis.value } : { kind: "motion", name: motion!, value: MOTION_VALUES[motion!].id, minQuality: MOTION_MIN_QUALITIES[minQuality] };
+        const events = buttonInput?.events ?? [{ name: axis ? "delta" : "update", handler: action! }];
+        return [{ kind: "input", id: component.nodeCount++, input, active, events, children: nodes(node.children, context), loc: at }];
       }
       const creation = vaporElements.get(node.loc.start.offset);
       if (tag && (!creation || !creation.useCreateElement || creation.tag !== node.tag)) fail(at, "Vapor must lower each host primitive to an explicit create-element operation");
