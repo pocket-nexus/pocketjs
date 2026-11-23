@@ -96,6 +96,19 @@ export function resizeAuxiliarySurface(width: number, height: number): void {
   setProp(roots.app, "style", layerStyle(width, height, false), undefined);
   setProp(roots.overlay, "style", layerStyle(width, height, true), undefined);
   roots = { ...roots, viewport: Object.freeze({ width, height }) };
+  for (const listener of [...auxiliaryListeners]) listener(width, height);
+}
+
+const auxiliaryListeners = new Set<(width: number, height: number) => void>();
+
+/** Call `listener` with the auxiliary surface's new logical size each time the
+ *  host resizes it, after its layers carry the size. Returns the function that
+ *  removes it. The auxiliary counterpart of host.ts onViewport. */
+export function onAuxiliaryViewport(listener: (width: number, height: number) => void): () => void {
+  auxiliaryListeners.add(listener);
+  return () => {
+    auxiliaryListeners.delete(listener);
+  };
 }
 
 export function auxiliaryViewport(): AuxiliaryViewport | null {

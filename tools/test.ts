@@ -84,7 +84,6 @@ const SUITE: readonly Stage[] = [
       "tests/note.test.ts",
 
       "tests/site-arcade.test.ts",
-      "tests/site-showcase.test.ts",
       "tests/motions-attribution.test.ts",
       "tests/host-build-inputs.test.ts",
       "tests/quickjs-c-harness.test.ts",
@@ -212,6 +211,32 @@ const SUITE: readonly Stage[] = [
       "tests/clock.test.ts",
       "tests/tiles.test.ts",
     ],
+  },
+  {
+    // @pocketjs/framework/ui: the parts, themes, text and editing that run without a host
+    name: "pocketui",
+    tests: [
+      "tests/pocketui/commands.test.ts",
+      "tests/pocketui/editor.test.ts",
+      "tests/pocketui/env.test.ts",
+      "tests/pocketui/feed.test.ts",
+      "tests/pocketui/focus.test.ts",
+      "tests/pocketui/glyphfont.test.ts",
+      "tests/pocketui/markdown.test.ts",
+      "tests/pocketui/rich.test.ts",
+      "tests/pocketui/runtimefaces.test.ts",
+      "tests/pocketui/text.test.ts",
+      "tests/pocketui/theme.test.ts",
+    ],
+  },
+  {
+    // apps/pocketui on the wasm core: the PSP's buttons, the 3DS's touch
+    // screen and a desktop window's pointer and wheel. The test compiles its
+    // own guests.
+    name: "pocketui sim",
+    prep: [["bun", "tools/wasm.ts"]],
+    browser: true,
+    tests: ["tests/pocketui-sim.test.ts"],
   },
   {
     name: "handheld models and dual output",

@@ -374,6 +374,21 @@ export interface StepInput {
   surface?: SimSurface;
   /** The frame's text events, as a keyboard host appends them. */
   text?: readonly SimTextEvent[];
+  /** The frame's pointer (capability input.pointer), as a desktop host reports it: where it is, the buttons held, and the frame's wheel or trackpad scrolling in logical px. Absent: the host reports no pointer this frame. */
+  pointer?: SimPointer;
+}
+
+/** A mouse or trackpad pointer, in logical pixels of the surface it is on. */
+export interface SimPointer {
+  x: number;
+  y: number;
+  /** Held buttons; bit 0 is the primary button. Default 0. */
+  buttons?: number;
+  /** Positive dy scrolls toward the content's end, as WheelEvent.deltaY. */
+  scrollX?: number;
+  scrollY?: number;
+  /** Default `primary`. */
+  surface?: SimSurface;
 }
 
 /** One text event of a frame: a typed string (`commit`), or an editing key
@@ -449,6 +464,8 @@ export interface BundleWorld {
   pixels(surface?: SimSurface): SimPixels;
   /** The retained tree under a surface's root, with each node's box. */
   tree(surface?: SimSurface): SimNode | null;
+  /** A live-viewport host's window takes a new logical size (display.viewport.live): the core lays out at it and the guest's resize hook runs, as the browser host does it. */
+  resize(width: number, height: number): void;
 }
 
 const NODE_TYPE_NAMES = ["view", "text", "image", "surface"] as const;
@@ -565,7 +582,7 @@ export async function bootBundle(options: BundleOptions): Promise<BundleWorld> {
     failure = failureOf(error, "boot", 0);
   }
   const appFrame = g.frame as
-    | ((buttons: number, analog?: number, touches?: readonly number[], hits?: readonly number[], touchSurfaces?: readonly number[], rightAnalog?: number, axes?: readonly AxisDelta[], motion?: MotionState | null, text?: readonly { kind: number; text: string; selectionStart: number; selectionEnd: number; repeat: boolean }[]) => void)
+    | ((buttons: number, analog?: number, touches?: readonly number[], hits?: readonly number[], touchSurfaces?: readonly number[], rightAnalog?: number, axes?: readonly AxisDelta[], motion?: MotionState | null, text?: readonly { kind: number; text: string; selectionStart: number; selectionEnd: number; repeat: boolean }[], pointer?: { surface: number; x: number; y: number; buttons: number; scrollX: number; scrollY: number } | null) => void)
     | undefined;
 
   let surface = 0;
@@ -638,7 +655,10 @@ export async function bootBundle(options: BundleOptions): Promise<BundleWorld> {
         : undefined;
       try {
         guest(() => {
-          appFrame(input.buttons ?? 0, input.analog ?? 0x8080, touches, hitFacts(touches), touches?.map(() => surface), undefined, undefined, undefined, packTextEvents(input.text));
+          const pointer = input.pointer
+            ? { surface: input.pointer.surface === "auxiliary" ? 1 : 0, x: input.pointer.x, y: input.pointer.y, buttons: input.pointer.buttons ?? 0, scrollX: input.pointer.scrollX ?? 0, scrollY: input.pointer.scrollY ?? 0 }
+            : null;
+          appFrame(input.buttons ?? 0, input.analog ?? 0x8080, touches, hitFacts(touches), touches?.map(() => surface), undefined, undefined, undefined, packTextEvents(input.text), pointer);
           for (let t = 0; t < ticksPerFrame; t++) wasm.tick();
           for (const armed of armedCaptures) {
             if (armed === 1) wasm.drawHashAuxiliary?.();
@@ -664,6 +684,15 @@ export async function bootBundle(options: BundleOptions): Promise<BundleWorld> {
         height: ops.__viewport.h * density,
         rgba: (density === 1 ? wasm.render() : wasm.renderScaled(density)).slice(),
       };
+    },
+    resize(width, height) {
+      if (failure) return;
+      (wasm as unknown as { resizeViewport(w: number, h: number): void }).resizeViewport(width, height);
+      try {
+        guest(() => (g.__pocketResizeViewport as ((w: number, h: number) => void) | undefined)?.(width, height));
+      } catch (error) {
+        failure = failureOf(error, "frame", frames);
+      }
     },
     tree(which = "primary") {
       const auxiliary = which === "auxiliary";

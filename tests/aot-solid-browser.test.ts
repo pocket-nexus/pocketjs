@@ -64,6 +64,59 @@ test("a compiled application registered through a symbolic link bundles as from 
   expect(linked).toContain('setCount(__modelNumber(count() + 1, "i32"))');
   expect(linked).toBe(await bundle(real));
 });
+test("the entry and plain modules import the model, not the homonymous view", async () => {
+  const view = imports + 'import { count } from "./App"; export default function App() { return <Text>{count()}</Text>; }';
+  const model = 'import { createSignal } from "solid-js"; export const [count, setCount] = createSignal(0); export function hostReset(): void { setCount(0); }';
+  const root = fixture({
+    "main.tsx": 'import App from "./App.tsx"; import * as model from "./App"; import { hostReset } from "./App"; import { bridged } from "./bridge.ts"; export default App; export const kind = typeof model.hostReset; export const named = typeof hostReset; export { bridged };',
+    "bridge.ts": 'import * as model from "./App"; export const bridged = typeof model.hostReset;',
+    "App.tsx": view, "App.ts": model,
+  });
+  const entry = resolve(root, "main.tsx");
+  for (const importer of [entry, resolve(root, "bridge.ts")]) expect(resolveSolidAotModel(importer, "./App")).toBe(resolve(root, "App.ts"));
+  expect(resolveSolidAotModel(entry, "./App.tsx")).toBeUndefined();
+  expect(resolveSolidAotModel(entry, "./App.ts")).toBeUndefined();
+  const result = await Bun.build({ entrypoints: [entry], target: "browser", plugins: [jsxPlugin("solid")] });
+  expect(result.success, result.logs.map(String).join("\n")).toBe(true);
+  const output = resolve(root, "model-bundle.mjs"); writeFileSync(output, await result.outputs[0]!.text());
+  const executed = await import(output);
+  expect([executed.kind, executed.named, executed.bridged]).toEqual(["function", "function", "function"]);
+
+  const ordinary = fixture({ "main.tsx": main, "App.tsx": view, "App.ts": model }, false);
+  expect(resolveSolidAotModel(resolve(ordinary, "main.tsx"), "./App")).toBeUndefined();
+
+  // Admission walks the module the bundle imports: Extra.tsx is never bundled.
+  const walked = fixture({ "main.tsx": main.replace("export default App;", 'import { extra } from "./Extra"; export default App; export { extra };'), "App.tsx": view, "App.ts": model, "Extra.ts": "export const extra = 1;", "Extra.tsx": "export default function Extra() { return <div />; }" });
+  expect(checkSolidAotGraph(resolve(walked, "main.tsx")).flatMap(program => program.components.map(c => c.file))).toEqual([resolve(walked, "App.tsx")]);
+});
+test("every importer of a declaration model gets its view's preview module", async () => {
+  const root = fixture({
+    "main.tsx": 'import App from "./App.tsx"; import * as model from "./App"; export default App; export const value = model.count();',
+    "App.tsx": imports + 'import { count } from "./App"; export default function App() { return <Text>{count()}</Text>; }',
+    "App.d.ts": 'import type { Accessor } from "solid-js"; import type { i32 } from "@pocketjs/framework/solid/std"; export declare const count: Accessor<i32>;',
+  });
+  const entry = resolve(root, "main.tsx");
+  expect(resolveSolidAotModel(entry, "./App")).toBe(resolve(root, "App.d.ts"));
+  expect(resolveSolidAotMock(entry, "./App")).toBe(resolveSolidAotMock(resolve(root, "App.tsx"), "./App")!);
+  const result = await Bun.build({ entrypoints: [entry], target: "browser", plugins: [jsxPlugin("solid")] });
+  expect(result.success, result.logs.map(String).join("\n")).toBe(true);
+  const code = await result.outputs[0]!.text();
+  expect(code.match(/createSignal\(0\)/g)).toHaveLength(1);
+  const output = resolve(root, "declaration-bundle.mjs"); writeFileSync(output, code);
+  expect((await import(output)).value).toBe(0);
+});
+test("a declaration model reached through a symbolic link resolves its view's preview module", () => {
+  const real = fixture({
+    "main.tsx": main,
+    "App.tsx": imports + 'import { count } from "./App"; export default function App() { return <Text>{count()}</Text>; }',
+    "App.d.ts": 'import type { Accessor } from "solid-js"; import type { i32 } from "@pocketjs/framework/solid/std"; export declare const count: Accessor<i32>;',
+  });
+  const link = real + "-link";
+  symlinkSync(real, link, "dir");
+  const mock = resolveSolidAotMock(resolve(real, "App.tsx"), "./App");
+  expect(mock).toContain("createSignal(0)");
+  for (const importer of ["App.tsx", "main.tsx"]) expect(resolveSolidAotMock(resolve(link, importer), "./App")).toBe(mock!);
+});
 test("Color text, equality and derived colors normalize against their source locations", () => {
   const root = fixture({ "main.tsx": main, "App.tsx": imports + 'import { color } from "./App"; export default function App() { const derived = () => color(); return <Text>{derived()}:{color() === "#FFF" ? "yes" : "no"}:{`${color()}`}</Text>; }', "App.d.ts": 'import type { Accessor } from "solid-js"; import type { Color } from "@pocketjs/framework/solid/std"; export declare const color: Accessor<Color>;' });
   const file = resolve(root, "App.tsx");

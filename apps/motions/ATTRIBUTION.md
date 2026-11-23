@@ -29,6 +29,6 @@ browser, simulator, and device paths can continue to be developed and tested.
 
 Run `bun site/stamp-motion-credits.ts` after regenerating a Motion Lab GIF.
 The script places `(yui540)` on every frame; `--check` verifies the dimensions,
-generated marker, legibility, and frame-to-frame persistence of all ten public
+generated marker, legibility, and frame-to-frame persistence of all eleven public
 GIF assets. `bun site/bake-demo-wall.ts` runs the same check before rebuilding
 the homepage wall and adds a tile-level credit after four-up crops are composed.

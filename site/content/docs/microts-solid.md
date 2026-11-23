@@ -57,8 +57,13 @@ view contract and leaves the native model implementation to Rust.
 
 `Counter.tsx` imports its model from `./Counter`. Use one `Counter.ts` or
 `Counter.d.ts`, never both. Child view imports include the `.tsx` extension.
-A declaration module supplies signal defaults for browser previews; these
-mocks do not implement the Rust application's logic.
+**In an `aot: true` application, `./Counter` names the model from every
+module**: the entry or a `.ts` module that imports it receives `Counter.ts`,
+not the view, in the type check and in both build passes. An import written
+as `./Counter.tsx` or `./Counter.ts` names that file.
+A declaration module supplies signal defaults for browser previews, one
+module shared by every importer of `./Counter`; these mocks do not implement
+the Rust application's logic.
 
 ```ts
 // Counter.ts
