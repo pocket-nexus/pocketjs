@@ -143,6 +143,33 @@ fn render_clipped(
     Ok(())
 }
 
+/// The interpreter over an acquired surface under `clip`, optionally after
+/// clearing it: what `render_one` runs for one operation, for the
+/// differential tests.
+#[cfg(test)]
+pub(crate) fn interpret_for_test(
+    resources: &(impl RenderResources + ?Sized),
+    words: &[u32],
+    surface: &mut Surface<'_>,
+    scale: u32,
+    clip: Clip,
+    clear: bool,
+) {
+    let geometry = Geometry::new(resources, surface, scale).expect("test surface");
+    let mut target = SurfaceTarget::new(surface, geometry);
+    if clear {
+        clear_black_rect(&mut target, geometry.width, clip);
+    }
+    render_scaled_clipped(
+        resources,
+        words,
+        &mut target,
+        geometry.width,
+        scale as i32,
+        clip,
+    );
+}
+
 /// Physical rectangle as a clip. Coordinates saturate at `i32::MAX`, beyond
 /// any acquired region.
 fn physical(rect: Rect) -> Clip {

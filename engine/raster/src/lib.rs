@@ -56,6 +56,10 @@ pub mod abi;
 pub mod incremental;
 mod surface;
 #[cfg(test)]
+mod differential_tests;
+#[cfg(test)]
+mod reference;
+#[cfg(test)]
 mod triangle_tests;
 pub use incremental::{
     render_scaled_argb_incremental, render_scaled_incremental, render_scaled_rgb565_incremental,
