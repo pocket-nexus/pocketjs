@@ -696,3 +696,233 @@ fn surface_entrypoints_match_the_per_pixel_oracle() {
         }
     }
 }
+
+/// A rectangle under an opaque RECT or GRAD_RECT is replayed from the last
+/// one that covers it, without the clear. Each list holds rectangles and
+/// gradients over the screen or a large part of it, opaque and translucent,
+/// some under a scissor, between random operations; more rectangles are
+/// replayed than share one scan for covers.
+#[test]
+fn replays_from_an_opaque_cover_match_the_per_pixel_oracle() {
+    use pocket_spec::draw_op;
+    use support::{wh, xy};
+    for seed in 80..86u64 {
+        let (width, height) = [(40, 24), (26, 19)][(seed % 2) as usize];
+        let fixture = fixture(seed, width, height);
+        let mut rng = Rng(seed.wrapping_mul(0x3c6e_f372) + 5);
+        for case in 0..60 {
+            let mut words = random_list(&mut rng, width, height, true);
+            for _ in 0..rng.range(1, 3) {
+                let scissor = rng.chance(35);
+                if scissor {
+                    words.extend([
+                        draw_op::SCISSOR,
+                        xy(rng.range(-3, width / 2), rng.range(-3, height / 2)),
+                        wh(
+                            rng.range(width / 3, width + 4),
+                            rng.range(height / 3, height + 4),
+                        ),
+                    ]);
+                }
+                let (x, y, w, h) = if rng.chance(50) {
+                    (0, 0, width, height)
+                } else {
+                    (
+                        rng.range(-4, width / 2),
+                        rng.range(-4, height / 2),
+                        rng.range(width / 3, width + 8),
+                        rng.range(height / 3, height + 8),
+                    )
+                };
+                let opaque = 0xff00_0000 | (rng.next() & 0x00ff_ffff);
+                let translucent = (rng.below(255) << 24) | (rng.next() & 0x00ff_ffff);
+                match rng.below(5) {
+                    0 => words.extend([draw_op::RECT, xy(x, y), wh(w, h), translucent]),
+                    1 | 2 => words.extend([draw_op::RECT, xy(x, y), wh(w, h), opaque]),
+                    kind => words.extend([
+                        draw_op::GRAD_RECT,
+                        xy(x, y),
+                        wh(w, h),
+                        opaque,
+                        if kind == 3 {
+                            0xff00_0000 | (rng.next() & 0x00ff_ffff)
+                        } else {
+                            translucent
+                        },
+                        rng.below(5),
+                    ]),
+                }
+                words.extend(random_list(&mut rng, width, height, true));
+                if scissor {
+                    words.push(draw_op::SCISSOR_POP);
+                }
+            }
+            let scale = rng.range(1, 3) as u32;
+            let (pw, ph) = (width * scale as i32, height * scale as i32);
+            let screen = Clip {
+                x0: 0,
+                y0: 0,
+                x1: pw,
+                y1: ph,
+            };
+            let format = FORMATS[rng.below(3) as usize];
+            let bpp = bytes_per_pixel(format);
+            let background = rng.bytes((pw * ph) as usize * bpp);
+            let roots: Vec<Clip> = (0..rng.range(1, 11))
+                .map(|_| random_clip(&mut rng, screen))
+                .collect();
+            let regions: Vec<Rect> = roots
+                .iter()
+                .map(|root| {
+                    Rect::new(
+                        root.x0 as u32,
+                        root.y0 as u32,
+                        (root.x1 - root.x0) as u32,
+                        (root.y1 - root.y0) as u32,
+                    )
+                })
+                .collect();
+            let mut expected = background.clone();
+            for &root in &roots {
+                if root.x0 < root.x1 && root.y0 < root.y1 {
+                    expected = oracle_frame(&fixture, &words, scale, format, &expected, root, true);
+                }
+            }
+            let mut actual = background.clone();
+            let mut surface = Surface::new(
+                &mut actual,
+                Rect::new(0, 0, pw as u32, ph as u32),
+                pw as usize * bpp,
+                format,
+            )
+            .unwrap();
+            super::render_surface_regions(&fixture, &words, &mut surface, scale, &regions).unwrap();
+            assert!(
+                actual == expected,
+                "{}",
+                label(seed, case, scale, &format!("{format:?} covered regions"))
+            );
+
+            let expected = oracle_frame(&fixture, &words, scale, format, &background, screen, true);
+            let mut actual = background.clone();
+            let mut surface = Surface::new(
+                &mut actual,
+                Rect::new(0, 0, pw as u32, ph as u32),
+                pw as usize * bpp,
+                format,
+            )
+            .unwrap();
+            super::render_surface(&fixture, &words, &mut surface, scale).unwrap();
+            assert!(
+                actual == expected,
+                "{}",
+                label(seed, case, scale, &format!("{format:?} covered surface"))
+            );
+        }
+    }
+}
+
+/// The replay of a covered rectangle starts at its last cover: the textures
+/// of the operations before it are not fetched. A scissor bounds what its
+/// rectangle covers.
+#[test]
+fn a_covered_rectangle_skips_the_operations_before_its_last_cover() {
+    use core::cell::Cell;
+    use pocket_drivers::{FontView, RenderResources, TexView};
+    use pocket_spec::draw_op;
+    use support::{wh, xy};
+    struct Counting<'a>(&'a Fixture, Cell<u32>);
+    impl RenderResources for Counting<'_> {
+        fn viewport(&self) -> (f32, f32) {
+            self.0.viewport()
+        }
+        fn raster_revision(&self) -> u64 {
+            self.0.raster_revision()
+        }
+        fn texture(&self, handle: i32) -> Option<TexView<'_>> {
+            self.1.set(self.1.get() + 1);
+            self.0.texture(handle)
+        }
+        fn font_atlas(&self, slot: u8) -> Option<FontView<'_>> {
+            self.0.font_atlas(slot)
+        }
+    }
+    const WIDTH: i32 = 32;
+    const HEIGHT: i32 = 16;
+    let fixture = fixture(7, WIDTH, HEIGHT);
+    let quad = |x: i32, y: i32| {
+        [
+            draw_op::TEX_QUAD,
+            0,
+            xy(x, y),
+            wh(8, 8),
+            0f32.to_bits(),
+            0f32.to_bits(),
+            1f32.to_bits(),
+            1f32.to_bits(),
+            0xffff_ffff,
+        ]
+    };
+    // A quad, a rectangle over the screen, a quad, a gradient over the left
+    // half under a scissor, a quad.
+    let list = |screen_color: u32| {
+        let mut words = Vec::new();
+        words.extend(quad(0, 0));
+        words.extend([draw_op::RECT, xy(0, 0), wh(WIDTH, HEIGHT), screen_color]);
+        words.extend(quad(4, 4));
+        words.extend([draw_op::SCISSOR, xy(0, 0), wh(WIDTH / 2, HEIGHT)]);
+        words.extend([
+            draw_op::GRAD_RECT,
+            xy(0, 0),
+            wh(WIDTH, HEIGHT),
+            0xff40_5060,
+            0xff70_8090,
+            0,
+        ]);
+        words.push(draw_op::SCISSOR_POP);
+        words.extend(quad(2, 2));
+        words
+    };
+    let fetched = |words: &[u32], region: Rect| {
+        let resources = Counting(&fixture, Cell::new(0));
+        let mut pixels = vec![0x5au8; (WIDTH * HEIGHT) as usize * 4];
+        let mut expected = pixels.clone();
+        let mut surface = Surface::new(
+            &mut pixels,
+            Rect::new(0, 0, WIDTH as u32, HEIGHT as u32),
+            WIDTH as usize * 4,
+            PixelFormat::Rgba8888,
+        )
+        .unwrap();
+        super::render_surface_regions(&resources, words, &mut surface, 1, &[region]).unwrap();
+        let root = Clip {
+            x0: region.x as i32,
+            y0: region.y as i32,
+            x1: (region.x + region.width) as i32,
+            y1: (region.y + region.height) as i32,
+        };
+        expected = oracle_frame(
+            &fixture,
+            words,
+            1,
+            PixelFormat::Rgba8888,
+            &expected,
+            root,
+            true,
+        );
+        assert!(pixels == expected, "region {region:?}");
+        resources.1.get()
+    };
+    let opaque = list(0xff10_2030);
+    // Under the gradient: the last quad.
+    assert_eq!(fetched(&opaque, Rect::new(0, 0, 16, 16)), 1);
+    assert_eq!(fetched(&opaque, Rect::new(3, 2, 9, 5)), 1);
+    // Beside the scissor, or across its edge: the rectangle over the screen
+    // is the last cover.
+    assert_eq!(fetched(&opaque, Rect::new(16, 0, 16, 16)), 2);
+    assert_eq!(fetched(&opaque, Rect::new(8, 0, 16, 16)), 2);
+    // A translucent rectangle covers nothing.
+    let translucent = list(0xfe10_2030);
+    assert_eq!(fetched(&translucent, Rect::new(16, 0, 16, 16)), 3);
+    assert_eq!(fetched(&translucent, Rect::new(0, 0, 16, 16)), 1);
+}

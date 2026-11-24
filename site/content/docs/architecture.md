@@ -171,7 +171,9 @@ release; no crate in this repository depends on them.
 ARGB8888, and RGB565 CPU targets. **It writes only the acquired region and
 honors its byte stride**, including RGB565 slices without word alignment.
 **Inside that region it clears and replays the DrawList within each frame
-damage rectangle; an empty damage list redraws the whole region.** Its scale
+damage rectangle; an empty damage list redraws the whole region.** A
+rectangle that a RECT or GRAD_RECT without transparency covers is replayed
+from the last such operation, without the clear: nothing before it shows. Its scale
 is a constructor parameter. `render_operation` draws one operation
 over the existing pixels, after the caller has completed earlier accelerator
 work and made the target cache visible. Native text and surface composition
