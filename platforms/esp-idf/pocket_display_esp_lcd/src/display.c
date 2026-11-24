@@ -18,9 +18,10 @@
  * for this long the presenter sends the frame unsynchronised. */
 #define REFRESH_TIMEOUT_MS 50
 #define PRESENTER_STACK_BYTES 4096
-/* Full-width rows of a staged flush. */
+/* A window of a staged flush: the columns [x, x + width) of the rows
+ * [y, y + height). The presenter advances y past the rows it has sent. */
 typedef struct {
-  uint32_t y, height;
+  uint32_t x, y, width, height;
 } span;
 typedef struct {
   uint8_t *pixels;
@@ -29,7 +30,7 @@ typedef struct {
   uint32_t target;
   pocket_rect region;
   pocket_surface surface;
-  /* Staged presentation: the flushed rows, the flush time, and whether the
+  /* Staged presentation: the flushed windows, the flush time, and whether the
    * presenter has copied them out of `pixels`. */
   span *spans;
   uint32_t span_count;
@@ -146,7 +147,26 @@ static void sleep_until(pocket_display_esp_lcd *d, int64_t time_us) {
   while (esp_timer_get_time() < time_us) {
   }
 }
-/* Send the flushed rows of a staged buffer through the transfer buffers.
+/* Copy `rows` rows of `row_bytes` bytes, `stride` bytes apart in `from`, into
+ * consecutive rows of `to`. */
+static void copy_rows(const pocket_display_esp_lcd *d, uint8_t *to,
+                      const uint8_t *from, uint32_t rows, size_t row_bytes,
+                      size_t stride) {
+  if (row_bytes == stride) {
+    row_bytes *= rows;
+    rows = 1;
+  }
+  for (; rows; rows--, to += row_bytes, from += stride) {
+    if (d->config.byte_swap)
+      copy_swapped(to, from, row_bytes);
+    else
+      memcpy(to, from, row_bytes);
+  }
+}
+/* Send the flushed windows of a staged buffer through the transfer buffers,
+ * transfer_rows rows of one window at a time. The next transfer is of the
+ * window whose first unsent row is the highest on the panel, so the rows of
+ * windows that stand side by side go out in ascending order as well.
  *
  * With a refresh report the rows follow the panel's scan. `start_us` is the
  * end of a scan; the next scan begins after the blanking interval, taken as
@@ -167,37 +187,50 @@ static bool present(pocket_display_esp_lcd *d, buffer *b) {
       refresh.period_us;
   const int64_t guard = refresh.period_us / 8;
   bool late = false;
-  for (uint32_t i = 0; i < b->span_count; i++) {
-    uint32_t row = b->spans[i].y;
-    const uint32_t end = row + b->spans[i].height;
-    while (row < end) {
-      const uint32_t rows =
-          end - row < c->transfer_rows ? end - row : c->transfer_rows;
-      transfer *t = &d->transfers[d->turn];
-      d->turn ^= 1U;
-      /* This storage is free once its previous transfer has landed. */
-      if (!await(d, t->target))
-        return false;
-      const uint8_t *source = b->pixels + (size_t)(row - b->region.y) * stride;
-      if (c->byte_swap)
-        copy_swapped(t->pixels, source, rows * stride);
-      else
-        memcpy(t->pixels, source, rows * stride);
-      if (synced) {
-        sleep_until(d,
-                    refresh.start_us + guard +
-                        (int64_t)(row + rows) * refresh.period_us / c->height);
-        const int64_t next =
-            refresh.start_us + refresh.period_us +
-            (int64_t)row * (refresh.period_us - guard) / c->height;
-        late |= esp_timer_get_time() + guard > next;
-      }
-      if (esp_lcd_panel_draw_bitmap(c->panel, 0, (int)row, (int)c->width,
-                                    (int)(row + rows), t->pixels) != ESP_OK)
-        return false;
-      t->target = ++d->submitted;
-      row += rows;
+  /* The windows are in row order: those before `first` are sent, those from
+   * `head` on have no row sent. */
+  for (uint32_t first = 0, head = 0;;) {
+    while (first < b->span_count && !b->spans[first].height)
+      first++;
+    if (head < first)
+      head = first;
+    if (first == b->span_count)
+      break;
+    /* `head` when no started window has an unsent row at or above it. */
+    uint32_t pick = head;
+    for (uint32_t i = head; i-- > first;)
+      if (b->spans[i].height &&
+          (pick == b->span_count || b->spans[i].y <= b->spans[pick].y))
+        pick = i;
+    if (pick == head)
+      head++;
+    span *s = &b->spans[pick];
+    const uint32_t row = s->y;
+    const uint32_t rows =
+        s->height < c->transfer_rows ? s->height : c->transfer_rows;
+    transfer *t = &d->transfers[d->turn];
+    d->turn ^= 1U;
+    /* This storage is free once its previous transfer has landed. */
+    if (!await(d, t->target))
+      return false;
+    copy_rows(d, t->pixels,
+              b->pixels + (size_t)(row - b->region.y) * stride +
+                  (size_t)s->x * 2,
+              rows, (size_t)s->width * 2, stride);
+    if (synced) {
+      sleep_until(d, refresh.start_us + guard +
+                         (int64_t)(row + rows) * refresh.period_us / c->height);
+      const int64_t next = refresh.start_us + refresh.period_us +
+                           (int64_t)row * (refresh.period_us - guard) / c->height;
+      late |= esp_timer_get_time() + guard > next;
     }
+    if (esp_lcd_panel_draw_bitmap(c->panel, (int)s->x, (int)row,
+                                  (int)(s->x + s->width), (int)(row + rows),
+                                  t->pixels) != ESP_OK)
+      return false;
+    t->target = ++d->submitted;
+    s->y += rows;
+    s->height -= rows;
   }
   const uint32_t took = (uint32_t)(esp_timer_get_time() - b->flushed_us);
   if (took > atomic_load(&d->present_us_max))
@@ -249,6 +282,8 @@ pocket_display_esp_lcd_create(const pocket_display_esp_lcd_config *c) {
     return NULL;
   const bool staged = c->transfer_rows != 0;
   if (staged && (c->strip_rows != c->height || c->transfer_rows > c->height))
+    return NULL;
+  if (c->column_alignment && (!staged || c->width % c->column_alignment))
     return NULL;
   size_t capacity = (size_t)c->width * c->strip_rows * 2;
   if (capacity * c->buffer_count > c->frame_buffer_budget)
@@ -389,6 +424,9 @@ static int32_t descriptor(void *context, pocket_display_descriptor *out) {
   pocket_display_esp_lcd *d = context;
   if (!d || !out || out->struct_size < sizeof(*out))
     return POCKET_STATUS_INVALID;
+  /* Without column windows a flushed window spans the width. */
+  const uint32_t columns =
+      d->config.column_alignment ? d->config.column_alignment : d->config.width;
   *out = (pocket_display_descriptor){
       .struct_size = sizeof(*out),
       .role = POCKET_DISPLAY_ROLE_PRIMARY,
@@ -402,9 +440,9 @@ static int32_t descriptor(void *context, pocket_display_descriptor *out) {
           (d->config.buffer_count == 2 ? POCKET_DISPLAY_DOUBLE_BUFFERED |
                                              POCKET_DISPLAY_PIPELINED_ACQUIRE
                                        : 0),
-      .refresh_width = d->config.width,
+      .refresh_width = columns,
       .refresh_height = 1,
-      .window_x_alignment = d->config.width,
+      .window_x_alignment = columns,
       .window_y_alignment = 1};
   return POCKET_STATUS_OK;
 }
@@ -489,22 +527,38 @@ static int32_t flush(void *context, const pocket_rect *regions, size_t count,
       d->active >= d->config.buffer_count || d->next == UINT64_MAX)
     return POCKET_STATUS_INVALID;
   buffer *b = &d->buffers[d->active];
+  const uint32_t columns = d->config.column_alignment;
+  /* A buffer holds strip_rows windows. Full-width regions are disjoint rows
+   * of the buffer, so no more of them exist. */
+  if (columns && count > d->config.strip_rows)
+    return POCKET_STATUS_INVALID;
   const pocket_rect *r = regions;
-  uint32_t end = b->region.y;
+  /* The row no later region starts above: the end of the last full-width
+   * region, the first row of the last column window. */
+  uint32_t floor = b->region.y;
   for (size_t i = 0; i < count; i++) {
     if (r->struct_size < sizeof(*r) || r->struct_size % _Alignof(pocket_rect) ||
-        r->x || r->width != d->config.width || !r->height || r->y < end ||
-        r->height > b->region.height ||
+        !r->height || r->y < floor || r->height > b->region.height ||
         r->y - b->region.y > b->region.height - r->height)
       return POCKET_STATUS_INVALID;
-    end = r->y + r->height;
+    if (columns) {
+      if (!r->width || r->width > d->config.width ||
+          r->x > d->config.width - r->width || r->x % columns ||
+          r->width % columns)
+        return POCKET_STATUS_INVALID;
+      floor = r->y;
+    } else {
+      if (r->x || r->width != d->config.width)
+        return POCKET_STATUS_INVALID;
+      floor = r->y + r->height;
+    }
     r = (const pocket_rect *)((const uint8_t *)r + r->struct_size);
   }
   r = regions;
   if (d->staged) {
-    /* The regions are disjoint rows of the buffer: at most strip_rows. */
     for (size_t i = 0; i < count; i++) {
-      b->spans[i] = (span){.y = r->y, .height = r->height};
+      b->spans[i] = (span){
+          .x = r->x, .y = r->y, .width = r->width, .height = r->height};
       r = (const pocket_rect *)((const uint8_t *)r + r->struct_size);
     }
     b->span_count = (uint32_t)count;

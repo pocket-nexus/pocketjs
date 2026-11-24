@@ -144,6 +144,8 @@ The SPI/I80 display adapter reserves one or two full-width RGB565 strips under
 the configured pixel budget. Two buffers let the coordinator render a strip
 while the previous DMA transfer reads the other buffer. Partial damage expands
 to full-width rows, and the renderer repaints those rows and no other pixels.
+Staged presentation with `column_alignment` flushes windows instead: damage
+expands to that many columns, and a transfer carries one window's columns.
 Per-panel identity retains damage history; invalidate its generation after
 reset or external writes.
 

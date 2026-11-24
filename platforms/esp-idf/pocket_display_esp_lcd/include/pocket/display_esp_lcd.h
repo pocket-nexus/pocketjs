@@ -31,7 +31,13 @@ typedef bool (*pocket_display_esp_lcd_refresh_fn)(
  * With wait_refresh it sends a row after the panel's scan has passed it, so
  * one refresh shows the rows of one frame. The presenter calls the panel's
  * draw_bitmap at any time: a panel whose other commands run on another task
- * serialises them with draw_bitmap. */
+ * serialises them with draw_bitmap.
+ *
+ * column_alignment > 0, staged presentation only: the display reports windows
+ * whose left edge and width are multiples of column_alignment columns, the
+ * runtime renders and flushes those windows instead of full-width rows, and
+ * draw_bitmap receives each window's columns. width is a multiple of it, and
+ * one flush takes at most strip_rows windows. 0 keeps full-width rows. */
 typedef struct {
   size_t struct_size;
   esp_lcd_panel_handle_t panel;
@@ -49,6 +55,9 @@ typedef struct {
    * task that creates the display). */
   int32_t presenter_core;
   uint32_t presenter_priority;
+  /* Staged presentation: columns a flushed window is aligned to (1: any
+   * window; 2: a panel that takes even columns); 0 is full-width rows. */
+  uint32_t column_alignment;
 } pocket_display_esp_lcd_config;
 /* Counters of staged presentation since creation. */
 typedef struct {
