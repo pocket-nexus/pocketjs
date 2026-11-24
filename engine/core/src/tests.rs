@@ -4079,6 +4079,137 @@ fn disc_cache_survives_js_freeing_its_texture() {
     assert_eq!(ui.texture_slot_count(), 1, "the freed slot was reused LIFO");
 }
 
+/// A flat box with an absolute position and a corner radius.
+fn large_corner_box(ui: &mut Ui, left: f64, size: f64, radius: f64) -> i32 {
+    let n = ui.create_node(0);
+    ui.set_prop(n, spec::prop::WIDTH, size);
+    ui.set_prop(n, spec::prop::HEIGHT, size);
+    ui.set_prop(
+        n,
+        spec::prop::POS_TYPE,
+        spec::PosType::Absolute as u32 as f64,
+    );
+    ui.set_prop(n, spec::prop::INSET_T, 0.0);
+    ui.set_prop(n, spec::prop::INSET_L, left);
+    ui.set_prop(n, spec::prop::RADIUS, radius);
+    ui.set_prop(n, spec::prop::BG_COLOR, abgr(37, 99, 235, 255) as f64);
+    ui.insert_before(spec::ROOT_ID, n, 0);
+    n
+}
+
+/// Corner sprites and rectangles of the frame after one more tick.
+fn corner_draw(ui: &mut Ui) -> (u32, u32) {
+    ui.tick();
+    let counts = validate_drawlist(&ui.draw().words.clone());
+    (
+        counts[spec::draw_op::TEX_QUAD as usize],
+        counts[spec::draw_op::RECT as usize],
+    )
+}
+
+#[test]
+fn a_large_corner_radius_is_baked_after_eight_draws_in_a_row() {
+    let mut ui = Ui::new();
+    large_corner_box(&mut ui, 0.0, 120.0, 48.0);
+    // Seven draws take the span path: a rectangle per row and edge pixel.
+    for draw in 1..=7 {
+        let (quads, rects) = corner_draw(&mut ui);
+        assert_eq!(quads, 0, "draw {draw}");
+        assert!(rects > 96, "draw {draw}: {rects} rectangles");
+        assert_eq!(ui.texture_slot_count(), 0, "draw {draw}");
+    }
+    // The eighth bakes the disc: four corner sprites and three rectangles.
+    assert_eq!(corner_draw(&mut ui), (4, 3));
+    let words = ui.draw().words.clone();
+    let quad = words
+        .iter()
+        .position(|&word| word == spec::draw_op::TEX_QUAD)
+        .unwrap();
+    let disc = words[quad + 1] as i32;
+    let view = ui.texture(disc).expect("baked disc texture");
+    assert_eq!((view.w, view.h), (128, 128), "a 96 px disc padded to 128");
+    assert_eq!(decode_wh(words[quad + 3]), (48, 48));
+    // The disc stays: later draws and a draw without a tick reuse it.
+    assert_eq!(corner_draw(&mut ui), (4, 3));
+    assert_eq!(ui.draw().words[quad + 1] as i32, disc);
+    assert_eq!(ui.texture_slot_count(), 1);
+}
+
+#[test]
+fn a_large_corner_radius_that_changes_keeps_the_span_path() {
+    let mut ui = Ui::new();
+    let n = large_corner_box(&mut ui, 0.0, 140.0, 40.0);
+    // An animated radius: a new one on most frames, none for eight in a row.
+    for draw in 0..40u32 {
+        ui.set_prop(n, spec::prop::RADIUS, 40.0 + f64::from(draw % 5 / 2));
+        assert_eq!(corner_draw(&mut ui).0, 0, "draw {draw}");
+    }
+    assert_eq!(ui.texture_slot_count(), 0, "no disc was baked");
+    // Seven draws, one draw of another radius, seven draws: the count of
+    // draws in a row starts again.
+    ui.set_prop(n, spec::prop::RADIUS, 50.0);
+    for _ in 0..7 {
+        assert_eq!(corner_draw(&mut ui).0, 0);
+    }
+    ui.set_prop(n, spec::prop::RADIUS, 20.0);
+    assert_eq!(corner_draw(&mut ui), (4, 3), "a small radius: at once");
+    ui.set_prop(n, spec::prop::RADIUS, 50.0);
+    for _ in 0..7 {
+        assert_eq!(corner_draw(&mut ui).0, 0);
+    }
+    assert_eq!(corner_draw(&mut ui), (4, 3));
+}
+
+#[test]
+fn draws_of_one_frame_count_once_for_a_large_corner_radius() {
+    let mut ui = Ui::new();
+    large_corner_box(&mut ui, 0.0, 120.0, 48.0);
+    ui.tick();
+    for _ in 0..20 {
+        let counts = validate_drawlist(&ui.draw().words.clone());
+        assert_eq!(counts[spec::draw_op::TEX_QUAD as usize], 0);
+    }
+    for _ in 0..6 {
+        assert_eq!(corner_draw(&mut ui).0, 0);
+    }
+    assert_eq!(corner_draw(&mut ui).0, 4, "the eighth frame");
+}
+
+#[test]
+fn large_corner_discs_are_bounded_in_size_and_number() {
+    // Eight radii above 32 px are baked; a ninth keeps the span path.
+    let mut ui = Ui::new();
+    for index in 0..9u32 {
+        large_corner_box(
+            &mut ui,
+            f64::from(index) * 50.0,
+            140.0,
+            33.0 + f64::from(index),
+        );
+    }
+    for _ in 0..7 {
+        assert_eq!(corner_draw(&mut ui).0, 0);
+    }
+    for _ in 0..12 {
+        assert_eq!(corner_draw(&mut ui).0, 8 * 4);
+    }
+    assert_eq!(ui.texture_slot_count(), 8);
+
+    // A radius above 64 raster pixels is never baked: 65 px, and 40 px at
+    // density 2, where a 32 px corner already takes a 128 px texture.
+    let mut ui = Ui::new();
+    large_corner_box(&mut ui, 0.0, 200.0, 65.0);
+    let mut dense = Ui::new_with_raster_density(2);
+    large_corner_box(&mut dense, 0.0, 200.0, 40.0);
+    for _ in 0..20 {
+        assert_eq!(corner_draw(&mut ui).0, 0);
+        assert_eq!(corner_draw(&mut dense).0, 0);
+    }
+    assert_eq!(ui.texture_slot_count() + dense.texture_slot_count(), 0);
+    large_corner_box(&mut dense, 0.0, 200.0, 32.0);
+    assert_eq!(corner_draw(&mut dense).0, 4, "32 px at density 2");
+}
+
 // ---- virtual cursor (spec ops 27..29) -----------------------------------------
 
 /// A detached-from-flow PAINTED box at (x, y) sized w x h under `parent`
