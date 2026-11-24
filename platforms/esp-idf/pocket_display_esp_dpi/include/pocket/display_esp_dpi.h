@@ -7,9 +7,11 @@ typedef struct pocket_display_esp_dpi pocket_display_esp_dpi;
 /* A picture inside the RGB565 framebuffer of a MIPI-DSI DPI panel. The
  * runtime renders strips into two internal DMA staging buffers; flush copies
  * a strip's damaged rectangles into the framebuffer with the PPA, turning a
- * landscape picture 90 degrees counter-clockwise onto a portrait panel and
- * scaling it by an integer, or with `copy` (a GDMA memcpy channel the program
- * may share) when the rows are whole panel rows.
+ * landscape picture 90 degrees counter-clockwise onto a portrait panel
+ * (`turned`), turning it a further 180 degrees (`half_turn`, for a panel
+ * mounted upside down) and scaling it by an integer, or with `copy` (a GDMA
+ * memcpy channel the program may share) when the rows are whole panel rows
+ * of an upright picture.
  *
  * width x height is the picture in raster pixels as the application draws
  * it. The picture lands at origin_x, origin_y on the screen as the picture is
@@ -33,7 +35,11 @@ typedef struct {
   uint32_t panel_width, panel_height;
   uint32_t role;
   uint32_t width, height;
+  /* Screen (x, y) lands on panel (y, panel_height - 1 - x) when turned,
+   * on panel (panel_width - 1 - x, panel_height - 1 - y) with half_turn,
+   * on panel (panel_width - 1 - y, x) with both. */
   bool turned;
+  bool half_turn;
   uint32_t scale;
   uint32_t origin_x, origin_y;
   uint32_t strip_rows, row_alignment;
