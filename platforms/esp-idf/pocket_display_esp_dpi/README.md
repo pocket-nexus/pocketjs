@@ -4,11 +4,16 @@
 driver places a picture inside it.** The runtime renders strips into two
 internal DMA staging buffers (`width × strip_rows × 2 × 2` bytes, within
 `frame_buffer_budget`). Flush copies each damaged rectangle of a strip into
-the framebuffer: whole panel rows through the program's `copy` GDMA channel,
-everything else through the PPA SRM engine, which turns a landscape picture
-90 degrees counter-clockwise onto a portrait panel (`turned`) and scales it by
-the integer `scale`. The picture lands at `origin_x, origin_y` on the screen
-as the picture is oriented; the program owns every pixel outside it.
+the framebuffer: whole panel rows of an upright picture through the
+program's `copy` GDMA channel, everything else through the PPA SRM engine,
+which turns a landscape picture 90 degrees counter-clockwise onto a portrait
+panel (`turned`), turns the picture a further 180 degrees for a panel mounted
+upside down (`half_turn`) and scales it by the integer `scale`. Screen
+`(x, y)` lands on panel `(y, panel_height - 1 - x)` when turned,
+`(panel_width - 1 - x, panel_height - 1 - y)` with `half_turn` and
+`(panel_width - 1 - y, x)` with both. The picture lands at
+`origin_x, origin_y` on the screen as the picture is oriented; the program
+owns every pixel outside it.
 
 The descriptor advertises double buffering with pipelined acquire, partial
 refresh, device rotation and scaling when they apply, and a row quantum of
@@ -27,8 +32,10 @@ damage by one pixel.
 With `move_copy` (a second GDMA channel) the driver declares
 `POCKET_DISPLAY_RETAINED_MOVE` and implements `move_pixels`: the runtime's
 damage planner then reuses content that only moved. Whole panel rows move
-through `move_copy`, in the order that keeps unread source rows; other
-upright blocks bounce through a staging buffer with the PPA. A turned move
+through `move_copy`, in the order that keeps unread source rows (a picture
+with `half_turn` moves the rows the opposite way on the panel); other blocks
+of an upright or half-turned picture bounce through a staging buffer with the
+PPA. A turned move
 that is not along panel rows (a vertical scroll of a landscape picture)
 returns `POCKET_STATUS_UNSUPPORTED`, and the runtime repaints its destination:
 that costs less than bouncing every band through a staging buffer twice. The

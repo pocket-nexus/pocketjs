@@ -277,7 +277,9 @@ static int32_t descriptor(void *context, pocket_display_descriptor *out) {
       .flags = POCKET_DISPLAY_FRAME_STORAGE | POCKET_DISPLAY_PARTIAL_REFRESH |
                POCKET_DISPLAY_DOUBLE_BUFFERED |
                POCKET_DISPLAY_PIPELINED_ACQUIRE |
-               (d->config.turned ? POCKET_DISPLAY_DEVICE_ROTATION : 0U) |
+               (d->config.turned || d->config.half_turn
+                    ? POCKET_DISPLAY_DEVICE_ROTATION
+                    : 0U) |
                /* The PPA scales bilinearly, three quarters of a pixel and
                 * one quarter of the pixel beside it, and repeats a block's
                 * edge pixels: the runtime grows damage by one pixel. */
@@ -328,13 +330,42 @@ static int32_t acquire(void *context, const pocket_rect *region,
   }
   return POCKET_STATUS_FAILED;
 }
-/* Copy one damaged rectangle of the strip in `b` to its place on the panel.
- * Screen (x, y) of a turned picture lands on panel (y, height - 1 - x). */
+/* Quarter turns counter-clockwise from the screen to the panel. */
+static uint32_t quarter_turns(const pocket_display_esp_dpi_config *c) {
+  return (c->turned ? 1U : 0U) + (c->half_turn ? 2U : 0U);
+}
+
+/* The panel rectangle of screen pixels [x0, x1) x [y0, y1). Screen (x, y)
+ * lands on panel (x, y), (y, ph - 1 - x), (pw - 1 - x, ph - 1 - y) or
+ * (pw - 1 - y, x) for 0 to 3 quarter turns. */
+static void panel_rect(const pocket_display_esp_dpi_config *c, uint32_t x0,
+                       uint32_t y0, uint32_t x1, uint32_t y1, uint32_t *px0,
+                       uint32_t *py0, uint32_t *px1, uint32_t *py1) {
+  const uint32_t pw = c->panel_width;
+  const uint32_t ph = c->panel_height;
+  switch (quarter_turns(c)) {
+  case 1U:
+    *px0 = y0, *px1 = y1, *py0 = ph - x1, *py1 = ph - x0;
+    break;
+  case 2U:
+    *px0 = pw - x1, *px1 = pw - x0, *py0 = ph - y1, *py1 = ph - y0;
+    break;
+  case 3U:
+    *px0 = pw - y1, *px1 = pw - y0, *py0 = x0, *py1 = x1;
+    break;
+  default:
+    *px0 = x0, *px1 = x1, *py0 = y0, *py1 = y1;
+    break;
+  }
+}
+
+/* Copy one damaged rectangle of the strip in `b` to its place on the panel
+ * (panel_rect). */
 static esp_err_t present(pocket_display_esp_dpi *d, buffer *b,
                          const pocket_rect *r) {
   const pocket_display_esp_dpi_config *c = &d->config;
   const uint32_t y = r->y - b->region.y;
-  if (!c->turned && c->scale == 1U && c->copy && r->x == 0U &&
+  if (quarter_turns(c) == 0U && c->scale == 1U && c->copy && r->x == 0U &&
       r->width == c->panel_width) {
     /* Whole panel rows are one contiguous run of the framebuffer. */
     return esp_async_memcpy(
@@ -365,11 +396,19 @@ static esp_err_t present(pocket_display_esp_dpi *d, buffer *b,
       .mode = PPA_TRANS_MODE_NON_BLOCKING,
       .user_data = b->done,
   };
-  if (c->turned) {
-    operation.out.block_offset_x = c->origin_y + r->y * c->scale;
-    operation.out.block_offset_y =
-        c->panel_height - c->origin_x - (r->x + r->width) * c->scale;
-    operation.rotation_angle = PPA_SRM_ROTATION_ANGLE_90;
+  static const ppa_srm_rotation_angle_t angles[4] = {
+      PPA_SRM_ROTATION_ANGLE_0, PPA_SRM_ROTATION_ANGLE_90,
+      PPA_SRM_ROTATION_ANGLE_180, PPA_SRM_ROTATION_ANGLE_270};
+  const uint32_t turns = quarter_turns(c);
+  if (turns != 0U) {
+    const uint32_t x0 = c->origin_x + r->x * c->scale;
+    const uint32_t y0 = c->origin_y + r->y * c->scale;
+    uint32_t px0, py0, px1, py1;
+    panel_rect(c, x0, y0, x0 + r->width * c->scale, y0 + r->height * c->scale,
+               &px0, &py0, &px1, &py1);
+    operation.out.block_offset_x = px0;
+    operation.out.block_offset_y = py0;
+    operation.rotation_angle = angles[turns];
   }
   return ppa_do_scale_rotate_mirror(d->present, &operation);
 }
@@ -573,21 +612,27 @@ static int32_t move(void *context, const pocket_rect *destination, int32_t dx,
     return POCKET_STATUS_INVALID;
   const pocket_display_esp_dpi_config *c = &d->config;
   const uint32_t unit = c->scale;
-  uint32_t x0 = c->origin_x + destination->x * unit;
-  uint32_t y0 = c->origin_y + destination->y * unit;
-  uint32_t x1 = x0 + destination->width * unit;
-  uint32_t y1 = y0 + destination->height * unit;
-  int32_t panel_dx = dx * (int32_t)unit;
-  int32_t panel_dy = dy * (int32_t)unit;
-  if (c->turned) {
-    const uint32_t px0 = y0, px1 = y1;
-    y0 = c->panel_height - x1;
-    y1 = c->panel_height - x0;
-    x0 = px0;
-    x1 = px1;
-    const int32_t picture_dx = panel_dx;
-    panel_dx = panel_dy;
-    panel_dy = -picture_dx;
+  const uint32_t sx0 = c->origin_x + destination->x * unit;
+  const uint32_t sy0 = c->origin_y + destination->y * unit;
+  uint32_t x0, y0, x1, y1;
+  panel_rect(c, sx0, sy0, sx0 + destination->width * unit,
+             sy0 + destination->height * unit, &x0, &y0, &x1, &y1);
+  const int32_t screen_dx = dx * (int32_t)unit;
+  const int32_t screen_dy = dy * (int32_t)unit;
+  int32_t panel_dx = screen_dx;
+  int32_t panel_dy = screen_dy;
+  switch (quarter_turns(c)) {
+  case 1U:
+    panel_dx = screen_dy, panel_dy = -screen_dx;
+    break;
+  case 2U:
+    panel_dx = -screen_dx, panel_dy = -screen_dy;
+    break;
+  case 3U:
+    panel_dx = -screen_dy, panel_dy = screen_dx;
+    break;
+  default:
+    break;
   }
   const bool panel_rows = x0 == 0U && x1 == c->panel_width && panel_dx == 0;
   /* A turned move that is not along panel rows (a vertical scroll of a
