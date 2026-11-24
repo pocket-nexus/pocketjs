@@ -29,10 +29,10 @@ function program(components: AotComponent[]): AotProgram { return { version: 1, 
 function method(name: string, parameters: { name: string; type: AotType }[] = [], returns: AotType = { kind: "void" }) { return { name, sourceName: name, parameters, returns, binding: false, handler: true }; }
 function childNode(name: string): AotNode { return { kind: "component", id: 0, component: name, props: [], events: [], slots: [], loc }; }
 function branch(name: string, binding: string): AotNode { return { kind: "if", id: 0, branches: [{ condition: read(binding, boolean), children: [childNode(name)] }], loc }; }
-function cargoFixture(name: string, generated: string, rust: string) {
+function cargoFixture(name: string, generated: string, rust: string, features: string[] = []) {
   const directory = resolve(".pocket-build/validation/solid-aot/backend", name);
   mkdirSync(`${directory}/src`, { recursive: true });
-  writeFileSync(`${directory}/Cargo.toml`, `[package]\nname = "aot-backend-${name}"\nversion = "0.0.0"\nedition = "2021"\n[workspace]\n[dependencies]\nmicrots = { path = ${JSON.stringify(resolve("engine/microts-runtime"))} }\n`);
+  writeFileSync(`${directory}/Cargo.toml`, `[package]\nname = "aot-backend-${name}"\nversion = "0.0.0"\nedition = "2021"\n[workspace]\n[dependencies]\nmicrots = { path = ${JSON.stringify(resolve("engine/microts-runtime"))}, features = ${JSON.stringify(features)} }\n`);
   writeFileSync(`${directory}/src/generated.rs`, generated);
   writeFileSync(`${directory}/src/lib.rs`, `mod generated;\nuse generated::*;\n${rust}`);
   const result = Bun.spawnSync(["cargo", "test", "--quiet", "--manifest-path", `${directory}/Cargo.toml`], { stdout: "pipe", stderr: "pipe", env: { ...process.env, ...AOT_CARGO_ENV } });
@@ -259,4 +259,54 @@ fn texts(ui: &microts::Ui) -> Vec<String> { ui.core().node_children(microts::Nod
   app.unmount(); TRACE.with(|trace| assert_eq!(*trace.borrow(), ["mount 1", "mount 2", "unmount 2", "mount 3", "unmount 3", "unmount 1"]));
 }
 `);
+}, 120_000);
+
+// Rows of one conditional Text over three keys, then a Text after the list.
+// `hidden` closes the row of one key. While the keys keep their sequence a
+// row opens before the first node of the rows after it and no node moves:
+// the layout tree is not reconciled.
+test("keyed rows open and close in place while their keys keep their sequence", () => {
+  const row: AotExpr = { kind: "binding", scope: "local", name: "item", type: integer, loc };
+  const text = (parts: (string | AotExpr)[]): AotNode => ({ kind: "element", id: 0, tag: "Text", style: 0, props: [], focusable: false, children: [], events: [], text: { memo: 0, parts }, loc });
+  const shown: AotExpr = { kind: "binary", operator: "!==", left: row, right: read("hidden", integer), type: boolean, loc };
+  const list: AotNode = { kind: "for", id: 0, source: read("rows", { kind: "array", element: integer }), item: "item", itemType: integer, key: row, children: [{ kind: "if", id: 0, branches: [{ condition: shown, children: [text([row])] }], loc }], loc };
+  const app = component("App", [list, text(["end"])]);
+  app.values = [{ name: "rows", sourceName: "rows", type: { kind: "array", element: integer }, writable: false }, { name: "hidden", sourceName: "hidden", type: integer, writable: false }];
+  app.functions = [method("load")]; app.hooks = { mount: call("load") };
+  const output = emitAot(program([app])).files["app.rs"]!;
+  expect(output).toContain("fn aot_reconcile");
+  cargoFixture("keyed-places", output, `
+struct Model { rows: Vec<i32>, hidden: i32 }
+impl AppViewModel for Model { fn rows(&self) -> &[i32] { &self.rows } fn hidden(&self) -> i32 { self.hidden } fn load(&mut self) {} }
+type App = AppApp<Model, microts::CoreHost>;
+fn texts(app: &App) -> Vec<String> { let ui = app.ui(); ui.core().node_children(microts::NodeId::ROOT.0).iter().filter_map(|id| ui.core().node_text(*id).map(str::to_owned)).collect() }
+fn hide(app: &mut App, hidden: i32) -> Vec<String> { app.model.hidden = hidden; app.invalidate(); app.frame(&microts::Input::default()); texts(app) }
+/// Layout tree reconciliations of one more frame and tick.
+fn syncs(app: &mut App) -> u64 {
+  app.ui_mut().core_mut().reset_counters(); app.invalidate(); app.frame(&microts::Input::default()); app.ui_mut().core_mut().tick();
+  app.ui().core().layout_counters().structure_syncs
+}
+#[test] fn rows_open_in_place() {
+  let mut app = App::new(microts::CoreHost::new(), AppProps {}, Model { rows: vec![10, 20, 30], hidden: 10 });
+  app.frame(&microts::Input::default()); assert_eq!(texts(&app), ["20", "30", "end"]);
+  assert_eq!(hide(&mut app, 0), ["10", "20", "30", "end"], "the first row opens before the rows after it");
+  assert_eq!(hide(&mut app, 20), ["10", "30", "end"]);
+  assert_eq!(hide(&mut app, 0), ["10", "20", "30", "end"], "a row between two others");
+  assert_eq!(hide(&mut app, 30), ["10", "20", "end"]);
+  assert_eq!(hide(&mut app, 0), ["10", "20", "30", "end"], "the last row opens before the node after the list");
+  // Closed rows between an opening row and the next open one.
+  app.model.rows = vec![10, 11, 12, 30]; assert_eq!(hide(&mut app, 11), ["10", "12", "30", "end"]);
+  app.model.rows = vec![10, 11, 30]; assert_eq!(hide(&mut app, 11), ["10", "30", "end"]);
+  assert_eq!(hide(&mut app, 0), ["10", "11", "30", "end"]);
+  // A changed sequence moves the rows; the next frames keep them there.
+  app.model.rows = vec![30, 10, 11]; assert_eq!(hide(&mut app, 10), ["30", "11", "end"]);
+  assert_eq!(hide(&mut app, 0), ["30", "10", "11", "end"]);
+  app.ui_mut().core_mut().tick();
+  assert_eq!(syncs(&mut app), 0, "unchanged keys and rows");
+  app.model.rows = vec![10, 30, 11];
+  assert!(syncs(&mut app) > 0, "a changed sequence");
+  assert_eq!(texts(&app), ["10", "30", "11", "end"]);
+  assert_eq!(syncs(&mut app), 0, "the same keys again");
+}
+`, ["counters"]);
 }, 120_000);

@@ -273,7 +273,13 @@ export function generateAotLifecycle(modelProtocol = false): RustItem[] {
 }
 
 /** Source-order reconciliation ensures creation sequence follows document order,
- * including components that first appear inside a reused keyed row. */
+ * including components that first appear inside a reused keyed row.
+ *
+ * Rows whose keys keep their sequence keep their nodes in place: each is
+ * updated before the first node of the rows after it, and nothing moves.
+ * `same` compares a row's key with an item by reference, so this path builds
+ * no key. A changed sequence updates every row before `anchor` and then moves
+ * the rows there in order. */
 export function generateAotReconcile(): RustItem {
   const literal = (value: number | boolean | string): RustExpr => ({ kind: "literal", value });
   const row = rt("microts::KeyedRow", rt("K"), rt("B"));
@@ -285,12 +291,37 @@ export function generateAotReconcile(): RustItem {
     kind: "fn", name: "aot_reconcile",
     generics: [
       { name: "K", bounds: [rt("Ord"), rt("Clone")] }, { name: "B", bounds: [rt("Block")] }, { name: "T" },
+      { name: "FSame", bounds: [makeFn([rr(rt("K")), item, index], rt("bool"))] },
       { name: "FKey", bounds: [makeFn([item, index], rt("K"))] },
       { name: "FMount", bounds: [makeFn([ui, node, node, item, index], rt("B"))] },
       { name: "FUpdate", bounds: [makeFn([rr(rt("B"), true), ui, item, index, node])] },
     ],
-    params: [parameter("list", rr(rt("KeyedList", rt("K"), rt("B")), true)), parameter("ui", ui), parameter("parent", node), parameter("anchor", node), parameter("items", rr({ kind: "slice", element: rt("T") })), parameter("key", rt("FKey"), true), parameter("mount", rt("FMount"), true), parameter("update", rt("FUpdate"), true)],
+    params: [parameter("list", rr(rt("KeyedList", rt("K"), rt("B")), true)), parameter("ui", ui), parameter("parent", node), parameter("anchor", node), parameter("items", rr({ kind: "slice", element: rt("T") })), parameter("same", rt("FSame"), true), parameter("key", rt("FKey"), true), parameter("mount", rt("FMount"), true), parameter("update", rt("FUpdate"), true)],
     body: rb([
+      re({ kind: "if", condition: { kind: "binary", operator: "&&",
+        left: { kind: "binary", operator: "==", left: rm(rf(rp("list"), "rows"), "len"), right: rm(rp("items"), "len") },
+        right: rm(rm(rm(rm(rf(rp("list"), "rows"), "iter"), "zip", rp("items")), "enumerate"), "all", { kind: "closure", params: [{ kind: "tuple", elements: [rn("position"), { kind: "tuple", elements: [rn("row"), rn("item")] }] }], body: rc(rp("same"), ref(rf(rp("row"), "key")), rp("item"), { kind: "cast", expr: rp("position"), type: index }) }) },
+        then: rb([
+          // `next` is the first node of the rows after `position`, found at row `found`.
+          { kind: "let", pattern: rn("next", true), value: rp("anchor") },
+          { kind: "let", pattern: rn("found", true), value: literal(0) },
+          { kind: "for", pattern: { kind: "tuple", elements: [rn("position"), rn("item")] }, iterable: rm(rm(rp("items"), "iter"), "enumerate"), body: rb([
+            re({ kind: "if", condition: { kind: "binary", operator: "<=", left: rp("found"), right: rp("position") }, then: rb([
+              { kind: "assign", target: rp("next"), value: rp("anchor") },
+              { kind: "assign", target: rp("found"), value: rm(rp("items"), "len") },
+              { kind: "for", pattern: { kind: "tuple", elements: [rn("index"), rn("row")] }, iterable: rm(rm(rm(rf(rp("list"), "rows"), "iter"), "enumerate"), "skip", { kind: "binary", operator: "+", left: rp("position"), right: literal(1) }), body: rb([
+                { kind: "let", pattern: rn("first"), value: rm(mutableRow, "first_node") },
+                re({ kind: "if", condition: { kind: "binary", operator: "!=", left: rp("first"), right: rp("NodeId", "NONE") }, then: rb([
+                  { kind: "assign", target: rp("next"), value: rp("first") },
+                  { kind: "assign", target: rp("found"), value: rp("index") },
+                  { kind: "break" },
+                ]) }),
+              ]) },
+            ]) }),
+            re(rc(rp("update"), ref(rf({ kind: "index", object: rf(rp("list"), "rows"), index: rp("position") }, "block"), true), rp("ui"), rp("item"), { kind: "cast", expr: rp("position"), type: index }, rp("next"))),
+          ]) },
+          { kind: "return" },
+        ]) }),
       { kind: "let", pattern: rn("old", true), type: rt("Vec", rt("Option", row)), value: rm(rm(rm(rc(rp("core", "mem", "take"), ref(rf(rp("list"), "rows"), true)), "into_iter"), "map", rp("Some")), "collect") },
       { kind: "let", pattern: rn("rows", true), type: rt("Vec", row), value: rc(rp("Vec", "with_capacity"), rm(rp("items"), "len")) },
       { kind: "let", pattern: rn("by_key", true), value: rc(rp("alloc", "collections", "BTreeMap", "new")) },

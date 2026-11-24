@@ -1063,7 +1063,7 @@ class Lowerer {
       this.method("mount", this.mountParams(), rb([], { kind: "struct", path: ["Self"], fields: [{ name: "rows", value: rc(rp("KeyedList", "new")) }, { name: "parent" }, { name: "handler_ends", value: rc(rp("Vec", "new")) }] }), rt("Self")),
       this.method("contains_node", [receiver(), param("target", rt("NodeId"))], rb([], rm(rm(rf(rf(self, "rows"), "rows"), "iter"), "any", { kind: "closure", params: [rn("row")], body: rm(rf(rp("row"), "block"), "contains_node", rp("target")) })), rt("bool")),
       this.method("update_at", [receiver(true), param("ui", rr(rt("Ui"), true)), param("parent", rt("NodeId")), ...this.contextParams(locals), param("anchor", rt("NodeId"))], rb([
-        re((this.lifecycle ? (...args: RustExpr[]) => rc(rp("aot_reconcile"), ref(rf(self, "rows"), true), ...args) : (...args: RustExpr[]) => rm(rf(self, "rows"), "reconcile", ...args))(ui, parent, anchor, ref(this.expr(node.source, locals)), ...(this.lifecycle ? [] : [sameKey]), keyClosure,
+        re((this.lifecycle ? (...args: RustExpr[]) => rc(rp("aot_reconcile"), ref(rf(self, "rows"), true), ...args) : (...args: RustExpr[]) => rm(rf(self, "rows"), "reconcile", ...args))(ui, parent, anchor, ref(this.expr(node.source, locals)), sameKey, keyClosure,
           { kind: "closure", params: [rn("ui"), rn("parent"), rn("anchor"), rn(this.localName(node.item)), rn("row_index")], body: rc(rp(row.name, "mount"), ui, parent, anchor, ...this.slotArgs()) },
           { kind: "closure", params: [rn("block"), rn("ui"), rn(this.localName(node.item)), rn("row_index"), rn("row_anchor")], body: blockExpr(updateBody) },
         )), ...(this.lifecycle ? [re(rm(self, "refresh_slot_placement", ui, parent, anchor))] : refreshCounts),
