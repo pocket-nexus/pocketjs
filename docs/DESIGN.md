@@ -65,7 +65,9 @@ artifacts: `$JOB_TMP/map-*.json`).
   framebuffer. RGBA8, PPA-memory ARGB8 and RGB565 software paths clear each
   region and replay the complete DrawList under a root clip; the presentation
   coordinator hands each acquired CPU region the physical damage rectangles
-  that intersect it and `pocket-raster` applies the same rule there.
+  that intersect it and `pocket-raster` applies the same rule there, starting
+  the replay of a rectangle at the last opaque RECT or GRAD_RECT that covers
+  it.
   Framebuffer format/scale signatures and `Ui::raster_revision()` prevent
   stale reuse. Region limits and full-redraw thresholds remain backend policy.
 - **ESP32-P4 stays 16-bit**: `devices/esp-idf/render-ppa/` consumes the same

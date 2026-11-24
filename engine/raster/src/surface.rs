@@ -1,6 +1,6 @@
 //! Driver entrypoints for bounded, strided CPU surfaces.
 
-use pocket_render::{word_len, DrawOps, Operation};
+use pocket_render::{logical_rect, wh, word_len, DrawOps, Operation};
 use pocket_drivers::{
     DamageRect, FontView, FrameInput, PixelFormat, Rect, RenderError, RenderResources, Renderer,
     RendererDescriptor, Surface, Synchronization, Target, TargetOwnership, TexView,
@@ -24,8 +24,9 @@ const FORMATS: &[PixelFormat] = &[
 /// Synchronous software renderer with an explicit physical-pixels-per-logical
 /// pixel scale. It clears and replays the DrawList inside each frame damage
 /// rectangle that intersects the acquired region; an empty damage list
-/// redraws the whole region. No temporary framebuffer or per-frame
-/// allocation is needed.
+/// redraws the whole region. A rectangle under an opaque RECT or GRAD_RECT
+/// is replayed from the last one that covers it, without the clear. No
+/// temporary framebuffer or per-frame allocation is needed.
 pub struct RasterRenderer {
     scale: u32,
 }
@@ -94,6 +95,7 @@ pub fn render_surface(
 ) -> Result<(), RenderError> {
     let geometry = Geometry::new(resources, surface, scale)?;
     let mut target = SurfaceTarget::new(surface, geometry);
+    let cover = last_covers(words, geometry, &[geometry.region], scale)?[0];
     render_clipped(
         resources,
         words,
@@ -101,15 +103,18 @@ pub fn render_surface(
         geometry,
         geometry.region,
         scale,
+        cover,
     )
 }
 
 /// Clear and replay the DrawList inside each physical rectangle of `regions`
 /// intersected with the acquired region, in list order. Every rectangle
-/// replays the complete DrawList under that root clip, so painter order holds
-/// for translucent operations. Pixels outside the rectangles keep their
-/// previous values; an empty list writes nothing. The [`render_surface`]
-/// rules for coordinates, padding, skipped records, and decode errors apply.
+/// replays the DrawList under that root clip, so painter order holds for
+/// translucent operations; a rectangle that an opaque RECT or GRAD_RECT
+/// covers is replayed from the last such operation, without the clear
+/// ([`last_covers`]). Pixels outside the rectangles keep their previous
+/// values; an empty list writes nothing. The [`render_surface`] rules for
+/// coordinates, padding, skipped records, and decode errors apply.
 pub fn render_surface_regions(
     resources: &(impl RenderResources + ?Sized),
     words: &[u32],
@@ -119,17 +124,75 @@ pub fn render_surface_regions(
 ) -> Result<(), RenderError> {
     let geometry = Geometry::new(resources, surface, scale)?;
     let mut target = SurfaceTarget::new(surface, geometry);
-    for &region in regions {
-        let root = physical(region).intersect(geometry.region);
-        if root.x0 >= root.x1 || root.y0 >= root.y1 {
-            continue;
+    for regions in regions.chunks(COVER_ROOTS) {
+        let mut roots = [geometry.region; COVER_ROOTS];
+        let mut count = 0;
+        for &region in regions {
+            let root = physical(region).intersect(geometry.region);
+            if root.x0 < root.x1 && root.y0 < root.y1 {
+                roots[count] = root;
+                count += 1;
+            }
         }
-        render_clipped(resources, words, &mut target, geometry, root, scale)?;
+        let covers = last_covers(words, geometry, &roots[..count], scale)?;
+        for (&root, cover) in roots[..count].iter().zip(covers) {
+            render_clipped(resources, words, &mut target, geometry, root, scale, cover)?;
+        }
     }
     Ok(())
 }
 
-/// Clear `root` to opaque black, then replay the DrawList under that clip.
+/// Rectangles whose replays share one scan of the DrawList for their covers.
+const COVER_ROOTS: usize = 8;
+
+/// For each of `roots` (at most [`COVER_ROOTS`], physical, not empty), the
+/// index of the last operation that sets every pixel of it whatever the
+/// pixel held: a RECT, or a GRAD_RECT, without transparency, whose rectangle
+/// under its scissors contains the root. Neither the clear nor an operation
+/// before that index changes what the root shows after the replay.
+fn last_covers(
+    words: &[u32],
+    geometry: Geometry,
+    roots: &[Clip],
+    scale: u32,
+) -> Result<[Option<usize>; COVER_ROOTS], RenderError> {
+    let mut covers = [None; COVER_ROOTS];
+    let scale = scale as i32;
+    // A cover is at least as wide and as high as the smallest root.
+    let width = roots.iter().map(|root| root.x1 - root.x0).min().unwrap_or(0);
+    let height = roots.iter().map(|root| root.y1 - root.y0).min().unwrap_or(0);
+    for (index, operation) in DrawOps::new(words, geometry.viewport).enumerate() {
+        let operation = operation.map_err(|_| RenderError::InvalidFrame)?;
+        let opaque = match operation.opcode {
+            draw_op::RECT => channels(operation.words[3]).3 == 255,
+            draw_op::GRAD_RECT => {
+                channels(operation.words[3]).3 == 255 && channels(operation.words[4]).3 == 255
+            }
+            _ => continue,
+        };
+        let (w, h) = wh(operation.words[2]);
+        if !opaque || w.saturating_mul(scale) < width || h.saturating_mul(scale) < height {
+            continue;
+        }
+        let painted = logical_rect(operation.words[1], operation.words[2])
+            .intersect(operation.clip)
+            .intersect(geometry.viewport);
+        for (cover, root) in covers.iter_mut().zip(roots) {
+            if painted.x0.saturating_mul(scale) <= root.x0
+                && painted.y0.saturating_mul(scale) <= root.y0
+                && painted.x1.saturating_mul(scale) >= root.x1
+                && painted.y1.saturating_mul(scale) >= root.y1
+            {
+                *cover = Some(index);
+            }
+        }
+    }
+    Ok(covers)
+}
+
+/// Replay the DrawList under the clip `root`: from the operation `cover`
+/// ([`last_covers`]), or from the first one after clearing `root` to opaque
+/// black.
 fn render_clipped(
     resources: &(impl RenderResources + ?Sized),
     words: &[u32],
@@ -137,11 +200,17 @@ fn render_clipped(
     geometry: Geometry,
     root: Clip,
     scale: u32,
+    cover: Option<usize>,
 ) -> Result<(), RenderError> {
-    clear_black_rect(target, geometry.width, root);
-    for operation in DrawOps::new(words, geometry.viewport) {
+    if cover.is_none() {
+        clear_black_rect(target, geometry.width, root);
+    }
+    let first = cover.unwrap_or(0);
+    for (index, operation) in DrawOps::new(words, geometry.viewport).enumerate() {
         let operation = operation.map_err(|_| RenderError::InvalidFrame)?;
-        render_one(resources, &operation, target, geometry, root, scale)?;
+        if index >= first {
+            render_one(resources, &operation, target, geometry, root, scale)?;
+        }
     }
     Ok(())
 }
