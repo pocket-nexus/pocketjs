@@ -466,6 +466,13 @@ pub struct PaintCache {
     /// through `tex_resolve` on every use: `free_texture` is allowed to free
     /// a disc slot (JS misuse), which simply goes stale here and re-bakes.
     entries: Vec<(u32, i32)>,
+    /// Radii above `DISC_MAX_R` without a disc: (logical radius px, frame of
+    /// the last draw that asked for it, draws in a row that asked). At most
+    /// `DISC_COUNTED`; one that the last two draws did not ask for is
+    /// replaced.
+    recurring: Vec<(u32, u64, u32)>,
+    /// Frames of the last two draws.
+    drawn: [u64; 2],
     glyphs: Vec<GlyphPage>,
     borders: Vec<([u32; 4], i32)>,
     layouts: BTreeMap<u32, CachedTextLayout>,
@@ -493,6 +500,8 @@ impl PaintCache {
     pub const fn new() -> PaintCache {
         PaintCache {
             entries: Vec::new(),
+            recurring: Vec::new(),
+            drawn: [0; 2],
             glyphs: Vec::new(),
             borders: Vec::new(),
             layouts: BTreeMap::new(),
@@ -621,6 +630,80 @@ impl Default for PaintCache {
     }
 }
 
+/// Corner radii up to this many logical pixels are baked into a disc at the
+/// first draw that asks. UI corner radii recur and stay cached.
+const DISC_MAX_R: u32 = 32;
+/// A larger radius is baked while its disc is at most this many raster pixels
+/// wide, which is the texture of a `DISC_MAX_R` corner at density 2 ...
+const DISC_LARGE_DIAMETER: u32 = 128;
+/// ... once this many draws in a row asked for it. An ANIMATED radius (a
+/// scaling rounded-full splash) asks for a new radius every frame: baking
+/// those spiked a real-PSP frame to 118 ms and grew the texture list without
+/// bound, so a radius that changes keeps the analytic span path.
+const DISC_STABLE_DRAWS: u32 = 8;
+/// Discs of radii above `DISC_MAX_R` kept at a time. They are not released:
+/// a further radius keeps the span path.
+const DISC_LARGE_ENTRIES: usize = 8;
+/// Radii above `DISC_MAX_R` whose draws are counted at a time.
+const DISC_COUNTED: usize = 8;
+
+impl PaintCache {
+    /// The draw of `frame` begins. Roots drawn for one frame are one draw.
+    fn begin_draw(&mut self, frame: u64) {
+        if self.drawn[0] != frame {
+            self.drawn = [frame, self.drawn[0]];
+        }
+    }
+
+    /// Whether a flat rounded box of logical radius `r_px` draws its corners
+    /// from a baked disc: a radius up to `DISC_MAX_R` at once, a larger one
+    /// after `DISC_STABLE_DRAWS` draws in a row asked for it, while its disc
+    /// fits `DISC_LARGE_DIAMETER` and `DISC_LARGE_ENTRIES` are not all taken.
+    fn bakes_disc(&mut self, r_px: u32, raster_density: u32) -> bool {
+        if r_px <= DISC_MAX_R {
+            return true;
+        }
+        if r_px
+            .checked_mul(2 * raster_density)
+            .is_none_or(|diameter| diameter > DISC_LARGE_DIAMETER)
+        {
+            return false;
+        }
+        if self.entries.iter().any(|&(r, _)| r == r_px) {
+            return true;
+        }
+        let [now, before] = self.drawn;
+        let draws = match self.recurring.iter_mut().find(|entry| entry.0 == r_px) {
+            Some(entry) => {
+                if entry.1 != now {
+                    entry.2 = if entry.1 == before { entry.2 + 1 } else { 1 };
+                    entry.1 = now;
+                }
+                entry.2
+            }
+            None => {
+                if self.recurring.len() == DISC_COUNTED {
+                    // A radius that neither of the last two draws asked for
+                    // gives its place; without one this radius waits.
+                    let Some(stale) = self.recurring.iter().position(|entry| entry.1 < before)
+                    else {
+                        return false;
+                    };
+                    self.recurring.swap_remove(stale);
+                }
+                self.recurring.push((r_px, now, 1));
+                1
+            }
+        };
+        let large = self.entries.iter().filter(|&&(r, _)| r > DISC_MAX_R);
+        if draws < DISC_STABLE_DRAWS || large.count() >= DISC_LARGE_ENTRIES {
+            return false;
+        }
+        self.recurring.retain(|entry| entry.0 != r_px);
+        true
+    }
+}
+
 /// Get (or bake + upload) the AA disc texture for logical `r_px`. The disc is
 /// a density-scaled 2r x 2r circle, supersampled 4x4, white RGB with coverage alpha
 /// (PSM_8888), padded to pow2 — corners sample their quadrant and modulate
@@ -648,7 +731,10 @@ fn disc_texture(
         cache.entries.retain(|&(r, _)| r != r_px);
     }
     let byte_len = (dim * dim * 4) as usize;
-    let mut px = alloc::vec![0u8; byte_len];
+    // A box whose disc does not fit the heap keeps the span path.
+    let mut px = Vec::new();
+    px.try_reserve_exact(byte_len).ok()?;
+    px.resize(byte_len, 0u8);
     // Solid white RGB everywhere (alpha carries coverage): bilinear sampling
     // must never blend the fill toward black padding texels, or corners grow
     // a dark fringe on light fills.
@@ -681,7 +767,9 @@ fn disc_texture(
             }
         }
     }
-    let mut chunks = alloc::vec![0u128; byte_len.div_ceil(16)];
+    let mut chunks = Vec::new();
+    chunks.try_reserve_exact(byte_len.div_ceil(16)).ok()?;
+    chunks.resize(byte_len.div_ceil(16), 0u128);
     unsafe {
         core::ptr::copy_nonoverlapping(px.as_ptr(), chunks.as_mut_ptr() as *mut u8, byte_len);
     }
@@ -1194,6 +1282,7 @@ pub fn build_root(
     bool,
 ) {
     dl.words.clear();
+    paint_cache.begin_draw(frame);
     // DevTools (docs/DEVTOOLS.md): slot of the inspected node, u32::MAX = none.
     // Nodes inside a perspective subtree take the paint_3d path and are not
     // captured (only the 2D walk composes a world Affine per node).
@@ -2999,13 +3088,10 @@ impl<'a> Walker<'a> {
         // gradients use tinted mask strips below.
         if let Fill::Flat(color) = fill {
             let r_px = roundf(r).max(1.0) as u32;
-            // Bake discs only for small radii: UI corner radii recur and
-            // cache forever, but ANIMATED radii (a scaling rounded-full
-            // splash) mint a new radius every frame — baking those spiked a
-            // real-PSP frame to 118 ms and grew the texture list unboundedly.
-            // Large radii take the analytic span path below instead.
-            const DISC_MAX_R: u32 = 32;
-            if r_px <= DISC_MAX_R {
+            // Small radii and large ones that recur are baked
+            // (`PaintCache::bakes_disc`); the others take the analytic span
+            // path below.
+            if self.paint_cache.bakes_disc(r_px, self.raster_density) {
                 if let Some((tex, dim)) = disc_texture(
                     self.paint_cache,
                     self.textures,
