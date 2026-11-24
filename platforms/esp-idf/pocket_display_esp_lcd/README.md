@@ -54,6 +54,17 @@ rows of two frames.** With `transfer_rows > 0` the frame is rendered first:
   blanking interval between the edge and the first row.
 - Without `wait_refresh`, or when it reports no refresh within 50 ms, the
   rows go out at once.
+- `column_alignment > 0` makes the flushed regions windows instead of
+  full-width rows. The display reports `column_alignment` as its refresh
+  width and window alignment, so the runtime renders and flushes a change as
+  the columns it covers, with the left edge and the width rounded to that
+  many columns: `1` for a panel that takes any window, `2` for one that takes
+  even columns. `width` is a multiple of it. A transfer carries
+  `transfer_rows` rows of one window, and `esp_lcd_panel_draw_bitmap`
+  receives that window's columns. The presenter sends next the window whose
+  first unsent row is the highest on the panel: windows that stand side by
+  side take turns, and rows go out in ascending order behind the scan. One
+  flush takes at most `strip_rows` windows.
 
 `pocket_display_esp_lcd_get_stats` counts the flushes presented, those
 without a refresh report, and those of which a transfer started when the next

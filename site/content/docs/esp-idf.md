@@ -237,6 +237,9 @@ rows from a presenter task through two DMA transfer buffers. With
 `wait_refresh`, the panel's tearing-effect report, a row is sent after the
 panel's scan has passed it, so one refresh shows the rows of one frame. Flush
 and wait return at once; acquire blocks until a render buffer is free.
+With `column_alignment` the flushed regions are windows whose left edge and
+width are multiples of that many columns, and the renderer and the transfers
+cover those columns instead of full-width rows.
 
 The display reports panel identity and generation to retain damage history.
 Call `pocket_display_esp_lcd_invalidate` after a panel reset or external write,

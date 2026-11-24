@@ -180,7 +180,7 @@ esp_err_t esp_timer_start_once(esp_timer_handle_t timer, uint64_t us) {
 /* ------------------------------ panel ----------------------------------- */
 static pthread_mutex_t panel_lock = PTHREAD_MUTEX_INITIALIZER;
 static struct {
-  int y0, y1;
+  int x0, x1, y0, y1;
   const uint8_t *pixels;
   uint8_t bytes[TRANSFER_ROWS * STRIDE];
   int64_t at;
@@ -203,7 +203,8 @@ static void land(void) {
   for (size_t i = 0; i < sent_count; i++) {
     if (sent[i].landed)
       continue;
-    const size_t size = (size_t)(sent[i].y1 - sent[i].y0) * STRIDE;
+    const size_t size = (size_t)(sent[i].y1 - sent[i].y0) *
+                        (size_t)(sent[i].x1 - sent[i].x0) * 2;
     assert(memcmp(sent[i].pixels, sent[i].bytes, size) == 0);
     sent[i].landed = true;
     if (done_cb)
@@ -213,17 +214,21 @@ static void land(void) {
 esp_err_t esp_lcd_panel_draw_bitmap(void *panel, int x0, int y0, int x1, int y1,
                                     const void *pixels) {
   pthread_mutex_lock(&panel_lock);
-  assert(panel && sent_count < 64 && x0 == 0 && x1 == WIDTH && y1 > y0 &&
-         y1 - y0 <= TRANSFER_ROWS && y1 <= HEIGHT);
+  assert(panel && sent_count < 64 && x0 >= 0 && x1 > x0 && x1 <= WIDTH &&
+         y0 >= 0 && y1 > y0 && y1 - y0 <= TRANSFER_ROWS && y1 <= HEIGHT);
   land();
   esp_err_t status = ESP_FAIL;
   if (fail_next) {
     fail_next = false;
   } else {
     typeof(sent[0]) *s = &sent[sent_count++];
-    *s = (typeof(*s)){
-        .y0 = y0, .y1 = y1, .pixels = pixels, .at = esp_timer_get_time()};
-    memcpy(s->bytes, pixels, (size_t)(y1 - y0) * STRIDE);
+    *s = (typeof(*s)){.x0 = x0,
+                      .x1 = x1,
+                      .y0 = y0,
+                      .y1 = y1,
+                      .pixels = pixels,
+                      .at = esp_timer_get_time()};
+    memcpy(s->bytes, pixels, (size_t)(y1 - y0) * (size_t)(x1 - x0) * 2);
     status = ESP_OK;
   }
   pthread_mutex_unlock(&panel_lock);
@@ -273,12 +278,16 @@ static void *release_later(void *argument) {
 }
 /* ------------------------------- test ----------------------------------- */
 static const pocket_display_output_v1 *v;
-static pocket_rect rows(uint32_t y, uint32_t height) {
+static pocket_rect window(uint32_t x, uint32_t y, uint32_t width,
+                          uint32_t height) {
   return (pocket_rect){.struct_size = sizeof(pocket_rect),
-                       .x = 0,
+                       .x = x,
                        .y = y,
-                       .width = WIDTH,
+                       .width = width,
                        .height = height};
+}
+static pocket_rect rows(uint32_t y, uint32_t height) {
+  return window(0, y, WIDTH, height);
 }
 /* Pixel (x, y) of the frame `seed`, low byte first as the renderer writes. */
 static uint8_t low(uint8_t seed, uint32_t x, uint32_t y) {
@@ -337,18 +346,26 @@ static void drained(size_t count) {
     sleep_us(500);
   }
 }
+/* Transfer `index` carries the columns [x0, x1) of rows [y0, y1) of the frame
+ * `seed`, bytes exchanged. */
+static void expect_window(size_t index, int x0, int x1, int y0, int y1,
+                          uint8_t seed) {
+  pthread_mutex_lock(&panel_lock);
+  assert(index < sent_count && sent[index].x0 == x0 && sent[index].x1 == x1 &&
+         sent[index].y0 == y0 && sent[index].y1 == y1);
+  for (int y = y0; y < y1; y++)
+    for (int x = x0; x < x1; x++) {
+      const uint8_t *pixel =
+          &sent[index].bytes[((y - y0) * (x1 - x0) + (x - x0)) * 2];
+      assert(pixel[0] == high(seed, (uint32_t)y) &&
+             pixel[1] == low(seed, (uint32_t)x, (uint32_t)y));
+    }
+  pthread_mutex_unlock(&panel_lock);
+}
 /* Transfer `index` carries rows [y0, y1) of the frame `seed`, bytes
  * exchanged. */
 static void expect(size_t index, int y0, int y1, uint8_t seed) {
-  pthread_mutex_lock(&panel_lock);
-  assert(index < sent_count && sent[index].y0 == y0 && sent[index].y1 == y1);
-  for (int y = y0; y < y1; y++)
-    for (uint32_t x = 0; x < WIDTH; x++) {
-      const uint8_t *pixel = &sent[index].bytes[(y - y0) * STRIDE + x * 2];
-      assert(pixel[0] == high(seed, (uint32_t)y) &&
-             pixel[1] == low(seed, x, (uint32_t)y));
-    }
-  pthread_mutex_unlock(&panel_lock);
+  expect_window(index, 0, WIDTH, y0, y1, seed);
 }
 int main(void) {
   v = pocket_display_esp_lcd_vtable();
@@ -381,7 +398,9 @@ int main(void) {
          pocket_display_esp_lcd_buffer_bytes(d) == 2 * HEIGHT * STRIDE);
   pocket_display_descriptor descriptor = {.struct_size = sizeof(descriptor)};
   assert(v->descriptor(d, &descriptor) == 0 && descriptor.height == HEIGHT &&
-         (descriptor.flags & POCKET_DISPLAY_DOUBLE_BUFFERED));
+         (descriptor.flags & POCKET_DISPLAY_DOUBLE_BUFFERED) &&
+         descriptor.refresh_width == WIDTH &&
+         descriptor.window_x_alignment == WIDTH);
   pocket_buffer_identity first = {.struct_size = sizeof(first)}, next = first;
   assert(v->frame_identity(d, &first) == 0);
 
@@ -472,8 +491,69 @@ int main(void) {
   pthread_join(task_thread, NULL);
   assert(sent_count == 20 && sent[19].landed && barriers == 3 && !done_cb);
   expect(19, 0, 2, 0xa0);
+
+  /* Column windows need staged presentation and a width they divide. */
+  c.column_alignment = 3;
+  assert(!pocket_display_esp_lcd_create(&c));
+  c.column_alignment = 2;
+  c.transfer_rows = 0;
+  assert(!pocket_display_esp_lcd_create(&c) && tasks_started == 1);
+  c.transfer_rows = TRANSFER_ROWS;
+  d = pocket_display_esp_lcd_create(&c);
+  assert(d && tasks_started == 2);
+  assert(v->descriptor(d, &descriptor) == 0 && descriptor.refresh_width == 2 &&
+         descriptor.refresh_height == 1 && descriptor.window_x_alignment == 2 &&
+         descriptor.window_y_alignment == 1);
+
+  /* A flush takes windows on even columns, inside the panel, in row order,
+   * at most strip_rows of them. A refused flush keeps the buffer acquired. */
+  pocket_target target = {.struct_size = sizeof(target)};
+  assert(v->acquire(d, &whole, &target) == POCKET_STATUS_OK);
+  uint64_t token = 0;
+  const pocket_rect refused[][2] = {
+      {window(1, 0, 2, 1), window(0, 4, 2, 1)},
+      {window(0, 0, 3, 1), window(0, 4, 2, 1)},
+      {window(0, 0, 0, 1), window(0, 4, 2, 1)},
+      {window(4, 0, 6, 1), window(0, 4, 2, 1)},
+      {window(8, 0, 2, 1), window(0, 4, 2, 1)},
+      {window(0, 4, 2, 1), window(4, 3, 2, 1)},
+      {window(0, 7, 2, 2), window(0, 7, 2, 1)}};
+  for (size_t i = 0; i < sizeof(refused) / sizeof(refused[0]); i++)
+    assert(v->flush(d, refused[i], 2, &token) == POCKET_STATUS_INVALID);
+  pocket_rect many[HEIGHT + 1];
+  for (size_t i = 0; i <= HEIGHT; i++)
+    many[i] = window(0, 0, 2, 1);
+  assert(v->flush(d, many, HEIGHT + 1, &token) == POCKET_STATUS_INVALID &&
+         !token && sent_count == 20);
+
+  /* Each transfer carries the columns of one window, bytes exchanged. Two
+   * windows side by side take turns, so rows go out in ascending order and
+   * each transfer starts after the scan has passed its rows. */
+  const pocket_rect three[3] = {window(0, 1, 2, 4), window(4, 1, 4, 3),
+                                window(2, 6, 4, 2)};
+  frame(d, 0xb0, three, 3);
+  settle(d, 1);
+  assert(sent_count == 25 && stats(d).unsynced == 0);
+  expect_window(20, 0, 2, 1, 3, 0xb0);
+  expect_window(21, 4, 8, 1, 3, 0xb0);
+  expect_window(22, 0, 2, 3, 5, 0xb0);
+  expect_window(23, 4, 8, 3, 4, 0xb0);
+  expect_window(24, 2, 6, 6, 8, 0xb0);
+  for (size_t i = 20; i < 25; i++)
+    assert(sent[i].at >= refresh_start_us + PERIOD_US / 8 +
+                             (int64_t)sent[i].y1 * PERIOD_US / HEIGHT);
+
+  /* A window that spans the width is copied as whole rows. */
+  frame(d, 0xc0, &whole, 1);
+  settle(d, 2);
+  assert(sent_count == 29);
+  for (int i = 0; i < 4; i++)
+    expect(25 + (size_t)i, i * 2, i * 2 + 2, 0xc0);
+  pocket_display_esp_lcd_destroy(d);
+  pthread_join(task_thread, NULL);
+  assert(sent[28].landed && !done_cb);
   puts("SPI/I80 adapter staged presentation: row order and byte exchange, "
        "scan pacing, buffer wait, unsynchronised, late and failed frames, "
-       "invalidation and destruction tests passed");
+       "invalidation, destruction and column window tests passed");
   return 0;
 }
