@@ -28,7 +28,27 @@ typedef struct pocket_display_esp_dpi pocket_display_esp_dpi;
  *
  * With `move`, the display moves retained pixels for a frame's motion: whole
  * panel rows through `move_copy` (a GDMA channel of its own), other blocks in
- * bands through a staging buffer with the PPA. Presents wait for the move. */
+ * bands through a staging buffer with the PPA. Presents wait for the move.
+ *
+ * With `back_framebuffer` the panel has two framebuffers and the display
+ * flips between them: a frame's moves and presents write the framebuffer
+ * the panel does not scan, and the display reports one buffer identity for
+ * each, so the runtime repaints in a framebuffer what changed since the frame
+ * it last held. When the frame's last present has landed the display calls
+ * `flip.show` with that framebuffer; before it writes the other one it calls
+ * `flip.wait_shown`. One scan of the panel then reads the rows of one frame.
+ * A frame that moved pixels and presented nothing is shown when the next
+ * frame starts. `framebuffer` is the one the panel scans at creation. */
+/* The program's page flip, called on the task that runs the runtime. */
+typedef struct {
+  /* Makes the panel scan `framebuffer` from its next refresh on. Returns
+   * without waiting for that refresh; false when the panel refused. */
+  bool (*show)(void *context, const uint16_t *framebuffer);
+  /* Blocks until the panel no longer reads the framebuffer it scanned before
+   * the last `show`, at most timeout_ms. False on a timeout. */
+  bool (*wait_shown)(void *context, uint32_t timeout_ms);
+  void *context;
+} pocket_display_esp_dpi_flip;
 typedef struct {
   size_t struct_size;
   uint16_t *framebuffer;
@@ -46,6 +66,10 @@ typedef struct {
   size_t frame_buffer_budget;
   async_memcpy_handle_t copy;
   async_memcpy_handle_t move_copy;
+  /* The panel's second framebuffer and its page flip; NULL writes
+   * `framebuffer` while the panel scans it. */
+  uint16_t *back_framebuffer;
+  pocket_display_esp_dpi_flip flip;
 } pocket_display_esp_dpi_config;
 pocket_display_esp_dpi *
 pocket_display_esp_dpi_create(const pocket_display_esp_dpi_config *);
@@ -69,8 +93,10 @@ size_t pocket_display_esp_dpi_buffer_bytes(const pocket_display_esp_dpi *);
 uint16_t *pocket_display_esp_dpi_staging(pocket_display_esp_dpi *,
                                          uint32_t index);
 /* Call after external writes inside the picture, while no runtime call is
- * active. Pending presents finish first; the next frame repaints it all. */
+ * active. Pending presents finish first; the next frame of each framebuffer
+ * repaints it all. */
 void pocket_display_esp_dpi_invalidate(pocket_display_esp_dpi *);
-/* Drains presents and moves before releasing the staging buffers. Does not
- * release the panel, its framebuffer or the copy channels. */
+/* Drains presents and moves, and a page flip the panel has not taken yet,
+ * before releasing the staging buffers. Does not release the panel, its
+ * framebuffers or the copy channels. */
 void pocket_display_esp_dpi_destroy(pocket_display_esp_dpi *);

@@ -41,6 +41,24 @@ returns `POCKET_STATUS_UNSUPPORTED`, and the runtime repaints its destination:
 that costs less than bouncing every band through a staging buffer twice. The
 move completes before the frame's first present.
 
+**With `back_framebuffer` the panel has two framebuffers and the driver
+flips between them.** A frame's moves and presents write the framebuffer the
+panel does not scan. The driver reports one buffer identity for each
+framebuffer, so the runtime keeps a damage history for each and repaints in
+a framebuffer what changed since the frame it last held: two frames of
+damage. The wait for the frame's last strip calls `flip.show` with the
+written framebuffer, and the program makes the panel scan it from its next
+refresh; the other framebuffer becomes the target, and the first move or
+present into it calls `flip.wait_shown`, which blocks until the panel has
+stopped reading it. One scan of the panel then reads the rows of one frame.
+The runtime keeps one strip in flight while it renders the next, so the wait
+that leaves no strip acquired or in flight is the frame's last; a frame that
+moved pixels and presented nothing is shown when the next frame starts, and
+a frame whose present failed is not shown. On an ESP-IDF DPI panel created
+with `num_fbs = 2`, `show` is `esp_lcd_panel_draw_bitmap` with a pointer
+into the framebuffer, and `on_frame_buf_complete` reports the refresh
+`wait_shown` waits for.
+
 `pocket_display_esp_dpi_set_overlay` hands the driver one square ARGB8888
 face at a picture position (the program's home ball). Flush blends the face
 once over the bounds of the rectangles it presents, which may overlap, so the
@@ -48,7 +66,8 @@ framebuffer keeps the overlay wherever the picture changed under it, and the
 display's
 `host_damage` reports the overlay's rectangle when its face changes and, after
 a move that carried its pixels, where they were and where they landed; the
-runtime adds those rectangles to the frame's plan. A face of `NULL` or size 0
+runtime adds those rectangles to the frame's plan. Each of two framebuffers
+has its own rectangles: a changed face is reported once for each. A face of `NULL` or size 0
 removes the overlay and reports its last rectangle once.
 
 A wait longer than 1000 ms fails and keeps that buffer reserved until its

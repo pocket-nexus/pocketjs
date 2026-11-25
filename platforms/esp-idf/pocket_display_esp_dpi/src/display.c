@@ -44,6 +44,14 @@ struct pocket_display_esp_dpi {
   size_t capacity;
   uint32_t active;
   uint64_t next, generation;
+  /* The panel's framebuffers. Moves and presents write `target`: the only
+   * framebuffer, or of two the one the panel does not scan. */
+  uint16_t *framebuffers[2];
+  uint32_t framebuffer_count, target;
+  /* Two framebuffers: the target holds writes the panel was not shown, and
+   * the panel may still read the target, which it scanned before the last
+   * flip. */
+  bool unshown, settling;
   ppa_client_handle_t present;
   ppa_client_handle_t mover;
   SemaphoreHandle_t moved;
@@ -51,23 +59,28 @@ struct pocket_display_esp_dpi {
   buffer buffers[2];
   pocket_display_esp_dpi_overlay overlay;
   bool overlay_set;
-  pocket_rect pending[PENDING_RECTS];
-  size_t pending_count;
+  /* Rectangles each framebuffer needs repainted (host_damage). */
+  pocket_rect pending[2][PENDING_RECTS];
+  size_t pending_count[2];
 };
 
-static void add_pending(pocket_display_esp_dpi *d, uint32_t x, uint32_t y,
-                        uint32_t width, uint32_t height) {
-  if (d->pending_count == PENDING_RECTS || !width || !height)
+static void add_pending(pocket_display_esp_dpi *d, uint32_t framebuffer,
+                        uint32_t x, uint32_t y, uint32_t width,
+                        uint32_t height) {
+  if (d->pending_count[framebuffer] == PENDING_RECTS || !width || !height)
     return;
-  d->pending[d->pending_count++] = (pocket_rect){.struct_size = sizeof(pocket_rect),
-                                                 .x = x,
-                                                 .y = y,
-                                                 .width = width,
-                                                 .height = height};
+  d->pending[framebuffer][d->pending_count[framebuffer]++] =
+      (pocket_rect){.struct_size = sizeof(pocket_rect),
+                    .x = x,
+                    .y = y,
+                    .width = width,
+                    .height = height};
 }
 
-/* The overlay's rectangle clipped to the picture, offset by (dx, dy). */
-static void add_overlay_rect(pocket_display_esp_dpi *d, int32_t dx, int32_t dy) {
+/* The overlay's rectangle clipped to the picture, offset by (dx, dy), for
+ * one framebuffer. */
+static void add_overlay_rect(pocket_display_esp_dpi *d, uint32_t framebuffer,
+                             int32_t dx, int32_t dy) {
   const int64_t x0 = (int64_t)d->overlay.x + dx;
   const int64_t y0 = (int64_t)d->overlay.y + dy;
   const int64_t x1 = x0 + d->overlay.size;
@@ -77,8 +90,14 @@ static void add_overlay_rect(pocket_display_esp_dpi *d, int32_t dx, int32_t dy) 
   const int64_t cx1 = x1 > d->config.width ? d->config.width : x1;
   const int64_t cy1 = y1 > d->config.height ? d->config.height : y1;
   if (cx1 > cx0 && cy1 > cy0)
-    add_pending(d, (uint32_t)cx0, (uint32_t)cy0, (uint32_t)(cx1 - cx0),
-                (uint32_t)(cy1 - cy0));
+    add_pending(d, framebuffer, (uint32_t)cx0, (uint32_t)cy0,
+                (uint32_t)(cx1 - cx0), (uint32_t)(cy1 - cy0));
+}
+
+/* The overlay's rectangle in every framebuffer: each one holds the face. */
+static void add_overlay_rects(pocket_display_esp_dpi *d) {
+  for (uint32_t i = 0; i < d->framebuffer_count; i++)
+    add_overlay_rect(d, i, 0, 0);
 }
 
 void pocket_display_esp_dpi_set_overlay(
@@ -86,11 +105,11 @@ void pocket_display_esp_dpi_set_overlay(
   if (!d)
     return;
   if (d->overlay_set)
-    add_overlay_rect(d, 0, 0);
+    add_overlay_rects(d);
   d->overlay_set = overlay != NULL && overlay->argb != NULL && overlay->size != 0U;
   if (d->overlay_set) {
     d->overlay = *overlay;
-    add_overlay_rect(d, 0, 0);
+    add_overlay_rects(d);
   }
 }
 
@@ -162,6 +181,41 @@ static bool drain(buffer *b, TickType_t timeout) {
 static bool reserved(const buffer *b) {
   return b->pending || b->timed_out;
 }
+static void new_generation(pocket_display_esp_dpi *d) {
+  if (d->generation == UINT64_MAX)
+    abort();
+  d->generation++;
+}
+/* Two framebuffers: show the panel the target, which holds a whole frame,
+ * and make the framebuffer the panel scanned the target. The panel reads
+ * that one until its next refresh; settle waits for it. */
+static bool publish(pocket_display_esp_dpi *d) {
+  if (!d->unshown)
+    return true;
+  d->unshown = false;
+  const pocket_display_esp_dpi_flip *flip = &d->config.flip;
+  if (!flip->show(flip->context, d->framebuffers[d->target])) {
+    ESP_LOGE(TAG, "the panel refused framebuffer %" PRIu32, d->target);
+    new_generation(d);
+    return false;
+  }
+  d->target ^= 1U;
+  d->settling = true;
+  return true;
+}
+/* Before the first write of the target after a flip: wait until the panel
+ * scans the other framebuffer. */
+static bool settle(pocket_display_esp_dpi *d) {
+  if (!d->settling)
+    return true;
+  const pocket_display_esp_dpi_flip *flip = &d->config.flip;
+  if (!flip->wait_shown(flip->context, WAIT_TIMEOUT_MS)) {
+    ESP_LOGE(TAG, "the panel did not flip in %d ms", WAIT_TIMEOUT_MS);
+    return false;
+  }
+  d->settling = false;
+  return true;
+}
 pocket_display_esp_dpi *
 pocket_display_esp_dpi_create(const pocket_display_esp_dpi_config *c) {
   if (!c || c->struct_size < sizeof(*c) || !c->framebuffer ||
@@ -169,7 +223,10 @@ pocket_display_esp_dpi_create(const pocket_display_esp_dpi_config *c) {
       c->width > INT_MAX || c->height > INT_MAX || !c->scale ||
       !c->row_alignment || !c->strip_rows ||
       c->strip_rows % c->row_alignment || c->strip_rows > c->height ||
-      c->role > POCKET_DISPLAY_ROLE_AUXILIARY)
+      c->role > POCKET_DISPLAY_ROLE_AUXILIARY ||
+      (c->back_framebuffer &&
+       (c->back_framebuffer == c->framebuffer || !c->flip.show ||
+        !c->flip.wait_shown)))
     return NULL;
   const uint32_t screen_width = c->turned ? c->panel_height : c->panel_width;
   const uint32_t screen_height = c->turned ? c->panel_width : c->panel_height;
@@ -187,6 +244,10 @@ pocket_display_esp_dpi_create(const pocket_display_esp_dpi_config *c) {
   d->capacity = capacity;
   d->active = UINT32_MAX;
   d->generation = 1;
+  d->framebuffers[0] = c->framebuffer;
+  d->framebuffers[1] = c->back_framebuffer;
+  d->framebuffer_count = c->back_framebuffer ? 2U : 1U;
+  d->target = d->framebuffer_count - 1U;
   d->moved = xSemaphoreCreateCounting(MOVE_BACKLOG, 0);
   d->written = xSemaphoreCreateCounting(2, 0);
   const ppa_client_config_t present = {
@@ -238,15 +299,14 @@ static void drain_all(pocket_display_esp_dpi *d) {
 void pocket_display_esp_dpi_invalidate(pocket_display_esp_dpi *d) {
   if (d) {
     drain_all(d);
-    if (d->generation == UINT64_MAX)
-      abort();
-    d->generation++;
+    new_generation(d);
   }
 }
 void pocket_display_esp_dpi_destroy(pocket_display_esp_dpi *d) {
   if (!d)
     return;
   drain_all(d);
+  (void)settle(d);
   if (d->present)
     ppa_unregister_client(d->present);
   if (d->mover)
@@ -369,7 +429,9 @@ static esp_err_t present(pocket_display_esp_dpi *d, buffer *b,
       r->width == c->panel_width) {
     /* Whole panel rows are one contiguous run of the framebuffer. */
     return esp_async_memcpy(
-        c->copy, c->framebuffer + (size_t)(c->origin_y + r->y) * c->panel_width,
+        c->copy,
+        d->framebuffers[d->target] +
+            (size_t)(c->origin_y + r->y) * c->panel_width,
         b->pixels + (size_t)y * c->width, (size_t)r->width * r->height * 2U,
         on_copied, b->done);
   }
@@ -382,7 +444,7 @@ static esp_err_t present(pocket_display_esp_dpi *d, buffer *b,
              .block_offset_x = r->x,
              .block_offset_y = y,
              .srm_cm = PPA_SRM_COLOR_MODE_RGB565},
-      .out = {.buffer = c->framebuffer,
+      .out = {.buffer = d->framebuffers[d->target],
               .buffer_size =
                   (size_t)c->panel_width * c->panel_height * sizeof(uint16_t),
               .pic_w = c->panel_width,
@@ -443,6 +505,12 @@ static int32_t flush(void *context, const pocket_rect *regions, size_t count,
                               .width = x1 - x0,
                               .height = y1 - y0};
   blend_overlay(d, b, &bounds);
+  if (!settle(d)) {
+    d->active = UINT32_MAX;
+    d->unshown = false;
+    new_generation(d);
+    return POCKET_STATUS_FAILED;
+  }
   r = regions;
   for (size_t i = 0; i < count; i++) {
     const esp_err_t presented = present(d, b, r);
@@ -451,14 +519,15 @@ static int32_t flush(void *context, const pocket_rect *regions, size_t count,
                r->width, r->height, r->x, r->y, esp_err_to_name(presented));
       (void)drain(b, portMAX_DELAY);
       d->active = UINT32_MAX;
-      if (d->generation == UINT64_MAX)
-        abort();
-      d->generation++;
+      /* The target holds part of a frame: the next frame repaints it. */
+      d->unshown = false;
+      new_generation(d);
       return POCKET_STATUS_FAILED;
     }
     ++b->submitted;
     r = (const pocket_rect *)((const uint8_t *)r + r->struct_size);
   }
+  d->unshown = d->framebuffer_count == 2U;
   b->pending = true;
   *token = b->token = ++d->next;
   d->active = UINT32_MAX;
@@ -477,9 +546,16 @@ static int32_t wait_display(void *context, uint64_t token) {
       ESP_LOGE(TAG, "%" PRIu32 " presents of strip %" PRIu32 " did not complete in %d ms",
                b->submitted, b->region.y, WAIT_TIMEOUT_MS);
       b->timed_out = true;
+      d->unshown = false;
       return POCKET_STATUS_FAILED;
     }
     b->timed_out = false;
+    /* The runtime keeps a strip in flight while it renders the next one, so
+     * the wait that leaves no strip acquired or in flight is the wait for
+     * the frame's last strip: the target holds the frame. */
+    if (d->active == UINT32_MAX && !reserved(&d->buffers[i ^ 1U]) &&
+        !publish(d))
+      return POCKET_STATUS_FAILED;
     return POCKET_STATUS_OK;
   }
   return POCKET_STATUS_INVALID;
@@ -494,8 +570,17 @@ static int32_t identity(void *context, pocket_buffer_identity *out) {
     if (b->timed_out && drain(b, 0))
       b->timed_out = false;
   }
-  *out = (pocket_buffer_identity){
-      .struct_size = sizeof(*out), .buffer = 1, .generation = d->generation};
+  if (d->active != UINT32_MAX) {
+    /* The frame before this one acquired a strip and did not flush it: it
+     * failed, and the target holds part of it. */
+    d->unshown = false;
+  } else if (!reserved(&d->buffers[0]) && !reserved(&d->buffers[1])) {
+    /* It moved pixels and presented nothing: no wait showed the target. */
+    (void)publish(d);
+  }
+  *out = (pocket_buffer_identity){.struct_size = sizeof(*out),
+                                  .buffer = 1U + d->target,
+                                  .generation = d->generation};
   return POCKET_STATUS_OK;
 }
 
@@ -510,6 +595,7 @@ static int32_t identity(void *context, pocket_buffer_identity *out) {
 static esp_err_t copy_rows(pocket_display_esp_dpi *d, uint32_t y0, uint32_t y1,
                            int32_t dy) {
   const pocket_display_esp_dpi_config *c = &d->config;
+  uint16_t *framebuffer = d->framebuffers[d->target];
   const size_t row_bytes = (size_t)c->panel_width * sizeof(uint16_t);
   const uint32_t chunk =
       dy > 0 && (uint32_t)dy < MOVE_ROWS ? (uint32_t)dy : MOVE_ROWS;
@@ -523,8 +609,8 @@ static esp_err_t copy_rows(pocket_display_esp_dpi *d, uint32_t y0, uint32_t y1,
       --queued;
     }
     result = esp_async_memcpy(c->move_copy,
-                              c->framebuffer + (size_t)y * c->panel_width,
-                              c->framebuffer + (size_t)(y - dy) * c->panel_width,
+                              framebuffer + (size_t)y * c->panel_width,
+                              framebuffer + (size_t)(y - dy) * c->panel_width,
                               rows * row_bytes, on_copied, d->moved);
     if (result == ESP_OK)
       ++queued;
@@ -541,6 +627,7 @@ static esp_err_t copy_rows(pocket_display_esp_dpi *d, uint32_t y0, uint32_t y1,
 static esp_err_t copy_rows_down(pocket_display_esp_dpi *d, uint32_t y0,
                                 uint32_t y1, uint32_t dy) {
   const pocket_display_esp_dpi_config *c = &d->config;
+  uint16_t *framebuffer = d->framebuffers[d->target];
   const size_t row_bytes = (size_t)c->panel_width * sizeof(uint16_t);
   const uint32_t band_rows = d->capacity / row_bytes;
   const uint32_t count = (y1 - y0 + band_rows - 1U) / band_rows;
@@ -556,14 +643,14 @@ static esp_err_t copy_rows_down(pocket_display_esp_dpi *d, uint32_t y0,
     for (; writes + 2U <= band; ++writes)
       xSemaphoreTake(d->written, portMAX_DELAY);
     result = esp_async_memcpy(c->move_copy, strip,
-                              c->framebuffer + (size_t)(top - dy) * c->panel_width,
+                              framebuffer + (size_t)(top - dy) * c->panel_width,
                               rows * row_bytes, on_copied, d->moved);
     if (result != ESP_OK)
       break;
     ++reads;
     xSemaphoreTake(d->moved, portMAX_DELAY);
     result = esp_async_memcpy(c->copy ? c->copy : c->move_copy,
-                              c->framebuffer + (size_t)top * c->panel_width,
+                              framebuffer + (size_t)top * c->panel_width,
                               strip, rows * row_bytes, on_copied, d->written);
     if (result != ESP_OK)
       break;
@@ -640,6 +727,12 @@ static int32_t move(void *context, const pocket_rect *destination, int32_t dx,
    * twice; repainting it costs less. */
   if (c->turned && !panel_rows)
     return POCKET_STATUS_UNSUPPORTED;
+  if (!settle(d)) {
+    d->unshown = false;
+    new_generation(d);
+    return POCKET_STATUS_FAILED;
+  }
+  uint16_t *framebuffer = d->framebuffers[d->target];
   esp_err_t result;
   if (panel_rows) {
     result = panel_dy < 0 || (uint32_t)panel_dy >= MIN_DIRECT_ROWS
@@ -656,22 +749,21 @@ static int32_t move(void *context, const pocket_rect *destination, int32_t dx,
       const uint32_t rows =
           y1 - y0 - done < band_rows ? y1 - y0 - done : band_rows;
       const uint32_t y = panel_dy > 0 ? y1 - done - rows : y0 + done;
-      result = copy_block(d, band, w, rows, d->capacity, 0, 0, c->framebuffer,
+      result = copy_block(d, band, w, rows, d->capacity, 0, 0, framebuffer,
                           c->panel_width, c->panel_height, x0 - panel_dx,
                           y - panel_dy, w, rows);
       if (result == ESP_OK)
-        result = copy_block(d, c->framebuffer, c->panel_width,
-                            c->panel_height, frame_bytes, x0, y, band, w, rows,
-                            0, 0, w, rows);
+        result = copy_block(d, framebuffer, c->panel_width, c->panel_height,
+                            frame_bytes, x0, y, band, w, rows, 0, 0, w, rows);
       done += rows;
     }
   }
   if (result != ESP_OK) {
-    if (d->generation == UINT64_MAX)
-      abort();
-    d->generation++;
+    d->unshown = false;
+    new_generation(d);
     return POCKET_STATUS_FAILED;
   }
+  d->unshown = d->framebuffer_count == 2U;
   /* The move carried the overlay's pixels along: repaint where they were
    * and where they landed. */
   if (d->overlay_set) {
@@ -685,8 +777,8 @@ static int32_t move(void *context, const pocket_rect *destination, int32_t dx,
     const bool in_source = sx0 < ox1 && d->overlay.x < sx0 + destination->width &&
                            sy0 < oy1 && d->overlay.y < sy0 + destination->height;
     if (in_destination || in_source) {
-      add_overlay_rect(d, 0, 0);
-      add_overlay_rect(d, dx, dy);
+      add_overlay_rect(d, d->target, 0, 0);
+      add_overlay_rect(d, d->target, dx, dy);
     }
   }
   return POCKET_STATUS_OK;
@@ -697,11 +789,12 @@ static int32_t host_damage(void *context, pocket_rect *out, size_t capacity,
   pocket_display_esp_dpi *d = context;
   if (!d || !out || !count)
     return POCKET_STATUS_INVALID;
-  const size_t n = d->pending_count < capacity ? d->pending_count : capacity;
+  const size_t pending = d->pending_count[d->target];
+  const size_t n = pending < capacity ? pending : capacity;
   for (size_t i = 0; i < n; i++)
-    out[i] = d->pending[i];
+    out[i] = d->pending[d->target][i];
   *count = n;
-  d->pending_count = 0;
+  d->pending_count[d->target] = 0;
   return POCKET_STATUS_OK;
 }
 static const pocket_display_output_v1 DISPLAY = {.struct_size = sizeof(DISPLAY),
