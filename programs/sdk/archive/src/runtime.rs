@@ -145,6 +145,18 @@ pub unsafe extern "C" fn pocket_runtime_tick(runtime: *mut PocketRuntime) -> i32
     unsafe { abi::pocket_runtime_tick(runtime) }
 }
 /// # Safety
+/// runtime is a live instance on its owning thread.
+#[no_mangle]
+pub unsafe extern "C" fn pocket_runtime_advance(runtime: *mut PocketRuntime) -> i32 {
+    unsafe { abi::pocket_runtime_advance(runtime) }
+}
+/// # Safety
+/// runtime is a live instance on its owning thread.
+#[no_mangle]
+pub unsafe extern "C" fn pocket_runtime_skip_presentation(runtime: *mut PocketRuntime) -> i32 {
+    unsafe { abi::pocket_runtime_skip_presentation(runtime) }
+}
+/// # Safety
 /// runtime is a live instance on its owning thread; out provides its
 /// announced writable prefix.
 #[no_mangle]

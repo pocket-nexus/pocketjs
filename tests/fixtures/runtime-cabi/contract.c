@@ -228,6 +228,12 @@ int main(void){
   assert(pocket_runtime_tick(instance)==0);assert(frames==1 && flushes==2 && waits==2);
   assert(pocket_runtime_complete_presentation(instance)==0); /* Immediate frames are complete. */
   assert(flushes==2 && waits==2);
+  /* Advance without presentation: a second advance waits for present or skip. */
+  assert(pocket_runtime_advance(instance)==0);assert(frames==2 && flushes==2);
+  assert(pocket_runtime_advance(instance)==POCKET_STATUS_INVALID);
+  assert(pocket_runtime_skip_presentation(instance)==0);
+  assert(pocket_runtime_advance(instance)==0);assert(frames==3 && flushes==2);
+  assert(pocket_runtime_present(instance)==0);assert(flushes==3 && waits==3);
   pocket_op_provider_v1 provider={sizeof(provider),provider_dispatch};const uint16_t op=31;
   assert(pocket_runtime_add_op_provider(instance,&provider,&provider_mode,&op,1)==POCKET_STATUS_INVALID);
   assert(provider_calls==12);
