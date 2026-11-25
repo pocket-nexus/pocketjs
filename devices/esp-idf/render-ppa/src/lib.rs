@@ -1566,10 +1566,45 @@ fn copy_psm5650_rect(
         let Some(out) = destination.get_mut(to..to + w) else {
             return;
         };
+        copy_psm5650_row(texels, out);
+    }
+}
+
+/// One PSM_5650 texel as RGB565: the red and blue fields change places.
+#[inline]
+fn psm5650_to_rgb565(texel: &[u8]) -> u16 {
+    let value = u16::from_le_bytes([texel[0], texel[1]]);
+    (value << 11) | (value & 0x07e0) | (value >> 11)
+}
+
+/// Copy a row of PSM_5650 texels to RGB565 pixels. The texels at 32-bit
+/// addresses go two to a word: one aligned load, and the fields of both
+/// pixels move in the same shifts.
+fn copy_psm5650_row(texels: &[u8], out: &mut [u16]) {
+    // SAFETY: every bit pattern of four bytes is a valid u32.
+    let (head, body, tail) = unsafe { texels.align_to::<u32>() };
+    if head.len() % 2 != 0 {
+        // The texels sit at odd addresses: no word holds two of them.
         for (pixel, texel) in out.iter_mut().zip(texels.chunks_exact(2)) {
-            let value = u16::from_le_bytes([texel[0], texel[1]]);
-            *pixel = (value << 11) | (value & 0x07e0) | (value >> 11);
+            *pixel = psm5650_to_rgb565(texel);
         }
+        return;
+    }
+    let (first, rest) = out.split_at_mut(head.len() / 2);
+    for (pixel, texel) in first.iter_mut().zip(head.chunks_exact(2)) {
+        *pixel = psm5650_to_rgb565(texel);
+    }
+    let (middle, last) = rest.split_at_mut(body.len() * 2);
+    for (pair, &word) in middle.chunks_exact_mut(2).zip(body) {
+        let word = u32::from_le(word);
+        let swapped = ((word & 0x001f_001f) << 11)
+            | (word & 0x07e0_07e0)
+            | ((word >> 11) & 0x001f_001f);
+        pair[0] = swapped as u16;
+        pair[1] = (swapped >> 16) as u16;
+    }
+    for (pixel, texel) in last.iter_mut().zip(tail.chunks_exact(2)) {
+        *pixel = psm5650_to_rgb565(texel);
     }
 }
 

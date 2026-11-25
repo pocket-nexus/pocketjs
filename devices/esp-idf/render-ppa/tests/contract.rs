@@ -585,3 +585,82 @@ fn malformed_external_texture_and_font_return_error() {
         );
     }
 }
+
+#[test]
+fn unscaled_psm5650_copies_match_the_software_raster_at_every_alignment() {
+    // A 16x4 texture whose texels all differ, at each byte offset of a
+    // buffer: the copy takes its two-texel words at offsets 0 and 2 and the
+    // single texels at 1 and 3.
+    struct Offset(Vec<u8>, usize);
+    impl RenderResources for Offset {
+        fn viewport(&self) -> (f32, f32) {
+            (16.0, 4.0)
+        }
+        fn raster_revision(&self) -> u64 {
+            0
+        }
+        fn texture(&self, _: i32) -> Option<TexView<'_>> {
+            Some(TexView {
+                pixels: &self.0[self.1..self.1 + 16 * 4 * 2],
+                w: 16,
+                h: 4,
+                psm: pocket_spec::psm::PSM_5650,
+                palette: None,
+                linear: false,
+            })
+        }
+        fn font_atlas(&self, _: u8) -> Option<FontView<'_>> {
+            None
+        }
+    }
+    let xy = |x: i16, y: i16| x as u16 as u32 | (y as u16 as u32) << 16;
+    for offset in 0..4 {
+        let mut storage = vec![0u8; 16 * 4 * 2 + 8];
+        for (index, texel) in storage[offset..offset + 16 * 4 * 2]
+            .chunks_exact_mut(2)
+            .enumerate()
+        {
+            let value = (index as u16).wrapping_mul(0x9e37) ^ 0x5a5a;
+            texel.copy_from_slice(&value.to_le_bytes());
+        }
+        let resources = Offset(storage, offset);
+        // The quad at x = -3..3 leaves 13 to 16 columns on the surface and
+        // starts the source row at an odd or an even texel.
+        for x in -3i16..=3 {
+            let ops = [
+                draw_op::TEX_QUAD,
+                0,
+                xy(x, 0),
+                wh(16, 4),
+                0,
+                0,
+                1f32.to_bits(),
+                1f32.to_bits(),
+                0xffff_ffff,
+            ];
+            let mut expected = vec![0u16; 64];
+            let mut s = Surface::new(
+                bytes(&mut expected),
+                Region::new(0, 0, 16, 4),
+                32,
+                PixelFormat::Rgb565,
+            )
+            .unwrap();
+            pocket_raster::render_surface(&resources, &ops, &mut s, 1).unwrap();
+            let mut actual = vec![0u16; 64];
+            let mut s = Surface::new(
+                bytes(&mut actual),
+                Region::new(0, 0, 16, 4),
+                32,
+                PixelFormat::Rgb565,
+            )
+            .unwrap();
+            let mut device = Device::default();
+            Painter::new(config(), 64)
+                .unwrap()
+                .render(&resources, &ops, &mut s, &mut device)
+                .unwrap();
+            assert_eq!(actual, expected, "byte offset {offset}, quad at x {x}");
+        }
+    }
+}
