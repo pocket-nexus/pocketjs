@@ -739,7 +739,7 @@ int32_t pocket_runtime_boot(pocket_runtime * runtime);
 /* Admit and evaluate the package without presenting it. The program calls pocket_runtime_present before the first tick, after its native scene or host overlay is ready. */
 int32_t pocket_runtime_boot_deferred(pocket_runtime * runtime);
 
-/* Present the retained tree without running the guest: after boot_deferred, to retry a failed output, or to redraw it under a host overlay. A guest that failed keeps its last tree presentable; advancing it stays rejected. */
+/* Present the retained tree without running the guest: after pocket_runtime_advance, after boot_deferred, to retry a failed output, or to redraw it under a host overlay. A guest that failed keeps its last tree presentable; advancing it stays rejected. */
 int32_t pocket_runtime_present(pocket_runtime * runtime);
 
 /* Complete in-flight DEFERRED frames: renderer wait, flush or display wait, retire. Returns zero when none is pending. A failed completion returns its error once and invalidates that display's damage history. Call before reading a presented buffer or releasing state a pending submission reads. */
@@ -747,6 +747,12 @@ int32_t pocket_runtime_complete_presentation(pocket_runtime * runtime);
 
 /* Sample inputs, run the guest frame once, advance the core by the booted package's core_ticks, and present. */
 int32_t pocket_runtime_tick(pocket_runtime * runtime);
+
+/* The first half of pocket_runtime_tick: sample inputs, run the guest frame once and advance the core by the booted package's core_ticks, without presenting. pocket_runtime_present or pocket_runtime_skip_presentation follows; another advance before either is INVALID. */
+int32_t pocket_runtime_advance(pocket_runtime * runtime);
+
+/* Drop the presentation of the frame pocket_runtime_advance ran: the next present paints what it changed. A program that fell behind its cadence runs the frames of the missed slots this way, so the package's virtual time keeps the cadence without drawing them. */
+int32_t pocket_runtime_skip_presentation(pocket_runtime * runtime);
 
 /* After boot, the package rate and the cadence the program schedules pocket_runtime_tick at. INVALID before boot. */
 int32_t pocket_runtime_get_timing(const pocket_runtime * runtime, pocket_runtime_timing * out);

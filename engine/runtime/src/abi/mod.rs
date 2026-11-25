@@ -434,6 +434,16 @@ pub unsafe fn pocket_runtime_tick(runtime: *mut PocketRuntime) -> i32 {
     unsafe { modify(runtime, Runtime::tick) }
 }
 /// # Safety
+/// runtime is a live instance on its owning thread.
+pub unsafe fn pocket_runtime_advance(runtime: *mut PocketRuntime) -> i32 {
+    unsafe { modify(runtime, Runtime::advance) }
+}
+/// # Safety
+/// runtime is a live instance on its owning thread.
+pub unsafe fn pocket_runtime_skip_presentation(runtime: *mut PocketRuntime) -> i32 {
+    unsafe { modify(runtime, Runtime::skip_presentation) }
+}
+/// # Safety
 /// runtime is a live instance on its owning thread; out provides its
 /// announced writable prefix.
 pub unsafe fn pocket_runtime_get_timing(

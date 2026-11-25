@@ -267,6 +267,10 @@ A product can call `pocket_runtime_tick` from its owner task at the cadence
 the booted runtime, the task configuration and an output pointer; it schedules
 ticks at that cadence with the shared rational-microsecond schedule. Falling behind can skip wall
 clock slots without inventing guest frames.
+A program that keeps the package's virtual time at the cadence instead runs
+the frames of the slots it missed with `pocket_runtime_advance` and
+`pocket_runtime_skip_presentation`; the next `pocket_runtime_tick` presents
+what they changed.
 
 Set the runner's interrupt callback to `pocket_guest_idf_interrupt` through a
 `void *` wrapper. `pocket_runner_stop` interrupts the guest, wakes the owner and

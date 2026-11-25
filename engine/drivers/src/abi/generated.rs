@@ -900,12 +900,16 @@ pub fn pocket_runtime_set_texture_budget(runtime: *mut PocketRuntime, bytes: usi
     pub fn pocket_runtime_boot(runtime: *mut PocketRuntime) -> i32;
     /// Admit and evaluate the package without presenting it. The program calls pocket_runtime_present before the first tick, after its native scene or host overlay is ready.
 pub fn pocket_runtime_boot_deferred(runtime: *mut PocketRuntime) -> i32;
-    /// Present the retained tree without running the guest: after boot_deferred, to retry a failed output, or to redraw it under a host overlay. A guest that failed keeps its last tree presentable; advancing it stays rejected.
+    /// Present the retained tree without running the guest: after pocket_runtime_advance, after boot_deferred, to retry a failed output, or to redraw it under a host overlay. A guest that failed keeps its last tree presentable; advancing it stays rejected.
 pub fn pocket_runtime_present(runtime: *mut PocketRuntime) -> i32;
     /// Complete in-flight DEFERRED frames: renderer wait, flush or display wait, retire. Returns zero when none is pending. A failed completion returns its error once and invalidates that display's damage history. Call before reading a presented buffer or releasing state a pending submission reads.
 pub fn pocket_runtime_complete_presentation(runtime: *mut PocketRuntime) -> i32;
     /// Sample inputs, run the guest frame once, advance the core by the booted package's core_ticks, and present.
 pub fn pocket_runtime_tick(runtime: *mut PocketRuntime) -> i32;
+    /// The first half of pocket_runtime_tick: sample inputs, run the guest frame once and advance the core by the booted package's core_ticks, without presenting. pocket_runtime_present or pocket_runtime_skip_presentation follows; another advance before either is INVALID.
+pub fn pocket_runtime_advance(runtime: *mut PocketRuntime) -> i32;
+    /// Drop the presentation of the frame pocket_runtime_advance ran: the next present paints what it changed. A program that fell behind its cadence runs the frames of the missed slots this way, so the package's virtual time keeps the cadence without drawing them.
+pub fn pocket_runtime_skip_presentation(runtime: *mut PocketRuntime) -> i32;
     /// After boot, the package rate and the cadence the program schedules pocket_runtime_tick at. INVALID before boot.
 pub fn pocket_runtime_get_timing(runtime: *const PocketRuntime, out: *mut PocketRuntimeTiming) -> i32;
     /// Returns 0 or 1 without executing the operation. Does not invalidate borrowed results.
