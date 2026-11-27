@@ -425,8 +425,12 @@ if (fallbackTtfs.length || fontConfig.codepoints.length)
 const buttonMarks = [...Object.values(BUTTON_GLYPHS[(buildPlan?.modality ?? PORTABLE_MODALITY).glyphs]).join("")]
   .map(ch => ch.codePointAt(0)!);
 
+// A host with text.layout.native draws untracked, untransformed runs with its own text system and
+// reads atlases only for tracked or transformed ones: those bake ASCII and the declared characters,
+// not every character the source spells.
+const nativeText = buildPlan?.features?.["text.layout.native"] === true;
 const atlases = await bakeAtlases({
-  codepoints: new Set([...codepoints, ...fontConfig.codepoints, ...buttonMarks]),
+  codepoints: new Set([...(nativeText ? [] : codepoints), ...fontConfig.codepoints, ...buttonMarks]),
   slots: styles.usedFontSlots,
   extraChars,
   rasterDensity,

@@ -41,7 +41,10 @@ plus the 2x2 linear part of its world transform, which the backend applies to
 the run's pixels. Tracked runs and runs under a 3D transform (rotateX/Y,
 perspective) use baked atlas metrics and `GLYPH_RUN`.
 The `text.layout.native` capability describes this embedding contract;
-no built-in host advertises it. The shared DrawList walk asks its backend for a
+no built-in host advertises it. **A build for a host with it bakes atlases
+with ASCII and the declared characters only** (`fonts.json`), not the
+characters the source spells: the atlases draw tracked runs and runs under 3D
+transforms. The shared DrawList walk asks its backend for a
 run's pixels (`Backend::text_run` in `pocket-render`); `pocket-wgpu-render`
 answers through the host's `TextPainter`.
 
