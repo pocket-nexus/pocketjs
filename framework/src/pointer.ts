@@ -126,10 +126,11 @@ export function __resetPointer(): void {
  *  the op or a node that is gone. A query for cold paths: the extent a
  *  scroll view clamps to, where a popover opens. */
 export function nodeLayout(node: { readonly id: number }): { x: number; y: number; w: number; h: number } | null {
-  const result = peekOps()?.layoutOf?.(node.id) as ArrayLike<number> | Uint8Array | undefined;
-  if (!result || result.length < 16) return null;
-  // Guest bindings hand bytes over as a Uint8Array or as a plain array of byte values.
-  const bytes = result instanceof Uint8Array ? result : Uint8Array.from(result);
+  const result = peekOps()?.layoutOf?.(node.id);
+  if (!result) return null;
+  // Guest bindings hand bytes over as an ArrayBuffer (the browser realm) or a Uint8Array.
+  const bytes = result instanceof Uint8Array ? result : new Uint8Array(result);
+  if (bytes.byteLength < 16) return null;
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   return { x: view.getFloat32(0, true), y: view.getFloat32(4, true), w: view.getFloat32(8, true), h: view.getFloat32(12, true) };
 }

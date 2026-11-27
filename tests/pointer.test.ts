@@ -138,7 +138,7 @@ describe("hover", () => {
     ops: { hitTest: (x: number) => (x < 10 ? 7 : 0), setHover: (id: number) => calls.push(id), layoutOf: (id: number) => {
       const bytes = new Uint8Array(16), view = new DataView(bytes.buffer);
       [1, 2, 30, 40].forEach((v, i) => view.setFloat32(i * 4, v, true));
-      return id === 7 ? bytes : new Uint8Array();
+      return id === 7 ? bytes.buffer : new ArrayBuffer(0);
     } },
   });
 

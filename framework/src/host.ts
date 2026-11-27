@@ -115,7 +115,7 @@ export interface HostOps {
   setHover?(idOr0: number): void;
   /** The node's settled layout box (spec op 63): four LE f32, x and y
    *  relative to the parent, w, h; empty for a missing node. Cold path. */
-  layoutOf?(id: number): Uint8Array;
+  layoutOf?(id: number): ArrayBuffer | Uint8Array;
   /** Auxiliary-surface twins (spec ops 45–46). Present with
    * display.auxiliary; coordinates belong to its logical viewport. */
   hitTestAuxiliary?(x: number, y: number): number;
