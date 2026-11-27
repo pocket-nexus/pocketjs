@@ -21,6 +21,10 @@
   "capabilities": [
     "display.viewport.live",
     "input.buttons",
+    "input.ime",
+    "input.pointer",
+    "input.scroll",
+    "input.text",
     "io.offload",
     "text.glyphs.baked",
     "text.glyphs.runtime",

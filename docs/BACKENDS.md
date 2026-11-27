@@ -56,6 +56,22 @@ that creates the iframe owns scheduling and composition through the
 instance object; the package receives no other realm or framebuffer. This
 repository's web program runs one application.
 
+**The browser's pointer, wheel and keyboard reach the guest as input
+facts** (`platforms/web/browser-input.js`): the pointer in logical px with its
+held buttons, hovering or not (`input.pointer`), wheel deltas in px
+(`input.scroll`), key events named as `KeyboardEvent.key`, typed text as
+commits and IME composition from a hidden textarea (`input.text`,
+`input.ime`). `programs/web/main.js` sends a pointer when the plan has
+`input.pointer` and touch contacts otherwise; the wasm program forwards them as
+the ninth to eleventh frame arguments, shaped as the QuickJS guests shape them.
+
+**A page lays an interface over content of its own with
+`platforms/web/ui-layer.js`**: a WebGL2 canvas with `premultipliedAlpha`
+shows `renderPremultiplied` and re-uploads it when the draw hash or size
+changes. The layer takes the pointer; the guest tells a press on its
+interface from one on the content beneath by the press's DOWN-edge hit fact
+(0: no painted node).
+
 **Each AppInstance draws codepoints its baked atlases lack**
 (`text.glyphs.runtime`, `platforms/web/runtime-glyphs.js`): the realm appends a
 cell drawn by the browser to every loaded slot before the core lays the text
