@@ -11,6 +11,7 @@
 mod batch;
 mod pipeline;
 mod pixels;
+mod text;
 
 use pocket_drivers::{
     DeviceTarget, FrameInput, PixelFormat, Rect, RenderError, RenderResources, Renderer,
@@ -24,6 +25,8 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 use wgpu::util::DeviceExt;
+
+pub use text::{PaintedText, TextPainter, TextRunRequest};
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 fn next_id() -> Result<u64, RenderError> {
@@ -100,6 +103,7 @@ enum TexBind {
     White,
     Image(TextureKey),
     Font(TextureKey),
+    Text(u64),
 }
 type DrawCmd = pocket_render::Batch<TexBind, (u32, u32, u32, u32)>;
 
@@ -159,6 +163,7 @@ pub struct WgpuRenderer {
     pending: HashMap<u64, Pending>,
     images: TextureCache<wgpu::BindGroup>,
     fonts: TextureCache<FontTexture>,
+    text: text::TextRuns,
 }
 
 impl WgpuRenderer {
@@ -284,6 +289,7 @@ impl WgpuRenderer {
         // All native reads/writes preceding the checkpoint are now terminal.
         self.images = TextureCache::new(0, 0);
         self.fonts = TextureCache::new(0, 0);
+        self.text.clear();
         self.targets.clear();
     }
 
@@ -292,6 +298,9 @@ impl WgpuRenderer {
     }
     pub fn resident_fonts(&self) -> usize {
         self.fonts.len()
+    }
+    fn text_painter_missing(&self) -> bool {
+        !self.text.has_painter()
     }
 
     /// Record into a host-owned encoder. Every upload copies borrowed resource
@@ -348,7 +357,11 @@ impl WgpuRenderer {
         for operation in pocket_render::DrawOps::new(words, viewport) {
             let operation = operation.map_err(|_| RenderError::InvalidFrame)?;
             let count = match operation.opcode {
-                spec::draw_op::TEXT_RUN => return Err(RenderError::Unsupported),
+                spec::draw_op::TEXT_RUN | spec::draw_op::TEXT_RUN_XF
+                    if self.text_painter_missing() =>
+                {
+                    return Err(RenderError::Unsupported);
+                }
                 spec::draw_op::TRI | spec::draw_op::TEX_TRI => 3,
                 spec::draw_op::GLYPH_RUN => (operation.words[1] >> 16) as u64 * 6,
                 spec::draw_op::SCISSOR | spec::draw_op::SCISSOR_POP => 0,
@@ -359,6 +372,7 @@ impl WgpuRenderer {
                 .filter(|n| *n <= limit)
                 .ok_or(RenderError::InvalidFrame)?;
         }
+        self.text.begin_frame();
         let scope = ValidationScope::new(&self.gpu.device);
         let result = (|| {
             let (vertices, commands) =
@@ -399,6 +413,7 @@ impl WgpuRenderer {
                             .ok_or(RenderError::InvalidFrame)?
                             .bind
                             .clone(),
+                        TexBind::Text(id) => self.text.bind(id).ok_or(RenderError::InvalidFrame)?,
                     })
                 })
                 .collect::<Result<_, RenderError>>()?;

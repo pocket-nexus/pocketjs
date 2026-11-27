@@ -17,8 +17,21 @@ obtain its `DeviceTarget`. Target IDs belong to one renderer instance and are
 never reused. Unknown, foreign, removed, partial-region, and format-mismatched
 targets are rejected. The driver supports RGBA8/BGRA8, UNORM or sRGB attachments,
 and preserves the previous compositor's color encoding and fractional scale.
-Native `TEXT_RUN` is unsupported; glyph atlas, image, gradient, triangle and
-scissor operations use the shared DrawList vocabulary.
+Glyph atlas, image, gradient, triangle and scissor operations use the shared
+DrawList vocabulary. **`TEXT_RUN` draws through a host `TextPainter`**
+(`set_text_painter`): the host text system that measured a run paints one
+straight-alpha RGBA8 bitmap per distinct run (text, slot, alignment, box width,
+line height, tracking, opaque colour, scale); the renderer keeps it as a texture, places
+it on whole device pixels and modulates it by the run's alpha. A
+`TEXT_RUN_XF` draws the same bitmap as two triangles through the run's 2x2
+matrix about its origin. Bitmaps no
+frame drew for 240 frames are released, and the least recently drawn ones
+while more than 96 MiB are resident. Without a painter `TEXT_RUN` is
+`RenderError::Unsupported`.
+
+**Alpha accumulates as coverage.** Colour blends with straight alpha; the
+alpha channel takes `src + dst × (1 − src)`, so a target cleared to transparent
+holds a premultiplied picture that a host composites over its own frame.
 
 Each render copies borrowed resources and allocates an **independent vertex
 buffer**. Image and glyph-page versions use handle plus revision cache keys.

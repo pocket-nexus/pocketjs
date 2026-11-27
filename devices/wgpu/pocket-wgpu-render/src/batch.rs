@@ -287,6 +287,13 @@ impl Backend for Frame<'_> {
         }
     }
 
+    fn text_run(
+        &mut self,
+        run: &pocket_render::TextRun<'_>,
+    ) -> Result<Option<pocket_render::TextQuad<TexBind>>, RenderError> {
+        self.renderer.text_run(run, self.scale)
+    }
+
     /// The shader's `mode` selects the sampling path; glyph vertices carry
     /// their inset sampling bounds.
     fn emitted(&mut self, vertices: &mut [UiVertex], source: Source<[f32; 4]>) {

@@ -359,25 +359,37 @@ fn measure(char_width: f32) -> pocketjs_core::text::MeasureFn {
 
 #[test]
 fn transformed_ancestors_and_provider_replacement_select_the_measurer() {
-    // The native provider measures 12 px lines; transformed text uses the 9 px atlas.
+    // The native provider measures 12 px lines; 2D transforms stay native
+    // (TEXT_RUN_XF), while 3D-transformed text uses the 9 px atlas.
     let mut pair = Pair::new();
-    let (plain, transformed, label) = pair.edit(|ui| {
+    let (plain, transformed_2d, transformed_3d, label) = pair.edit(|ui| {
         ui.set_text_measure(Some(measure(7.0)));
         let plain = view(ui, spec::ROOT_ID, None, None);
-        let transformed = view(ui, spec::ROOT_ID, None, None);
-        ui.set_prop(transformed, SCALE, 0.75);
-        (plain, transformed, text(ui, plain, "ab"))
+        let transformed_2d = view(ui, spec::ROOT_ID, None, None);
+        ui.set_prop(transformed_2d, SCALE, 0.75);
+        let transformed_3d = view(ui, spec::ROOT_ID, None, None);
+        ui.set_prop(transformed_3d, ROTATE_X, 25.0);
+        (plain, transformed_2d, transformed_3d, text(ui, plain, "ab"))
     });
     pair.check("native provider");
     assert_eq!(pair.height(label), 12.0);
-    pair.edit(|ui| ui.insert_before(transformed, label, 0));
-    pair.check("moved beneath a transform");
+    pair.edit(|ui| ui.insert_before(transformed_2d, label, 0));
+    pair.check("moved beneath a 2D transform");
+    assert_eq!(pair.height(label), 12.0);
+    pair.edit(|ui| ui.insert_before(transformed_3d, label, 0));
+    pair.check("moved beneath a 3D transform");
     assert_eq!(pair.height(label), 9.0);
     pair.edit(|ui| ui.insert_before(plain, label, 0));
     pair.check("moved back");
+    assert_eq!(pair.height(label), 12.0);
     for angle in [25.0, 0.0, -15.0, 0.0] {
         pair.edit(|ui| ui.set_prop(plain, ROTATE, angle));
-        pair.check("ancestor rotation");
+        pair.check("ancestor 2D rotation");
+        assert_eq!(pair.height(label), 12.0);
+    }
+    for angle in [25.0, 0.0, -15.0, 0.0] {
+        pair.edit(|ui| ui.set_prop(plain, ROTATE_Y, angle));
+        pair.check("ancestor 3D rotation");
         assert_eq!(pair.height(label), if angle == 0.0 { 12.0 } else { 9.0 });
     }
     pair.edit(|ui| ui.set_text_measure(Some(measure(11.0))));

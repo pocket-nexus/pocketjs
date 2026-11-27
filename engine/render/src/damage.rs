@@ -557,7 +557,7 @@ impl<'a> DamageDecoder<'a> {
             spec::draw_op::TEX_TRI => triangle_bounds([words[2], words[5], words[8]], clip),
             // Native text has no glyph geometry here. Its current clip is a
             // conservative bound for damage tracking.
-            spec::draw_op::TEXT_RUN => clip,
+            spec::draw_op::TEXT_RUN | spec::draw_op::TEXT_RUN_XF => clip,
             _ => return Err(()),
         };
         Ok(Some(DecodedOp { code, words, bounds }))

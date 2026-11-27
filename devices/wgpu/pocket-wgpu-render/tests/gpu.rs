@@ -526,3 +526,133 @@ fn shutdown_releases_cache_pins_left_by_a_resource_callback_panic() {
     assert_eq!(renderer.resident_images(), 0);
     assert!(matches!(renderer.target(id), Err(RenderError::Failed)));
 }
+
+/// Paints every run as a 2×2 device-pixel block of its colour, offset one
+/// logical pixel right of the origin, and counts the runs it painted.
+struct BlockPainter(std::rc::Rc<std::cell::Cell<u32>>);
+impl pocket_wgpu_render::TextPainter for BlockPainter {
+    fn paint(
+        &mut self,
+        run: &pocket_wgpu_render::TextRunRequest<'_>,
+    ) -> Option<pocket_wgpu_render::PaintedText> {
+        self.0.set(self.0.get() + 1);
+        if run.text.trim().is_empty() {
+            return None;
+        }
+        let [r, g, b, a] = run.color.to_le_bytes();
+        Some(pocket_wgpu_render::PaintedText {
+            width: 2,
+            height: 2,
+            rgba: [r, g, b, a].repeat(4),
+            offset: [1.0, 0.0],
+        })
+    }
+}
+
+fn text_run(text: &str, color: u32) -> DrawList {
+    let bytes = text.as_bytes();
+    let mut list = DrawList::new();
+    list.words = vec![
+        op::TEXT_RUN,
+        0,
+        0.0f32.to_bits(),
+        1.0f32.to_bits(),
+        3.0f32.to_bits(),
+        f32::NAN.to_bits(),
+        color,
+        bytes.len() as u32,
+    ];
+    for chunk in bytes.chunks(4) {
+        let mut word = [0u8; 4];
+        word[..chunk.len()].copy_from_slice(chunk);
+        list.words.push(u32::from_le_bytes(word));
+    }
+    list
+}
+
+#[test]
+fn text_runs_draw_the_painters_bitmap_modulated_by_the_run_alpha_and_reuse_it() {
+    let gpu = Gpu::new();
+    let mut renderer = gpu.renderer();
+    let output = gpu.output();
+    let target = gpu.register(&mut renderer, &output);
+    let resources = Resources::red();
+    let painted = std::rc::Rc::new(std::cell::Cell::new(0));
+    renderer.set_text_painter(Some(Box::new(BlockPainter(painted.clone()))));
+    // opaque blue at (1,1)..(3,3)
+    let submission = render(
+        &mut renderer,
+        target,
+        &text_run("Hi", 0xffff_0000),
+        &resources,
+    )
+    .unwrap();
+    renderer.retire(submission);
+    let pixels = gpu.read(&output);
+    let at = |x: usize, y: usize| &pixels[(y * 4 + x) * 4..(y * 4 + x) * 4 + 4];
+    assert_eq!(at(1, 1), [0, 0, 255, 255]);
+    assert_eq!(at(2, 2), [0, 0, 255, 255]);
+    assert_eq!(at(0, 1), [0, 0, 0, 255]);
+    assert_eq!(at(1, 0), [0, 0, 0, 255]);
+    // the same run at half alpha reuses the bitmap and blends over black
+    let submission = render(
+        &mut renderer,
+        target,
+        &text_run("Hi", 0x80ff_0000),
+        &resources,
+    )
+    .unwrap();
+    renderer.retire(submission);
+    assert_eq!(painted.get(), 1);
+    assert_eq!(renderer.resident_text_runs(), 1);
+    let pixels = gpu.read(&output);
+    let blue = pixels[(4 + 1) * 4 + 2];
+    assert!((126..=130).contains(&blue), "{blue}");
+    // a run the painter draws nothing for draws nothing
+    let submission = render(
+        &mut renderer,
+        target,
+        &text_run("  ", 0xffff_ffff),
+        &resources,
+    )
+    .unwrap();
+    renderer.retire(submission);
+    assert!(gpu.read(&output).chunks(4).all(|p| p == [0, 0, 0, 255]));
+    // without a painter the operation is unsupported again
+    renderer.set_text_painter(None);
+    assert!(matches!(
+        render(
+            &mut renderer,
+            target,
+            &text_run("Hi", 0xffff_ffff),
+            &resources
+        ),
+        Err(RenderError::Unsupported)
+    ));
+}
+
+#[test]
+fn transformed_text_runs_draw_the_bitmap_through_their_matrix() {
+    let gpu = Gpu::new();
+    let mut renderer = gpu.renderer();
+    let output = gpu.output();
+    let target = gpu.register(&mut renderer, &output);
+    let resources = Resources::red();
+    renderer.set_text_painter(Some(Box::new(BlockPainter(Default::default()))));
+    // a run at origin (4, 1): its 2x2 block at (5..7, 1..3) lies off the 4x4 target; mirrored
+    // about the origin's vertical axis (x' = 4 - (x - 4)) it lands on (1..3, 1..3)
+    let mut list = text_run("Hi", 0xffff_0000);
+    list.words[0] = op::TEXT_RUN_XF;
+    list.words[2] = 4.0f32.to_bits();
+    for (k, v) in [-1.0f32, 0.0, 0.0, 1.0].iter().enumerate() {
+        list.words.insert(8 + k, v.to_bits());
+    }
+    let submission = render(&mut renderer, target, &list, &resources).unwrap();
+    renderer.retire(submission);
+    let pixels = gpu.read(&output);
+    let at = |x: usize, y: usize| &pixels[(y * 4 + x) * 4..(y * 4 + x) * 4 + 4];
+    assert_eq!(at(1, 1), [0, 0, 255, 255]);
+    assert_eq!(at(2, 2), [0, 0, 255, 255]);
+    assert_eq!(at(0, 1), [0, 0, 0, 255]);
+    assert_eq!(at(3, 2), [0, 0, 0, 255]);
+}

@@ -68,7 +68,13 @@ impl WgpuRenderer {
                 },
                 targets: &[Some(wgpu::ColorTargetState {
                     format: target_format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    // Colour blends straight alpha; alpha accumulates as coverage
+                    // (src + dst * (1 - src)), so a target cleared to transparent
+                    // holds a premultiplied picture a host can composite.
+                    blend: Some(wgpu::BlendState {
+                        color: wgpu::BlendState::ALPHA_BLENDING.color,
+                        alpha: wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING.alpha,
+                    }),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
             }),
@@ -158,6 +164,7 @@ impl WgpuRenderer {
             pending: HashMap::new(),
             images: TextureCache::new(limits.image_entries, limits.image_bytes),
             fonts: TextureCache::new(limits.font_entries, limits.font_bytes),
+            text: Default::default(),
         }
     }
 }
