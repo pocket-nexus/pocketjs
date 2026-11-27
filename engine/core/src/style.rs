@@ -287,6 +287,8 @@ pub struct Resolved {
     /// NAN = use the atlas default.
     pub line_height: f32,
     pub tracking: f32,
+    /// 1 = soft-wrap the run to the box width (PROP textWrap).
+    pub text_wrap: u8,
     pub translate_x: f32,
     pub translate_y: f32,
     pub scale: f32,
@@ -359,6 +361,7 @@ impl Default for Resolved {
             text_align: spec::TextAlign::Left as u8,
             line_height: f32::NAN,
             tracking: 0.0,
+            text_wrap: 0,
             translate_x: 0.0,
             translate_y: 0.0,
             scale: 1.0,
@@ -454,6 +457,7 @@ impl Resolved {
             p::TEXT_ALIGN => self.text_align = bits as u8,
             p::LINE_HEIGHT => self.line_height = f,
             p::TRACKING => self.tracking = f,
+            p::TEXT_WRAP => self.text_wrap = (bits != 0) as u8,
             p::TRANSLATE_X => self.translate_x = f,
             p::TRANSLATE_Y => self.translate_y = f,
             p::SCALE => self.scale = f,
@@ -532,6 +536,7 @@ impl Resolved {
             p::TEXT_ALIGN => self.text_align as u32,
             p::LINE_HEIGHT => self.line_height.to_bits(),
             p::TRACKING => self.tracking.to_bits(),
+            p::TEXT_WRAP => self.text_wrap as u32,
             p::TRANSLATE_X => self.translate_x.to_bits(),
             p::TRANSLATE_Y => self.translate_y.to_bits(),
             p::SCALE => self.scale.to_bits(),

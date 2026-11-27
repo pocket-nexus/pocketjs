@@ -378,6 +378,10 @@ export const PROP = {
   textAlign: 98, //     enum TextAlign
   lineHeight: 99, //    f32 px (overrides the atlas default)
   tracking: 100, //     f32 px extra advance per glyph
+  textWrap: 101, //     0|1. 1 = soft-wrap the run to the box width at layout
+  //                    and paint (CSS white-space: normal): breaks come from
+  //                    wrapText over the provider that measures the node;
+  //                    '\n' still breaks. 0 = break at '\n' only.
 
   // -- transform (128..159) — paint-only, never relayouts ---------------------
   translateX: 128, //   f32 px
@@ -493,7 +497,7 @@ export const LAYOUT_DIRTYING: readonly PropName[] = [
   "marginT", "marginR", "marginB", "marginL",
   "gap", "flexDir", "justify", "align", "grow", "shrink", "basis", "flexWrap",
   "posType", "insetT", "insetR", "insetB", "insetL", "display", "overflow", "contain",
-  "fontSlot", "textAlign", "lineHeight", "tracking",
+  "fontSlot", "textAlign", "lineHeight", "tracking", "textWrap",
 ];
 
 // ---------------------------------------------------------------------------
@@ -538,6 +542,7 @@ export const PROP_VALUE_KIND: Record<PropName, number> = {
   gradVia: VALUE_KIND.color, gradViaPos: VALUE_KIND.f32,
   textColor: VALUE_KIND.color, fontSlot: VALUE_KIND.int,
   textAlign: VALUE_KIND.int, lineHeight: VALUE_KIND.f32, tracking: VALUE_KIND.f32,
+  textWrap: VALUE_KIND.int,
   translateX: VALUE_KIND.f32, translateY: VALUE_KIND.f32,
   scale: VALUE_KIND.f32, rotate: VALUE_KIND.f32,
   scaleX: VALUE_KIND.f32, scaleY: VALUE_KIND.f32,

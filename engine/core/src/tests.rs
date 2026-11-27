@@ -5913,3 +5913,69 @@ fn package_textures_without_their_pixels_draw_nothing() {
     assert_eq!(ui.texture(tex).unwrap().pixels[0], 3);
     assert!(ui.update_texture_rect(tex, 0, 0, 1, 1, &[0; 4]));
 }
+
+#[test]
+fn text_wrap_sizes_the_leaf_and_paints_the_same_rows() {
+    let mut ui = Ui::new();
+    ui.load_font_atlas(&encode_atlas(
+        0,
+        8,
+        8,
+        7,
+        10,
+        3,
+        &[(0xfffd, 0, 8), ('A' as u32, 1, 6), (' ' as u32, 2, 4)],
+    ));
+    ui.set_text_measure(Some(fake_native_measure()));
+    let column = ui.create_node(spec::NodeType::View as u8);
+    ui.set_prop(column, spec::prop::WIDTH, 40.0);
+    ui.set_prop(
+        column,
+        spec::prop::FLEX_DIR,
+        spec::FlexDir::Col as u8 as f64,
+    );
+    ui.insert_before(spec::ROOT_ID, column, 0);
+    let wrapped = ui.create_node(spec::NodeType::Text as u8);
+    ui.set_prop(wrapped, spec::prop::TEXT_COLOR, abgr(0, 0, 0, 255) as f64);
+    ui.set_prop(wrapped, spec::prop::TEXT_WRAP, 1.0);
+    ui.set_text(wrapped, "AA AA AA");
+    ui.insert_before(column, wrapped, 0);
+    let plain = ui.create_node(spec::NodeType::Text as u8);
+    ui.set_prop(plain, spec::prop::TEXT_COLOR, abgr(0, 0, 0, 255) as f64);
+    ui.set_text(plain, "AA AA AA");
+    ui.insert_before(column, plain, 0);
+    ui.tick();
+    // 7 px a character (fake native measurer), 12 px rows: "AA AA" (35 px)
+    // fits 40 px, the third word moves to a second row.
+    let l = ui.layout_of(wrapped).unwrap();
+    assert_eq!((l.2, l.3), (40.0, 24.0));
+    // Without textWrap the run keeps one row and overflows the column.
+    let p = ui.layout_of(plain).unwrap();
+    assert_eq!(p.3, 12.0);
+    let words = ui.draw().words.clone();
+    let runs: Vec<_> = words
+        .iter()
+        .enumerate()
+        .filter(|(_, &w)| w == spec::draw_op::TEXT_RUN)
+        .map(|(i, _)| decode_text_run_text(&words, i).0)
+        .collect();
+    assert!(runs.iter().any(|t| t == "AA AA\nAA"), "{runs:?}");
+    assert!(runs.iter().any(|t| t == "AA AA AA"), "{runs:?}");
+    // Turning the prop off relayouts to one row.
+    ui.set_prop(wrapped, spec::prop::TEXT_WRAP, 0.0);
+    ui.tick();
+    assert_eq!(ui.layout_of(wrapped).unwrap().3, 12.0);
+}
+
+#[test]
+fn text_wrap_breaks_between_cjk_characters() {
+    let mut ui = Ui::new();
+    ui.set_text_measure(Some(fake_native_measure()));
+    // "ab " is 21 px; the ideographs continue on the first row and break
+    // where the fifth character would pass 35 px.
+    assert_eq!(ui.wrap_text("ab 一二三四", 0, 35.0), alloc::vec![5]);
+    // Closing punctuation never starts a row.
+    assert!(!ui.wrap_text("一二三。", 0, 21.0).contains(&3));
+    // Latin words still move whole.
+    assert_eq!(ui.wrap_text("aa bb", 0, 21.0), alloc::vec![3]);
+}

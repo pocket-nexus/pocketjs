@@ -226,6 +226,10 @@ describe("text", () => {
     expect(f32Of(m, PROP.tracking)).toBeCloseTo(0.025 * 18, 5);
     expect(m.get(PROP.fontSlot)).toBe(fontSlotFor(18, false));
   });
+  test("text-wrap / text-nowrap", () => {
+    expect(props(parseClassLiteral("text-wrap text-sm")).get(PROP.textWrap)).toBe(1);
+    expect(props(parseClassLiteral("text-wrap text-nowrap")).get(PROP.textWrap)).toBe(0);
+  });
 });
 
 describe("transform", () => {

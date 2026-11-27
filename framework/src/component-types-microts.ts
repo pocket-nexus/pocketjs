@@ -57,6 +57,7 @@ export interface MicroTsStyleProps {
   textAlign?: i32;
   lineHeight?: Px | MicroTsIntegerInput;
   tracking?: Px | MicroTsIntegerInput;
+  textWrap?: i32;
   translateX?: Px | MicroTsIntegerInput;
   translateY?: Px | MicroTsIntegerInput;
   scale?: MicroTsFloatInput;

@@ -549,15 +549,73 @@ impl Fonts {
         if let Some(f) = &self.wrap_native {
             return f(text, slot, max_w);
         }
-        self.wrap_greedy(text, slot, max_w)
+        self.wrap_greedy(self.native.is_some(), text, slot, max_w)
     }
 
-    fn wrap_greedy(&self, text: &str, slot: u8, max_w: f32) -> Vec<u32> {
+    /// Soft-wrap break columns with an EXPLICIT provider choice, as
+    /// [`Fonts::measure_run_provider`]: a node measured by the atlas wraps
+    /// over atlas advances even when a native measurer is installed.
+    pub fn wrap_text_provider(&self, native: bool, text: &str, slot: u8, max_w: f32) -> Vec<u32> {
+        if native {
+            if let Some(f) = &self.wrap_native {
+                return f(text, slot, max_w);
+            }
+        }
+        self.wrap_greedy(native && self.native.is_some(), text, slot, max_w)
+    }
+
+    /// `text` with a `'\n'` at every soft-wrap break of every line under
+    /// `max_w` (PROP textWrap). Spaces a break leaves at the end of a row
+    /// are dropped, so alignment sees the row's ink width. Returns `None`
+    /// when every line fits.
+    pub fn soft_wrap(
+        &self,
+        native: bool,
+        text: &str,
+        slot: u8,
+        max_w: f32,
+    ) -> Option<alloc::string::String> {
+        let mut out = alloc::string::String::with_capacity(text.len() + 8);
+        let mut wrapped = false;
+        for (index, line) in text.split('\n').enumerate() {
+            if index > 0 {
+                out.push('\n');
+            }
+            let breaks = self.wrap_text_provider(native, line, slot, max_w);
+            if breaks.is_empty() {
+                out.push_str(line);
+                continue;
+            }
+            wrapped = true;
+            let mut from = 0usize;
+            let mut column = 0u32;
+            let mut cut = breaks.iter().copied().peekable();
+            for (byte, ch) in line.char_indices() {
+                while cut.peek().is_some_and(|&at| at < column) {
+                    cut.next();
+                }
+                if byte > from && cut.peek() == Some(&column) {
+                    cut.next();
+                    out.push_str(line[from..byte].trim_end_matches(' '));
+                    out.push('\n');
+                    from = byte;
+                }
+                column += ch.len_utf16() as u32;
+            }
+            out.push_str(&line[from..]);
+        }
+        wrapped.then_some(out)
+    }
+
+    fn wrap_greedy(&self, native: bool, text: &str, slot: u8, max_w: f32) -> Vec<u32> {
         let mut breaks = Vec::new();
         if text.is_empty() || max_w.is_nan() || max_w <= 0.0 {
             return breaks;
         }
-        let width = |a: usize, b: usize| self.measure_run(&text[a..b], slot, 0.0, f32::NAN).0;
+        let width = |a: usize, b: usize| {
+            self.measure_run_provider(native, &text[a..b], slot, 0.0, f32::NAN)
+                .0
+        };
         if width(0, text.len()) <= max_w {
             return breaks;
         }
@@ -593,6 +651,27 @@ impl Fonts {
                 j += 1;
             }
             let word_w = w(i, j);
+            if x + word_w > max_w && (i..j).any(|k| breaks_around(chars[k].1)) {
+                // CJK text breaks on either side of an ideograph or kana
+                // (never before closing punctuation): fill the current row
+                // instead of moving the whole run to the next one.
+                let mut cw = x;
+                for k in i..j {
+                    let ch_w = w(k, k + 1);
+                    let opportunity = k > seg_from
+                        && (k == i || breaks_around(chars[k].1) || breaks_around(chars[k - 1].1))
+                        && !closes(chars[k].1);
+                    if opportunity && cw + ch_w > max_w {
+                        breaks.push(u16_at[k]);
+                        seg_from = k;
+                        cw = 0.0;
+                    }
+                    cw += ch_w;
+                }
+                x = cw;
+                i = j;
+                continue;
+            }
             if i > seg_from && x + word_w > max_w {
                 breaks.push(u16_at[i]);
                 seg_from = i;
@@ -700,4 +779,44 @@ mod coverage_tests {
         assert!(Coverage::shared(storage.clone(), 4..7).is_none());
         assert!(Coverage::shared(storage, 5..4).is_none());
     }
+}
+
+/// Ideographs, kana and CJK punctuation: a line may break before or after
+/// each of them (UAX #14 classes ID, CJ and their neighbours, simplified).
+fn breaks_around(ch: char) -> bool {
+    matches!(ch as u32,
+        0x2E80..=0x2FDF | 0x3000..=0x303F | 0x3040..=0x30FF | 0x3100..=0x312F | 0x31A0..=0x31FF
+        | 0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xAC00..=0xD7AF | 0xF900..=0xFAFF
+        | 0xFE30..=0xFE4F | 0xFF00..=0xFFEF | 0x20000..=0x3FFFF)
+}
+
+/// Closing punctuation never starts a row.
+fn closes(ch: char) -> bool {
+    matches!(
+        ch,
+        '，' | '。'
+            | '、'
+            | '；'
+            | '：'
+            | '？'
+            | '！'
+            | '）'
+            | '」'
+            | '』'
+            | '》'
+            | '〉'
+            | '】'
+            | '…'
+            | ','
+            | '.'
+            | ';'
+            | ':'
+            | '?'
+            | '!'
+            | ')'
+            | ']'
+            | '}'
+            | '～'
+            | '·'
+    )
 }

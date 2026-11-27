@@ -305,6 +305,15 @@ token is a compile error.
 | `text-left` \| `text-center` \| `text-right` | horizontal alignment |
 | `leading-N` | line height (spacing scale or arbitrary px) |
 | `tracking-wide` | letter spacing = `0.025 × font-size` |
+| `text-wrap` \| `text-nowrap` | soft-wrap the run to its box width \| break at `\n` only (default) |
+
+**`text-wrap` wraps a run where CSS `white-space: normal` would.** Layout
+measures the leaf under the width taffy offers it (min-content takes every
+break opportunity) and the painter inserts the same breaks under the solved box
+width, so the painted rows are the measured rows. Breaks come from `wrapText`
+over the provider that measures the node: before a word that overflows, and on
+either side of a CJK ideograph or kana, never before closing punctuation. A
+space a break leaves at the end of a row is dropped.
 
 A text-size utility selects a **baked font-atlas slot**, not a free number:
 slots 0–6 are the regular sizes, 7–13 their bold pairs, 14/15 the 54px pair,

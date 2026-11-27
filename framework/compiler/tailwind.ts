@@ -315,6 +315,10 @@ function parseUtility(tok: string, acc: VariantAcc): boolean {
     case "font-bold": acc.bold = true; return true;
     case "font-mono": acc.mono = true; return true;
     case "tracking-wide": acc.trackingWide = true; return true;
+    // Soft wrap to the box width (CSS white-space: normal); text-nowrap
+    // restores the '\n'-only default.
+    case "text-wrap": D.push([PROP.textWrap, int(1)]); return true;
+    case "text-nowrap": D.push([PROP.textWrap, int(0)]); return true;
   }
   if (tok in SHADOWS) { D.push([PROP.shadow, int(SHADOWS[tok])]); return true; }
 

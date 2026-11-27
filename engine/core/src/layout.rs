@@ -51,6 +51,10 @@ pub struct MeasureCtx {
     /// measure closure must never re-shape per solve pass.
     pub size: (f32, f32),
     native: bool,
+    /// PROP textWrap: a width limit narrower than `size.0` wraps the run.
+    wrap: bool,
+    /// The last two wrapped measurements: (limit bits, size).
+    wrapped: [(u32, (f32, f32)); 2],
     environment_epoch: u64,
     /// Replaying an unchanged measurement must preserve the public missing
     /// glyph counter, even though no shaping work is repeated.
@@ -65,12 +69,40 @@ impl MeasureCtx {
         tracking: f32,
         line_height: f32,
         native: bool,
+        wrap: bool,
     ) -> bool {
         self.text == text
             && self.slot == slot
             && self.native == native
+            && self.wrap == wrap
             && float_key(self.tracking) == float_key(tracking)
             && float_key(self.line_height) == float_key(line_height)
+    }
+
+    /// Size of the run soft-wrapped under `limit` px (the painter wraps
+    /// the same run under the solved box width, draw.rs emit_text). The
+    /// width is rounded up so the solved box holds the widest row.
+    fn wrapped_size(&mut self, fonts: &Fonts, limit: f32) -> (f32, f32) {
+        let key = limit.to_bits();
+        if let Some(&(_, size)) = self.wrapped.iter().find(|(bits, _)| *bits == key) {
+            return size;
+        }
+        let size = match fonts.soft_wrap(self.native, &self.text, self.slot, limit) {
+            Some(rows) => {
+                let (w, h) = fonts.measure_run_provider(
+                    self.native,
+                    &rows,
+                    self.slot,
+                    self.tracking,
+                    self.line_height,
+                );
+                (ceil_px(w), h)
+            }
+            None => self.size,
+        };
+        self.wrapped[1] = self.wrapped[0];
+        self.wrapped[0] = (key, size);
+        size
     }
 
     fn replay_misses(&self, fonts: &Fonts) {
@@ -86,6 +118,7 @@ impl MeasureCtx {
         tracking: f32,
         line_height: f32,
         native: bool,
+        wrap: bool,
     ) -> MeasureCtx {
         let before = fonts.misses.get();
         let size = fonts.measure_run_provider(native, &text, slot, tracking, line_height);
@@ -96,9 +129,24 @@ impl MeasureCtx {
             line_height,
             size,
             native,
+            wrap,
+            wrapped: [(f32::NAN.to_bits(), (0.0, 0.0)); 2],
             environment_epoch: 0,
             misses: fonts.misses.get().wrapping_sub(before),
         }
+    }
+}
+
+/// Smallest whole px >= `w` (no_std: no libm).
+fn ceil_px(w: f32) -> f32 {
+    if !w.is_finite() || w.abs() >= 8_388_608.0 {
+        return w;
+    }
+    let t = w as i32 as f32;
+    if t < w {
+        t + 1.0
+    } else {
+        t
     }
 }
 
@@ -590,6 +638,7 @@ fn build(
             resolved.tracking,
             resolved.line_height,
             native,
+            resolved.text_wrap != 0,
         );
         counters.shaping_calls = counters.shaping_calls.saturating_add(1);
         let nid = taffy.new_leaf_with_context(to_taffy(&resolved), ctx).ok()?;
@@ -677,6 +726,7 @@ fn update_measure(
                 resolved.tracking,
                 resolved.line_height,
                 native,
+                resolved.text_wrap != 0,
             ) {
                 if replay_misses {
                     context.replay_misses(fonts);
@@ -692,6 +742,7 @@ fn update_measure(
         resolved.tracking,
         resolved.line_height,
         native,
+        resolved.text_wrap != 0,
     );
     context.environment_epoch = eng.environment_epoch;
     #[cfg(feature = "counters")]
@@ -794,6 +845,7 @@ fn sync_node(
                 resolved.tracking,
                 resolved.line_height,
                 native,
+                resolved.text_wrap != 0,
             );
             context.environment_epoch = eng.environment_epoch;
             #[cfg(feature = "counters")]
@@ -958,13 +1010,33 @@ fn readback_scope(
 /// size on the axes the solver left open.
 fn measure_leaf(
     known: Size<Option<f32>>,
+    available: Size<AvailableSpace>,
     ctx: Option<&mut MeasureCtx>,
+    fonts: &Fonts,
 ) -> Size<f32> {
     match ctx {
-        Some(m) => Size {
-            width: known.width.unwrap_or(m.size.0),
-            height: known.height.unwrap_or(m.size.1),
-        },
+        Some(m) => {
+            if m.wrap && (known.width.is_none() || known.height.is_none()) {
+                // Min-content offers 1px: every break opportunity is taken,
+                // so a wrapping leaf can shrink to its widest unbreakable piece.
+                let limit = match (known.width, available.width) {
+                    (Some(w), _) | (None, AvailableSpace::Definite(w)) => w,
+                    (None, AvailableSpace::MinContent) => 1.0,
+                    (None, AvailableSpace::MaxContent) => f32::INFINITY,
+                };
+                if limit < m.size.0 {
+                    let (w, h) = m.wrapped_size(fonts, limit.max(1.0));
+                    return Size {
+                        width: known.width.unwrap_or(w),
+                        height: known.height.unwrap_or(h),
+                    };
+                }
+            }
+            Size {
+                width: known.width.unwrap_or(m.size.0),
+                height: known.height.unwrap_or(m.size.1),
+            }
+        }
         None => Size {
             width: 0.0,
             height: 0.0,
@@ -972,7 +1044,13 @@ fn measure_leaf(
     }
 }
 
-fn compute(tree: &mut Tree, eng: &mut LayoutEngine, root_slot: u32, root_nid: taffy::NodeId) {
+fn compute(
+    tree: &mut Tree,
+    eng: &mut LayoutEngine,
+    fonts: &Fonts,
+    root_slot: u32,
+    root_nid: taffy::NodeId,
+) {
     #[cfg(feature = "counters")]
     {
         eng.counters.layout_passes = eng.counters.layout_passes.saturating_add(1);
@@ -985,12 +1063,12 @@ fn compute(tree: &mut Tree, eng: &mut LayoutEngine, root_slot: u32, root_nid: ta
             width: AvailableSpace::Definite(eng.viewport.0),
             height: AvailableSpace::Definite(eng.viewport.1),
         },
-        |known, _available, _id, ctx, _style| -> Size<f32> {
+        |known, available, _id, ctx, _style| -> Size<f32> {
             #[cfg(feature = "counters")]
             {
                 callbacks = callbacks.saturating_add(1);
             }
-            measure_leaf(known, ctx)
+            measure_leaf(known, available, ctx, fonts)
         },
     );
     #[cfg(feature = "counters")]
@@ -1147,7 +1225,7 @@ pub fn relayout_root(
                 if eng.taffy.dirty(root).unwrap_or(true)
                     || eng.solved_viewport != Some((eng.viewport.0.to_bits(), eng.viewport.1.to_bits()))
                 {
-                    compute(tree, eng, root_slot, root);
+                    compute(tree, eng, fonts, root_slot, root);
                 } else if !eng.root_read {
                     readback_scope(tree, eng, root_slot, true, (0.0, 0.0));
                     eng.root_read = true;
@@ -1159,7 +1237,7 @@ pub fn relayout_root(
             }
         }
     }
-    solve_regions(tree, eng);
+    solve_regions(tree, eng, fonts);
 }
 
 /// Apply changed resolved styles (and text runs) to existing solver nodes.
@@ -1283,7 +1361,7 @@ fn sync_region(
 
 /// Solve every region whose box or structure changed, outer regions first,
 /// and read back their children.
-fn solve_regions(tree: &mut Tree, eng: &mut LayoutEngine) {
+fn solve_regions(tree: &mut Tree, eng: &mut LayoutEngine, fonts: &Fonts) {
     if eng.regions.is_empty() {
         return;
     }
@@ -1336,12 +1414,12 @@ fn solve_regions(tree: &mut Tree, eng: &mut LayoutEngine) {
                     width: AvailableSpace::Definite(size.0),
                     height: AvailableSpace::Definite(size.1),
                 },
-                |known, _available, _id, ctx, _style| -> Size<f32> {
+                |known, available, _id, ctx, _style| -> Size<f32> {
                     #[cfg(feature = "counters")]
                     {
                         callbacks = callbacks.saturating_add(1);
                     }
-                    measure_leaf(known, ctx)
+                    measure_leaf(known, available, ctx, fonts)
                 },
             );
             #[cfg(feature = "counters")]
@@ -1421,7 +1499,9 @@ pub fn reference_mismatches(
                     width: AvailableSpace::Definite(viewport.0),
                     height: AvailableSpace::Definite(viewport.1),
                 },
-                |known, _available, _id, ctx, _style| -> Size<f32> { measure_leaf(known, ctx) },
+                |known, available, _id, ctx, _style| -> Size<f32> {
+                    measure_leaf(known, available, ctx, fonts)
+                },
             );
             compare_reference(tree, &taffy, root_slot, (0.0, 0.0), &mut out);
         }
@@ -1509,7 +1589,7 @@ fn reference_rebuild(
         region.solved_box = None;
     }
     if let (Some(root), Some(root_slot)) = (eng.root, tree.resolve(root_id)) {
-        compute(tree, eng, root_slot, root);
+        compute(tree, eng, fonts, root_slot, root);
     }
 }
 

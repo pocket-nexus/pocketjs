@@ -35,7 +35,9 @@ Symbian GLES2 ports.
 **A custom renderer can install its text measure and wrap providers** through
 `Ui::set_text_measure` and `Ui::set_text_wrap` before the guest mounts.
 The renderer must consume `TEXT_RUN` and paint with the provider that measured
-the run. The DrawList stores the run's UTF-8 bytes and style hash.
+the run. The DrawList stores the run's UTF-8 bytes and style hash. A run with
+`textWrap` carries a `\n` at each soft break the core computed under the box
+width, so the renderer breaks rows only at `\n`.
 Transformed or tracked runs use baked atlas metrics and `GLYPH_RUN`.
 The `text.layout.native` capability describes this embedding contract;
 no built-in host advertises it.

@@ -476,6 +476,15 @@ pub struct PaintCache {
     glyphs: Vec<GlyphPage>,
     borders: Vec<([u32; 4], i32)>,
     layouts: BTreeMap<u32, CachedTextLayout>,
+    /// Soft-wrapped runs (PROP textWrap) by node slot: the source run, its
+    /// typographic key and the run with breaks inserted (`None`: it fits).
+    wraps: BTreeMap<u32, CachedWrap>,
+}
+
+struct CachedWrap {
+    key: [u64; 4],
+    source: alloc::string::String,
+    rows: Option<alloc::string::String>,
 }
 
 // Node-indexed placement cache. Transforms and tint do not affect placement;
@@ -505,6 +514,7 @@ impl PaintCache {
             glyphs: Vec::new(),
             borders: Vec::new(),
             layouts: BTreeMap::new(),
+            wraps: BTreeMap::new(),
         }
     }
 
@@ -3517,6 +3527,43 @@ impl<'a> Walker<'a> {
         collect_run_of(self.tree, node, &mut run);
         if run.is_empty() {
             return;
+        }
+        if r.text_wrap != 0 {
+            // Layout measured this run wrapped under the offered width and
+            // rounded the widest row up (layout.rs wrapped_size); the solved
+            // box can sit up to a px under it after rounding.
+            let limit = box_w + 1.0;
+            let key = [
+                slot as u64,
+                self.font_revisions[slot as usize],
+                limit.to_bits() as u64,
+                node.text_native as u64,
+            ];
+            let wraps = &mut self.paint_cache.wraps;
+            let hit = wraps
+                .get(&node_slot)
+                .filter(|c| c.key == key && c.source == run);
+            let rows = match hit {
+                Some(cached) => cached.rows.clone(),
+                None => {
+                    let rows = self.fonts.soft_wrap(node.text_native, &run, slot, limit);
+                    if wraps.len() >= 512 {
+                        wraps.clear();
+                    }
+                    wraps.insert(
+                        node_slot,
+                        CachedWrap {
+                            key,
+                            source: run.clone(),
+                            rows: rows.clone(),
+                        },
+                    );
+                    rows
+                }
+            };
+            if let Some(rows) = rows {
+                run = rows;
+            }
         }
         if let (true, Some(texts)) = (self.capturing, self.texts.as_mut()) {
             let mut b = world_aabb_of(self.screen, world, box_w, node.layout.h);

@@ -62,6 +62,7 @@ pub const STYLE_PROPS: &[(&str, u8, &str)] = &[
     ("textAlign", 98, "i32"),
     ("lineHeight", 99, "f32"),
     ("tracking", 100, "f32"),
+    ("textWrap", 101, "i32"),
     ("translateX", 128, "f32"),
     ("translateY", 129, "f32"),
     ("scale", 130, "f32"),
