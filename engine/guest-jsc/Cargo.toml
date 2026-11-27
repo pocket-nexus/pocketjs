@@ -1,0 +1,21 @@
+[package]
+name = "pocket-guest-jsc"
+readme = "README.md"
+homepage = "https://pocketjs.pocket.nexus"
+keywords = ["pocketjs", "javascriptcore", "javascript"]
+categories = ["gui", "api-bindings"]
+edition = "2021"
+description = "Generated PocketJS UI bindings and guest lifecycle for JavaScriptCore (Apple platforms)"
+
+version.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+pocket-runtime = { workspace = true, default-features = true }
+pocket-drivers = { workspace = true, default-features = true }
+log = { version = "0.4", default-features = false }
+
+[dev-dependencies]
+pocketjs-core = { workspace = true, default-features = true }
