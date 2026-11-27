@@ -151,7 +151,10 @@ describe("runtime glyphs: the canvas rasterizer", () => {
       slots: { 24: { families: ["ZCOOL KuaiLe", "PingFang SC", "sans-serif"], weight: 400, italic: true } },
       createCanvas,
     });
-    const atlas = (slot: number, flags: number) => ({ slot, flags, density: 1, em: 20, cellH: 24, baseline: 18 });
+    const atlas = (slot: number, flags: number): glyphs.RuntimeAtlas => ({
+      cellW: 24, cellH: 24, baseline: 18, lineHeight: 24, slot, flags, density: 1,
+      glyphs: [], known: new Set(), coverage: new Uint8Array(0), em: 20, bilevel: false,
+    });
     rasterize(0x4e00, atlas(24, 1));
     rasterize(0x4e00, atlas(2, 1));
     expect(fonts).toEqual([`italic 400 20px "ZCOOL KuaiLe", "PingFang SC", sans-serif`, "700 20px sans-serif"]);

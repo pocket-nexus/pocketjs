@@ -20,6 +20,7 @@ export interface WasmUi {
   present(): Uint8Array;
   dispose(): void;
   focused(): number;
+  hoverCursor(): number;
   inspectNode(id: number): { type: number; text: string; children: number[]; display: number | null; style: { bgColor: number; textColor: number } } | null;
   layout(id: number): [number, number, number, number, number, number, number, number];
   setLayoutMode(id: number, mode: number, x: number, y: number, width: number, height: number): void;
