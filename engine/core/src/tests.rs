@@ -11,6 +11,7 @@ struct StyleSpec {
     base: Vec<(u8, u32)>,
     focus: Vec<(u8, u32)>,
     active: Vec<(u8, u32)>,
+    hover: Vec<(u8, u32)>,
     /// (mask, dur_ms, delay_ms, easing)
     transition: Option<(u32, u16, u16, u8)>,
     /// (loop_frames, anim ids)
@@ -23,6 +24,7 @@ impl StyleSpec {
             base: Vec::new(),
             focus: Vec::new(),
             active: Vec::new(),
+            hover: Vec::new(),
             transition: None,
             animation: None,
         }
@@ -63,6 +65,9 @@ fn encode_styles_with_anims(styles: &[StyleSpec], anims: &[AnimSpec]) -> Vec<u8>
         if !s.active.is_empty() {
             flags |= spec::style_table::VARIANT_ACTIVE;
         }
+        if !s.hover.is_empty() {
+            flags |= spec::style_table::VARIANT_HOVER;
+        }
         if s.transition.is_some() {
             flags |= spec::style_table::HAS_TRANSITION;
         }
@@ -84,7 +89,7 @@ fn encode_styles_with_anims(styles: &[StyleSpec], anims: &[AnimSpec]) -> Vec<u8>
                 out.extend_from_slice(&id.to_le_bytes());
             }
         }
-        for v in [&s.base, &s.focus, &s.active] {
+        for v in [&s.base, &s.focus, &s.active, &s.hover] {
             if v.is_empty() {
                 continue;
             }
@@ -5978,4 +5983,52 @@ fn text_wrap_breaks_between_cjk_characters() {
     assert!(!ui.wrap_text("一二三。", 0, 21.0).contains(&3));
     // Latin words still move whole.
     assert_eq!(ui.wrap_text("aa bb", 0, 21.0), alloc::vec![3]);
+}
+
+#[test]
+fn hover_variant_applies_to_the_node_under_the_pointer_and_its_ancestors() {
+    let mut ui = Ui::new();
+    let (red, green, blue) = (abgr(255, 0, 0, 255), abgr(0, 255, 0, 255), abgr(0, 0, 255, 255));
+    let mut card = StyleSpec::new();
+    card.base = alloc::vec![(spec::prop::BG_COLOR, red), (spec::prop::WIDTH, 100f32.to_bits())];
+    card.hover = alloc::vec![(spec::prop::BG_COLOR, green)];
+    card.focus = alloc::vec![(spec::prop::BG_COLOR, blue)];
+    let mut label = StyleSpec::new();
+    label.base = alloc::vec![(spec::prop::HEIGHT, 10f32.to_bits())];
+    assert!(ui.load_styles(&encode_styles(&[card, label])));
+    let outer = ui.create_node(0);
+    ui.insert_before(spec::ROOT_ID, outer, 0);
+    ui.set_style(outer, 0);
+    let inner = ui.create_node(0);
+    ui.insert_before(outer, inner, 0);
+    ui.set_style(inner, 1);
+    // Hovering a child hovers its ancestors (CSS :hover).
+    ui.set_hover(inner);
+    assert_eq!(ui.resolved_style(outer).unwrap().bg_color, green);
+    // focus: wins over hover: (Tailwind's variant order).
+    ui.set_focus(outer);
+    assert_eq!(ui.resolved_style(outer).unwrap().bg_color, blue);
+    ui.set_focus(0);
+    ui.set_hover(0);
+    assert_eq!(ui.resolved_style(outer).unwrap().bg_color, red);
+    ui.set_hover(inner);
+    // A destroyed node under the pointer leaves no stale hover behind.
+    ui.destroy_node(inner);
+    ui.set_hover(0);
+    assert_eq!(ui.resolved_style(outer).unwrap().bg_color, red);
+}
+
+#[test]
+fn layout_rect_bytes_reads_the_settled_box() {
+    let mut ui = Ui::new();
+    let n = ui.create_node(0);
+    ui.set_prop(n, spec::prop::WIDTH, 30.0);
+    ui.set_prop(n, spec::prop::HEIGHT, 12.0);
+    ui.set_prop(n, spec::prop::MARGIN_T, 5.0);
+    ui.insert_before(spec::ROOT_ID, n, 0);
+    // No tick in between: the query settles pending layout itself.
+    let bytes = ui.layout_rect_bytes(n);
+    let f = |i: usize| f32::from_le_bytes(bytes[i * 4..i * 4 + 4].try_into().unwrap());
+    assert_eq!((f(0), f(1), f(2), f(3)), (0.0, 5.0, 30.0, 12.0));
+    assert!(ui.layout_rect_bytes(n + 1000).is_empty());
 }

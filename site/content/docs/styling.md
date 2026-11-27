@@ -129,6 +129,23 @@ pressed look drops away when the list starts scrolling
 ([/docs/touch-gestures/](/docs/touch-gestures/) for the claim model,
 [/docs/input-focus/](/docs/input-focus/) for how focus moves).
 
+### `hover:` on a pointer target
+
+**`hover:` compiles when the build's plan turns on `input.pointer`**, and is a
+build error on every other target. It is a third variant block in the same
+record. Once per frame the framework hit-tests the frame's pointer (`hitTest`,
+op 27) and passes the topmost painted node to `setHover` (op 62); the core
+applies `hover:` to that node and to each of its ancestors, as CSS `:hover`
+does, and clears it when the pointer leaves the surface. Resolution order is
+base, `hover:`, `focus:`, `active:`, so a focused or pressed control shows its
+focus or press look under the pointer. A record without a `hover:` block flips
+the flag without retargeting, so the pointer crossing it restarts no
+transition.
+
+```tsx
+<View class="rounded-full bg-white hover:translate-y-[-1px] active:translate-y-[2px] transition-transform" onPress={open} />
+```
+
 Any utility below can carry a variant prefix, with one exception: motion and
 `animate-*` tokens are recognized on the base variant only, so `focus:transition`
 drops **the whole literal** to plain text. A prefix that is not `focus:`,
@@ -171,7 +188,7 @@ text:
 |---|---|---|
 | `classList={{ … }}` | pass-1 babel | Ternary of full literals |
 | ``class={`a ${b}`}`` (template-interpolated) | pass-1 babel | Ternary of full literals |
-| `hover:…` | class compiler | `focus:` / `active:` — no pointer on PSP |
+| `hover:…` on a target without `input.pointer` | class compiler | `focus:` / `active:`, or list `input.pointer` |
 | `rounded-full` with no `w-N`/`h-N` in the same literal | class compiler | Pin a build-time size |
 | `bevel-*` together with any `rounded*` | class compiler | Drop one — bevels are square-only |
 | `animate-loop-[…]` with no `animate-<name>` | class compiler | Name the animation in the same literal |

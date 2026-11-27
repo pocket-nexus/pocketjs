@@ -420,6 +420,9 @@ pub struct Ui {
     /// are overwritten in place (each texture's own revision records those).
     resource_revision: u64,
     focused: i32,
+    /// The hovered chain (`set_hover`): the node under the pointer, then its
+    /// ancestors, generation-tagged ids.
+    hovered: Vec<i32>,
     draw_list: DrawList,
     /// Virtual cursor sprite (spec ops 28/29, input.cursor capability):
     /// texture handle (< 0 = hidden), hotspot offset into the sprite,
@@ -498,6 +501,7 @@ impl Ui {
             raster_revision: 1,
             resource_revision: 1,
             focused: 0,
+            hovered: Vec::new(),
             draw_list: DrawList::new(),
             cursor_tex: -1,
             cursor_hot: (0.0, 0.0),
@@ -1831,6 +1835,74 @@ impl Ui {
             self.retarget(slot, &old, true);
             self.mark_layout_style(slot);
         }
+    }
+
+    /// The node under the pointer (spec op setHover, input.pointer): it and
+    /// its ancestors take their `hover:` variant, as CSS `:hover` applies to
+    /// the ancestors of the element under the pointer; 0 or a stale id
+    /// clears. A node whose record has no `hover:` variant flips its flag
+    /// without retargeting, so moving across it never restarts a transition.
+    pub fn set_hover(&mut self, id: i32) {
+        let mut chain = Vec::new();
+        let mut at = if id == 0 { None } else { self.tree.resolve(id) };
+        while let Some(slot) = at {
+            let node = &self.tree.slots[slot as usize];
+            chain.push(node.id(slot));
+            at = if node.parent == 0 { None } else { self.tree.resolve(node.parent) };
+        }
+        if chain == self.hovered {
+            return;
+        }
+        let old = core::mem::replace(&mut self.hovered, chain);
+        for &id in &old {
+            if !self.hovered.contains(&id) {
+                self.set_hovered_flag(id, false);
+            }
+        }
+        for index in 0..self.hovered.len() {
+            let id = self.hovered[index];
+            if !old.contains(&id) {
+                self.set_hovered_flag(id, true);
+            }
+        }
+    }
+
+    fn set_hovered_flag(&mut self, id: i32, hovered: bool) {
+        let Some(slot) = self.tree.resolve(id) else {
+            return;
+        };
+        if self.tree.slots[slot as usize].hovered == hovered {
+            return;
+        }
+        let has_hover = self
+            .styles
+            .record(self.tree.slots[slot as usize].style_id)
+            .is_some_and(|r| !r.hover.is_empty());
+        if !has_hover {
+            self.tree.slots[slot as usize].hovered = hovered;
+            return;
+        }
+        let old = style::resolve_animated(&self.tree.slots[slot as usize], &self.styles, true);
+        self.tree.slots[slot as usize].hovered = hovered;
+        self.retarget(slot, &old, true);
+        self.mark_layout_style(slot);
+    }
+
+    /// Rounded layout box of a node after pending layout settles, as four
+    /// little-endian f32 (x, y relative to the parent, w, h); empty for a
+    /// missing node (spec op layoutOf).
+    pub fn layout_rect_bytes(&mut self, id: i32) -> Vec<u8> {
+        if self.layout.needs() {
+            layout::relayout(&mut self.tree, &self.styles, &self.fonts, &mut self.layout);
+        }
+        let Some((x, y, w, h)) = self.layout_of(id) else {
+            return Vec::new();
+        };
+        let mut out = Vec::with_capacity(16);
+        for value in [x, y, w, h] {
+            out.extend_from_slice(&value.to_le_bytes());
+        }
+        out
     }
 
     /// Set the `active:` pressed state (same native variant machinery as

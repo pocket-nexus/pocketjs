@@ -8,6 +8,7 @@ import {
   fontSlotFor,
   fontSlotInfo,
   generateStylesModule,
+  registerClassTarget,
   registerFontSlots,
   paletteColor,
   parseClassLiteral,
@@ -36,7 +37,7 @@ import {
   setAnimationTickRate,
 } from "../framework/compiler/animation.ts";
 
-function props(rec: StyleRecord | null, variant: "base" | "focus" | "active" = "base"): Map<number, number> {
+function props(rec: StyleRecord | null, variant: "base" | "focus" | "active" | "hover" = "base"): Map<number, number> {
   expect(rec).not.toBeNull();
   const list: StyleProp[] = rec![variant] ?? [];
   return new Map(list.map((p) => [p.prop, p.value]));
@@ -253,8 +254,22 @@ describe("variants", () => {
     expect(props(rec, "focus").get(PROP.bgColor)).toBe(abgr(0xa5, 0xb4, 0xfc));
     expect(bitsF32(props(rec, "active").get(PROP.scale)!)).toBeCloseTo(0.95, 5);
   });
-  test("hover: is a loud error in an otherwise-valid literal", () => {
-    expect(() => parseClassLiteral("p-2 hover:bg-white")).toThrow(/hover/);
+  test("hover: is a loud error in an otherwise-valid literal for a target without a pointer", () => {
+    expect(() => parseClassLiteral("p-2 hover:bg-white")).toThrow(/input\.pointer/);
+  });
+  test("hover: compiles into its own block for a target with input.pointer", () => {
+    registerClassTarget({ pointer: true });
+    try {
+      const rec = parseClassLiteral("bg-white hover:bg-amber-50 hover:translate-y-[-1px] active:translate-y-[2px] transition-transform")!;
+      expect(props(rec, "hover").get(PROP.bgColor)).toBe(abgr(0xff, 0xfb, 0xeb));
+      expect(bitsF32(props(rec, "hover").get(PROP.translateY)!)).toBe(-1);
+      expect(bitsF32(props(rec, "active").get(PROP.translateY)!)).toBe(2);
+      // The record round-trips through styles.bin with the hover flag.
+      const table = decodeStyleTable(compileClasses(["bg-white hover:bg-amber-50"]).bin);
+      expect(table.styles[0]!.hover).toEqual([{ prop: PROP.bgColor, value: abgr(0xff, 0xfb, 0xeb) }]);
+    } finally {
+      registerClassTarget();
+    }
   });
 });
 

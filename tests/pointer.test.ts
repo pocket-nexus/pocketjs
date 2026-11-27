@@ -122,3 +122,45 @@ describe("onScroll() without input.scroll", () => {
     unplanned.__resetPointer();
   });
 });
+
+describe("hover", () => {
+  // pointer.ts with the host it asks for hitTest and setHover, in one bundle.
+  async function bundleHover(features: Record<string, boolean>) {
+    const entry = `${import.meta.dir}/../.pocket-build/pointer-hover-entry.ts`;
+    await Bun.write(entry, `export * from "${new URL("../framework/src/pointer.ts", import.meta.url).pathname}";\nexport { installHost } from "${new URL("../framework/src/host.ts", import.meta.url).pathname}";\n`);
+    const result = await Bun.build({ entrypoints: [entry], format: "esm", target: "bun", define: { __POCKET_FEATURES__: JSON.stringify(features) } });
+    expect(result.success).toBe(true);
+    const source = await result.outputs[0]!.text();
+    return import(`data:text/javascript;base64,${Buffer.from(source).toString("base64")}`);
+  }
+  const host = (calls: number[]) => ({
+    kind: "injected", target: "injected", strict: true,
+    ops: { hitTest: (x: number) => (x < 10 ? 7 : 0), setHover: (id: number) => calls.push(id), layoutOf: (id: number) => {
+      const bytes = new Uint8Array(16), view = new DataView(bytes.buffer);
+      [1, 2, 30, 40].forEach((v, i) => view.setFloat32(i * 4, v, true));
+      return id === 7 ? bytes : new Uint8Array();
+    } },
+  });
+
+  test("the node under the pointer is hovered once per change, and cleared when the pointer leaves", async () => {
+    const module = await bundleHover({ "input.pointer": true });
+    const calls: number[] = [];
+    module.installHost(host(calls));
+    module.__setPointer({ surface: 0, x: 3, y: 3, buttons: 0 });
+    module.__setPointer({ surface: 0, x: 4, y: 3, buttons: 0 });
+    module.__setPointer({ surface: 0, x: 40, y: 3, buttons: 0 });
+    module.__setPointer({ surface: 0, x: 3, y: 3, buttons: 0 });
+    module.__setPointer(null);
+    expect(calls).toEqual([7, 0, 7, 0]);
+    expect(module.nodeLayout({ id: 7 })).toEqual({ x: 1, y: 2, w: 30, h: 40 });
+    expect(module.nodeLayout({ id: 8 })).toBeNull();
+  });
+
+  test("a build without input.pointer never hovers", async () => {
+    const module = await bundleHover({ "input.pointer": false });
+    const calls: number[] = [];
+    module.installHost(host(calls));
+    module.__setPointer({ surface: 0, x: 3, y: 3, buttons: 0 });
+    expect(calls).toEqual([]);
+  });
+});

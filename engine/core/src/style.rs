@@ -64,6 +64,9 @@ pub struct StyleRecord {
     pub base: Vec<(u8, u32)>,
     pub focus: Vec<(u8, u32)>,
     pub active: Vec<(u8, u32)>,
+    /// `hover:` — applied between base and focus while the node or one of
+    /// its descendants is under the pointer (`Ui::set_hover`).
+    pub hover: Vec<(u8, u32)>,
 }
 
 /// One baked animation segment: `prop` goes from→to over frames [t0, t1).
@@ -148,11 +151,12 @@ impl StyleTable {
                 }
                 rec.animation = Some(StyleAnimation { loop_frames, anims });
             }
-            for v in 0..3u8 {
+            for v in 0..4u8 {
                 let bit = match v {
                     0 => st::VARIANT_BASE,
                     1 => st::VARIANT_FOCUS,
-                    _ => st::VARIANT_ACTIVE,
+                    2 => st::VARIANT_ACTIVE,
+                    _ => st::VARIANT_HOVER,
                 };
                 if flags & bit == 0 {
                     continue;
@@ -169,7 +173,8 @@ impl StyleTable {
                 match v {
                     0 => rec.base = props,
                     1 => rec.focus = props,
-                    _ => rec.active = props,
+                    2 => rec.active = props,
+                    _ => rec.hover = props,
                 }
             }
             records.push(rec);
@@ -634,6 +639,11 @@ fn for_each_entry(node: &Node, table: &StyleTable, layers: Layers, mut apply: im
     if let Some(rec) = table.record(node.style_id) {
         for &(p, v) in &rec.base {
             apply(p, v);
+        }
+        if node.hovered {
+            for &(p, v) in &rec.hover {
+                apply(p, v);
+            }
         }
         if node.focused {
             for &(p, v) in &rec.focus {

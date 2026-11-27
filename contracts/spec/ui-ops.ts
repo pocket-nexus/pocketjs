@@ -169,6 +169,8 @@ export const UI_OPS = [
   core("fontStreamBatch", [arg("descriptor", "bytes")], "integer", "ui.font_stream_batch(a0)"),
   core("captureTexts", [arg("surface", "u32"), arg("root", "i32")], "boolean", "ui.capture_texts(a0, a1)"),
   core("capturedTexts", [arg("surface", "u32")], "string", "ui.captured_texts(a0)"),
+  core("setHover", [arg("idOr0", "i32")], "none", "ui.set_hover(a0)"),
+  core("layoutOf", [arg("id", "i32")], "bytes", "ui.layout_rect_bytes(a0)"),
   privateHook("__dbgActive", [], "boolean"),
   privateHook("__dbgConnected", [], "boolean"),
   privateHook("__dbgPoll", [], "optionalString"),

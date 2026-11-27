@@ -119,6 +119,7 @@ import {
   STYLE_VARIANT_ACTIVE,
   STYLE_VARIANT_BASE,
   STYLE_VARIANT_FOCUS,
+  STYLE_VARIANT_HOVER,
   STYLE_VERSION,
   STREAM_ARING_MAGIC,
   STREAM_ARING_OFF,
@@ -437,6 +438,7 @@ export function generateRust(): string {
   put(`    pub const VARIANT_BASE: u8 = ${STYLE_VARIANT_BASE};`);
   put(`    pub const VARIANT_FOCUS: u8 = ${STYLE_VARIANT_FOCUS};`);
   put(`    pub const VARIANT_ACTIVE: u8 = ${STYLE_VARIANT_ACTIVE};`);
+  put(`    pub const VARIANT_HOVER: u8 = ${STYLE_VARIANT_HOVER};`);
   put(`    pub const HAS_TRANSITION: u8 = ${STYLE_HAS_TRANSITION};`);
   put(`    pub const HAS_ANIMATION: u8 = ${STYLE_HAS_ANIMATION};`);
   put(`    pub const ANIM_ENTRY_HEADER_SIZE: usize = ${ANIM_ENTRY_HEADER_SIZE};`);

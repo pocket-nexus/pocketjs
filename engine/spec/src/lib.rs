@@ -117,6 +117,8 @@ pub mod op {
     pub const FONT_STREAM_BATCH: u8 = 59;
     pub const CAPTURE_TEXTS: u8 = 60;
     pub const CAPTURED_TEXTS: u8 = 61;
+    pub const SET_HOVER: u8 = 62;
+    pub const LAYOUT_OF: u8 = 63;
 }
 
 /// Property ids (u8, stable, append-only). Groups:
@@ -436,6 +438,7 @@ pub mod style_table {
     pub const VARIANT_BASE: u8 = 1;
     pub const VARIANT_FOCUS: u8 = 2;
     pub const VARIANT_ACTIVE: u8 = 4;
+    pub const VARIANT_HOVER: u8 = 32;
     pub const HAS_TRANSITION: u8 = 8;
     pub const HAS_ANIMATION: u8 = 16;
     pub const ANIM_ENTRY_HEADER_SIZE: usize = 8;

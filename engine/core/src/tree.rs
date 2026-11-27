@@ -92,6 +92,8 @@ pub struct Node {
     pub sprite_start: u64,
     pub focused: bool,
     pub active: bool,
+    /// Under the pointer, or an ancestor of the node under it (`hover:`).
+    pub hovered: bool,
     /// taffy handle of the last layout build (None = excluded from layout).
     pub taffy: Option<taffy::NodeId>,
     /// Rounded layout output (position relative to parent).
@@ -131,6 +133,7 @@ impl Node {
             sprite_start: 0,
             focused: false,
             active: false,
+            hovered: false,
             taffy: None,
             layout: LayoutRect::default(),
             layout_mode: LAYOUT_LIVE,

@@ -644,19 +644,30 @@ function dedupe(decls: Decl[]): StyleProp[] {
 }
 
 /** A token's variant prefix and the utility after it; null when the prefix is no variant or nothing follows it. */
-function splitVariant(tok: string): { variant: "base" | "focus" | "active"; body: string; hover: boolean } | null {
-  let variant: "base" | "focus" | "active" = "base";
+function splitVariant(tok: string): { variant: Variant; body: string } | null {
+  let variant: Variant = "base";
   let body = tok;
-  let hover = false;
   const colon = tok.indexOf(":");
   if (colon > 0) {
     const prefix = tok.slice(0, colon);
-    if (prefix === "focus" || prefix === "active") variant = prefix;
-    else if (prefix === "hover") hover = true;
+    if (prefix === "focus" || prefix === "active" || prefix === "hover") variant = prefix;
     else return null;
     body = tok.slice(colon + 1);
   }
-  return body.length === 0 ? null : { variant, body, hover };
+  return body.length === 0 ? null : { variant, body };
+}
+
+type Variant = "base" | "focus" | "active" | "hover";
+
+// Whether the build's target has a real pointer (input.pointer): `hover:`
+// compiles into the record's hover block on such a target and is a build
+// error on every other (registerClassTarget, from tools/build.ts).
+let pointerTarget = false;
+
+/** The target facts class compilation depends on, for the following
+ *  compileClasses calls. `pointer`: the plan turns on input.pointer. */
+export function registerClassTarget(target: { pointer?: boolean } = {}): void {
+  pointerTarget = target.pointer === true;
 }
 
 /**
@@ -711,8 +722,8 @@ export function parseClassLiteral(literal: string): StyleRecord | null {
   const tokens = literal.trim().split(/\s+/).filter((t) => t.length > 0);
   if (tokens.length === 0) return null;
 
-  const acc: Record<"base" | "focus" | "active", VariantAcc> = {
-    base: { decls: [] }, focus: { decls: [] }, active: { decls: [] },
+  const acc: Record<Variant, VariantAcc> = {
+    base: { decls: [] }, focus: { decls: [] }, active: { decls: [] }, hover: { decls: [] },
   };
   const tr: TransitionAcc = {};
   const anim: AnimAcc = { ids: [], loopFrames: 0 };
@@ -723,7 +734,7 @@ export function parseClassLiteral(literal: string): StyleRecord | null {
     const split = splitVariant(tok);
     if (split === null) return null; // not a utility (arbitrary text with a colon)
     const { variant, body } = split;
-    if (split.hover) sawHover = true; // decided after the rest of the literal parses
+    if (variant === "hover") sawHover = true; // decided after the rest of the literal parses
     if (variant === "base" && parseMotion(body, tr)) { sawMotion = true; continue; }
     if (variant === "base" && parseAnimation(body, anim)) continue;
     if (!parseUtility(body, acc[variant])) return null;
@@ -731,13 +742,13 @@ export function parseClassLiteral(literal: string): StyleRecord | null {
 
   // Every token parsed => this IS a class literal; unsupported-by-design
   // pieces now error loudly instead of silently dropping [R].
-  if (sawHover) {
+  if (sawHover && !pointerTarget) {
     throw new Error(
-      `PocketJS tailwind: \`hover:\` is not supported on PSP (no pointer) in "${literal}" — use focus:/active:.`,
+      `PocketJS tailwind: \`hover:\` needs a target with input.pointer in "${literal}" — list input.pointer in app.features, or use focus:/active:.`,
     );
   }
   {
-    const variants = [acc.base, acc.focus, acc.active];
+    const variants = [acc.base, acc.focus, acc.active, acc.hover];
     const sawBevel = variants.some((v) => v.sawBevel);
     const sawRounded = variants.some((v) => v.sawRounded);
     if (sawBevel && sawRounded) {
@@ -750,7 +761,7 @@ export function parseClassLiteral(literal: string): StyleRecord | null {
 
   // resolve pseudo-utilities per variant (font slot / tracking / rounded-full)
   const base = acc.base;
-  for (const name of ["base", "focus", "active"] as const) {
+  for (const name of ["base", "focus", "active", "hover"] as const) {
     const v = acc[name];
     const effPx = v.sizePx ?? base.sizePx ?? 16;
     const effBold = v.bold ?? base.bold ?? false;
@@ -782,6 +793,8 @@ export function parseClassLiteral(literal: string): StyleRecord | null {
   if (focusProps.length > 0) rec.focus = focusProps;
   const activeProps = dedupe(acc.active.decls);
   if (activeProps.length > 0) rec.active = activeProps;
+  const hoverProps = dedupe(acc.hover.decls);
+  if (hoverProps.length > 0) rec.hover = hoverProps;
   if (sawMotion) {
     rec.transition = {
       // A duration/ease/delay-only literal (no transition-property utility)
@@ -841,7 +854,7 @@ export function compileClasses(literals: Iterable<string>): CompiledStyles {
       byCanon.set(canon, id);
     }
     ids[lit] = id;
-    for (const v of [rec.base, rec.focus, rec.active]) {
+    for (const v of [rec.base, rec.focus, rec.active, rec.hover]) {
       if (!v) continue;
       for (const p of v) if (p.prop === PROP.fontSlot) slots.add(p.value);
     }

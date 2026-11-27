@@ -287,6 +287,15 @@ export const OP = {
   fontStreamBatch: 59,
   captureTexts: 60,
   capturedTexts: 61,
+  // -- desktop pointer (input.pointer) --------------------------------------
+  setHover: 62, //        (idOr0) — the node under the pointer: it and its
+  //                      ancestors take their `hover:` variant (CSS :hover);
+  //                      0 clears. The framework sets it from the frame's
+  //                      pointer and hitTest; stale ids clear.
+  // -- layout readback (cold path) ------------------------------------------
+  layoutOf: 63, //        (id) -> bytes: the node's rounded layout box as four
+  //                      LE f32 (x, y relative to the parent, w, h) after
+  //                      settling pending layout; empty for a missing node.
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -957,7 +966,9 @@ export const MAX_FONT_SLOTS = 64;
 //              bit 2  STYLE_VARIANT_ACTIVE  active: variant present
 //              bit 3  STYLE_HAS_TRANSITION  transition block present
 //              bit 4  STYLE_HAS_ANIMATION   animation block present
-//              bits 5-7 reserved (0)
+//              bit 5  STYLE_VARIANT_HOVER   hover: variant present (a build
+//                                           whose target has input.pointer)
+//              bits 6-7 reserved (0)
 //     [if STYLE_HAS_TRANSITION] transition block (12 bytes):
 //       +0  u32  mask     anim-bit mask of props that transition (see
 //                         ANIMATABLE order; TRANSITION_MASK_ALL = all)
@@ -975,7 +986,8 @@ export const MAX_FONT_SLOTS = 64;
 //                             extension — plain CSS cannot loop a multi-
 //                             animation choreography without a remount.
 //       then n x u16 animId (index into the ANIM TABLE)
-//     Then, for each PRESENT variant in order base, focus, active:
+//     Then, for each PRESENT variant in order base, focus, active, hover
+//     (hover is last on the wire and applies between base and focus):
 //       +0  u8   propCount
 //       then propCount x 6-byte prop records:
 //         +0  u8   propId    (PROP value)
@@ -1030,6 +1042,7 @@ export const STYLE_VARIANT_FOCUS = 1 << 1;
 export const STYLE_VARIANT_ACTIVE = 1 << 2;
 export const STYLE_HAS_TRANSITION = 1 << 3;
 export const STYLE_HAS_ANIMATION = 1 << 4;
+export const STYLE_VARIANT_HOVER = 1 << 5;
 
 export const ANIM_ENTRY_HEADER_SIZE = 8;
 export const ANIM_SEGMENT_SIZE = 14;
@@ -1066,6 +1079,7 @@ export interface StyleRecord {
   base?: StyleProp[];
   focus?: StyleProp[];
   active?: StyleProp[];
+  hover?: StyleProp[];
   transition?: StyleTransition;
   animation?: StyleAnimation;
 }
@@ -1143,7 +1157,7 @@ export function encodeStyleTable(
       }
       size += 3 + s.animation.anims.length * 2;
     }
-    for (const v of [s.base, s.focus, s.active]) {
+    for (const v of [s.base, s.focus, s.active, s.hover]) {
       if (!v) continue;
       if (v.length > 0xff) throw new Error("styles.bin: >255 props in a variant");
       size += 1 + v.length * STYLE_PROP_RECORD_SIZE;
@@ -1173,6 +1187,7 @@ export function encodeStyleTable(
     if (s.base) flags |= STYLE_VARIANT_BASE;
     if (s.focus) flags |= STYLE_VARIANT_FOCUS;
     if (s.active) flags |= STYLE_VARIANT_ACTIVE;
+    if (s.hover) flags |= STYLE_VARIANT_HOVER;
     if (s.transition) flags |= STYLE_HAS_TRANSITION;
     if (s.animation) flags |= STYLE_HAS_ANIMATION;
     out[o++] = flags;
@@ -1194,7 +1209,7 @@ export function encodeStyleTable(
         o += 2;
       }
     }
-    for (const v of [s.base, s.focus, s.active]) {
+    for (const v of [s.base, s.focus, s.active, s.hover]) {
       if (!v) continue;
       out[o++] = v.length;
       for (const p of v) {
@@ -1273,10 +1288,11 @@ export function decodeStyleTable(bytes: Uint8Array): DecodedStyleTable {
       }
       s.animation = { anims: ids, loopFrames };
     }
-    const variants: Array<"base" | "focus" | "active"> = [];
+    const variants: Array<"base" | "focus" | "active" | "hover"> = [];
     if (flags & STYLE_VARIANT_BASE) variants.push("base");
     if (flags & STYLE_VARIANT_FOCUS) variants.push("focus");
     if (flags & STYLE_VARIANT_ACTIVE) variants.push("active");
+    if (flags & STYLE_VARIANT_HOVER) variants.push("hover");
     for (const name of variants) {
       const n = bytes[o++];
       const props: StyleProp[] = [];

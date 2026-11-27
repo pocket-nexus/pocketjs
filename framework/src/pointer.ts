@@ -24,6 +24,7 @@
 // end, as WheelEvent.deltaY.
 
 import { hasFeature } from "./platform.ts";
+import { peekOps } from "./host.ts";
 
 /** The frame's pointer. */
 export interface PointerState {
@@ -61,6 +62,22 @@ export type ScrollHandler = (event: ScrollEvent) => boolean | void;
 
 /** The build's input.scroll feature: whether onScroll delivers. */
 const scrolls: boolean = hasFeature("input.scroll");
+/** The build's input.pointer feature: whether the pointer drives `hover:`. */
+const hovers: boolean = hasFeature("input.pointer");
+let hovered = 0;
+
+/** The node under the pointer takes `hover:` (spec op setHover): the
+ *  topmost painted node at the frame's pointer, through hitTest, once per
+ *  frame, so a panel that opens under a still pointer is hovered too. */
+function updateHover(): void {
+  if (!hovers) return;
+  const ops = peekOps();
+  if (!ops?.setHover || !ops.hitTest) return;
+  const id = current !== null && current.surface === "primary" ? ops.hitTest(current.x, current.y) : 0;
+  if (id === hovered) return;
+  hovered = id;
+  ops.setHover(id);
+}
 const ignore = (): void => {};
 
 const handlers: ScrollHandler[] = [];
@@ -75,10 +92,12 @@ export function __setPointer(record: PointerRecord | null | undefined): void {
   pending = null;
   if (!record || !finite(record.x) || !finite(record.y)) {
     current = null;
+    updateHover();
     return;
   }
   const surface = record.surface === 1 ? "auxiliary" as const : "primary" as const;
   current = Object.freeze({ surface, x: record.x, y: record.y, buttons: (record.buttons ?? 0) >>> 0 });
+  updateHover();
   if (!scrolls) return;
   const dx = finite(record.scrollX) ? record.scrollX : 0;
   const dy = finite(record.scrollY) ? record.scrollY : 0;
@@ -99,6 +118,18 @@ export function __resetPointer(): void {
   handlers.length = 0;
   current = null;
   pending = null;
+  hovered = 0;
+}
+
+/** The node's settled layout box in logical px (spec op layoutOf): x and y
+ *  relative to its parent, its width and height; null for a host without
+ *  the op or a node that is gone. A query for cold paths: the extent a
+ *  scroll view clamps to, where a popover opens. */
+export function nodeLayout(node: { readonly id: number }): { x: number; y: number; w: number; h: number } | null {
+  const bytes = peekOps()?.layoutOf?.(node.id);
+  if (!bytes || bytes.byteLength < 16) return null;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  return { x: view.getFloat32(0, true), y: view.getFloat32(4, true), w: view.getFloat32(8, true), h: view.getFloat32(12, true) };
 }
 
 /** The frame's pointer, or null when the host reported none: no pointer
