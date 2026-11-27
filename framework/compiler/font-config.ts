@@ -55,6 +55,8 @@ export interface FontFaces {
   regularTtf?: string;
   boldTtf?: string;
   monoTtf?: string;
+  /** Named faces (`app.fonts.faces`), absolute paths. */
+  faces?: Record<string, string>;
 }
 
 /** The faces an application selects (`app.fonts`, its paths relative to
@@ -62,18 +64,24 @@ export interface FontFaces {
  *  build whether or not a slot of its kind is used. */
 export function appFontFaces(fonts: AppFonts | undefined, directory: string, onRead: (path: string) => void = () => {}): FontFaces {
   const faces: FontFaces = {};
-  for (const face of APP_FONT_FACES) {
-    const name = fonts?.[face];
-    if (name === undefined) continue;
+  const readable = (name: string, field: string): string => {
     const path = resolve(directory, name);
     try {
       if (!statSync(path).isFile()) throw new Error("not a file");
       accessSync(path, constants.R_OK);
     } catch {
-      throw new Error(`PocketJS fonts: app.fonts.${face} names ${path}, which is not a readable file`);
+      throw new Error(`PocketJS fonts: app.fonts.${field} names ${path}, which is not a readable file`);
     }
     onRead(path);
-    faces[`${face}Ttf`] = path;
+    return path;
+  };
+  for (const face of APP_FONT_FACES) {
+    const name = fonts?.[face];
+    if (name === undefined) continue;
+    faces[`${face}Ttf`] = readable(name, face);
+  }
+  for (const [face, name] of Object.entries(fonts?.faces ?? {})) {
+    (faces.faces ??= {})[face] = readable(name, `faces.${face}`);
   }
   return faces;
 }

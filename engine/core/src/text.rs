@@ -395,7 +395,7 @@ impl Fonts {
 
     pub fn new() -> Fonts {
         Fonts {
-            slots: Default::default(),
+            slots: core::array::from_fn(|_| None),
             misses: Cell::new(0),
             native: None,
             wrap_native: None,

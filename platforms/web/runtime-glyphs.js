@@ -211,8 +211,17 @@ export function serializeAtlas(atlas) {
 /**
  * A rasterizer over a 2D canvas: draws one codepoint white on a transparent
  * canvas in `families` and reads its alpha back as coverage.
+ *
+ * `slots` maps a slot index to the face its text is set in where the browser
+ * draws it: `{ families, weight, italic }`. A slot without an entry draws in
+ * `families`, at weight 700 when its atlas is bold and 400 otherwise. An
+ * application whose slots name a display face lists that face first for
+ * those slots, so a heading's run-time characters match its baked ones.
  */
-export function canvasRasterizer({ families = DEFAULT_FALLBACK_FAMILIES, createCanvas } = {}) {
+export function canvasRasterizer({ families = DEFAULT_FALLBACK_FAMILIES, slots = {}, createCanvas } = {}) {
+  const familyList = (value) => Array.isArray(value)
+    ? value.map((family) => (/[\s,]/.test(family) && !/^["']/.test(family) ? `"${family}"` : family)).join(", ")
+    : value;
   const make = createCanvas ?? ((w, h) =>
     typeof OffscreenCanvas === "function" ? new OffscreenCanvas(w, h)
       : typeof document === "object" ? Object.assign(document.createElement("canvas"), { width: w, height: h }) : null);
@@ -226,7 +235,9 @@ export function canvasRasterizer({ families = DEFAULT_FALLBACK_FAMILIES, createC
       if (!canvas) return null;
       g = canvas.getContext("2d", { willReadFrequently: true });
     }
-    const font = `${atlas.flags & 1 ? 700 : 400} ${size}px ${families}`;
+    const face = slots[atlas.slot];
+    const weight = face?.weight ?? (atlas.flags & 1 ? 700 : 400);
+    const font = `${face?.italic ? "italic " : ""}${weight} ${size}px ${face?.families ? familyList(face.families) : families}`;
     g.font = font;
     const text = String.fromCodePoint(codepoint);
     const measured = g.measureText(text);

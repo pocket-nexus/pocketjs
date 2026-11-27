@@ -169,6 +169,32 @@ test("app.fonts enters the plan relative to the project root", () => {
   }
 });
 
+test("app.fonts.faces and app.fonts.slots enter the plan and are checked", () => {
+  const fonts = {
+    regular: "fonts/Face-Regular.ttf",
+    faces: { display: "fonts/Display.ttf" },
+    slots: [{ slot: 24, px: 13, face: "regular" }, { slot: 25, px: 18, face: "display", lineHeight: 24 }],
+  };
+  const request = { target: "psp", configDirectory: resolve(ROOT, "apps/demo"), projectRoot: ROOT };
+  const selected = resolveAppPlan({ ...application, fonts }, request);
+  if (!selected.ok) throw new Error("plan did not resolve");
+  expect(selected.plan.app.fonts).toEqual({
+    regular: "apps/demo/fonts/Face-Regular.ttf",
+    faces: { display: "apps/demo/fonts/Display.ttf" },
+    slots: fonts.slots,
+  });
+  for (const [invalid, path] of [
+    [{ slots: [{ slot: 12, px: 13, face: "regular" }] }, "/app/fonts/slots/0/slot"],
+    [{ slots: [{ slot: 24, px: 13, face: "script" }] }, "/app/fonts/slots/0/face"],
+    [{ slots: [{ slot: 24, px: 13, face: "regular" }, { slot: 24, px: 14, face: "regular" }] }, "/app/fonts/slots/1/slot"],
+    [{ slots: [{ slot: 24, px: 13, face: "regular" }, { slot: 25, px: 13, face: "regular" }] }, "/app/fonts/slots/1"],
+    [{ faces: { Bold2: "fonts/B.ttf" } }, "/app/fonts/faces/Bold2"],
+    [{ faces: { mono: "fonts/B.ttf" } }, "/app/fonts/faces/mono"],
+  ] as const) {
+    expect(validateAppConfig({ ...application, fonts: invalid }).map(item => item.path)).toEqual([path]);
+  }
+});
+
 test("pocket compile bakes the faces app.fonts names and lists them in the depfile", () => {
   const directory = scratch("fonts");
   mkdirSync(resolve(directory, "fonts"));

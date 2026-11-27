@@ -15,7 +15,9 @@
 // it out. `options.runtimeGlyphs: false` leaves the atlases as the build
 // baked them; `options.glyphFamilies` names the CSS font families to draw
 // with (default: the Japanese, Chinese and Korean faces of the common
-// systems, then sans-serif).
+// systems, then sans-serif) and `options.slotFonts` maps a slot index to
+// `{ families, weight, italic }` for the slots whose text is set in another
+// face (canvasRasterizer in ../../platforms/web/runtime-glyphs.js).
 
 import { createWasmUi, contactFacts } from "../../platforms/web/wasm-ops.js";
 import { canvasRasterizer, installRuntimeGlyphs } from "../../platforms/web/runtime-glyphs.js";
@@ -68,7 +70,7 @@ export async function create(options) {
       },
       beforeEvaluate(ops) {
         glyphs = options.runtimeGlyphs === false ? null : installRuntimeGlyphs(ops, {
-          rasterize: canvasRasterizer(options.glyphFamilies ? {families:options.glyphFamilies} : {}),
+          rasterize: canvasRasterizer({...(options.glyphFamilies ? {families:options.glyphFamilies} : {}), ...(options.slotFonts ? {slots:options.slotFonts} : {})}),
         });
       },
       beforeFrame() { textWorker.beginFrame(); },

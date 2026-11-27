@@ -67,7 +67,7 @@ import { POCKET_BINDING_GENERATION } from "../contracts/spec/binding-generation.
 import { profileResponseBytes } from "../contracts/spec/profile.ts";
 import { resolveWorkerChannels } from "../contracts/spec/worker.ts";
 import { registerAnimationTheme, setAnimationTickRate } from "../framework/compiler/animation.ts";
-import { compileClasses, generateStylesModule, suspectClassLiteral, unknownUtilities } from "../framework/compiler/tailwind.ts";
+import { compileClasses, generateStylesModule, registerFontSlots, suspectClassLiteral, unknownUtilities } from "../framework/compiler/tailwind.ts";
 import { bakeAtlases } from "../framework/compiler/bake-font.ts";
 import { appFontFaces, readFontConfig } from "../framework/compiler/font-config.ts";
 import {
@@ -358,6 +358,12 @@ console.log(`  pass 1: ${visited.size} module(s), ${classStrings.length} candida
 // ---------------------------------------------------------------------------
 
 registerAnimationTheme(appContent.theme);
+// Application font slots (app.fonts.slots) bind before the classes that
+// select them compile; bakeAtlases reads the same binding.
+{
+  const fonts = buildPlan ? buildPlan.app.fonts : source?.app.fonts;
+  registerFontSlots(fonts?.slots ?? [], Object.keys(fonts?.faces ?? {}));
+}
 // Keyframe timelines are frame-baked; they must count frames at the same
 // rate the realm ticks (transition-* stays in ms and converts at runtime).
 setAnimationTickRate(tickHz);

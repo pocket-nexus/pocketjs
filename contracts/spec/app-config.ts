@@ -22,9 +22,39 @@ export interface AppFonts {
   readonly bold?: string;
   /** The `font-mono` slots. */
   readonly mono?: string;
+  /** Named faces, each a TTF or OTF file: `font-<name>` selects one for the
+   *  slots in `slots` that name it. Names are lower-case letters and digits
+   *  and cannot be `regular`, `bold`, `mono` or `normal`. */
+  readonly faces?: Readonly<Record<string, string>>;
+  /** Slots beyond the built-in type ramp (slots 0..20): each binds a slot
+   *  index from APP_FONT_SLOT_FIRST to MAX_FONT_SLOTS - 1 to a size and a
+   *  face. `text-[Npx]` with `font-bold`, `font-mono` or `font-<name>`
+   *  selects it; a declared (px, face) pair wins over a built-in slot of the
+   *  same pair. */
+  readonly slots?: readonly AppFontSlot[];
+}
+
+/** One application font slot (`app.fonts.slots`). */
+export interface AppFontSlot {
+  /** Slot index, APP_FONT_SLOT_FIRST..MAX_FONT_SLOTS - 1. */
+  readonly slot: number;
+  /** Text size in logical px. */
+  readonly px: number;
+  /** `regular`, `bold`, `mono` or a name from `app.fonts.faces`. */
+  readonly face: string;
+  /** Default line height in logical px; absent, the face's ascent +
+   *  descent + line gap at `px`. */
+  readonly lineHeight?: number;
 }
 
 export const APP_FONT_FACES = ["regular", "bold", "mono"] as const;
+/** The first slot index `app.fonts.slots` may bind. Slots 21 and 22 are
+ *  PocketUI's run-time faces; 23 stays free. */
+export const APP_FONT_SLOT_FIRST = 24;
+/** Mirrors spec.ts MAX_FONT_SLOTS (this module stays free of spec imports). */
+const APP_FONT_SLOT_END = 64;
+/** A named face: lower-case letters and digits, not a built-in kind. */
+export const APP_FONT_FACE_NAME = "^(?!(?:regular|bold|mono|normal)$)[a-z][a-z0-9]{0,23}$";
 
 export interface AppConfig {
   /** The mounted module, relative to the config file. */
@@ -126,7 +156,27 @@ export const appConfigSchema = {
     fonts: {
       type: "object",
       additionalProperties: false,
-      properties: { regular: fontFileSchema, bold: fontFileSchema, mono: fontFileSchema },
+      properties: {
+        regular: fontFileSchema,
+        bold: fontFileSchema,
+        mono: fontFileSchema,
+        faces: { type: "object", additionalProperties: fontFileSchema },
+        slots: {
+          type: "array",
+          maxItems: APP_FONT_SLOT_END - APP_FONT_SLOT_FIRST,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["slot", "px", "face"],
+            properties: {
+              slot: { type: "integer", minimum: APP_FONT_SLOT_FIRST, maximum: APP_FONT_SLOT_END - 1 },
+              px: { type: "integer", minimum: 6, maximum: 200 },
+              face: { type: "string", pattern: "^[a-z][a-z0-9]{0,23}$" },
+              lineHeight: { type: "integer", minimum: 1, maximum: 255 },
+            },
+          },
+        },
+      },
     },
     aot: { type: "boolean" },
     model: { enum: ["rust", "compiled"] },
@@ -152,5 +202,28 @@ export function validateAppConfig(app: unknown): readonly ContractDiagnostic[] {
     return [{ code: "app.notJson", path: "/app", message: "the app section must be JSON data" }];
   }
   validateSchema(value, appConfigSchema, "/app", diagnostics);
+  if (diagnostics.length === 0) validateFontSlots((value as AppConfig).fonts, diagnostics);
   return diagnostics;
+}
+
+/** Face names, slot indices and (px, face) pairs of `app.fonts`. */
+function validateFontSlots(fonts: AppFonts | undefined, diagnostics: ContractDiagnostic[]): void {
+  if (!fonts) return;
+  const named = Object.keys(fonts.faces ?? {});
+  for (const name of named) {
+    if (!new RegExp(APP_FONT_FACE_NAME).test(name)) {
+      diagnostics.push({ code: "app.fontFaceName", path: `/app/fonts/faces/${name}`, message: `face name ${JSON.stringify(name)} must be lower-case letters and digits and not regular, bold, mono or normal` });
+    }
+  }
+  const faces = new Set<string>([...APP_FONT_FACES, ...named]);
+  const slots = new Set<number>(), pairs = new Set<string>();
+  (fonts.slots ?? []).forEach((slot, index) => {
+    const at = `/app/fonts/slots/${index}`;
+    if (!faces.has(slot.face)) diagnostics.push({ code: "app.fontSlotFace", path: `${at}/face`, message: `face ${JSON.stringify(slot.face)} is not regular, bold, mono or a name in app.fonts.faces` });
+    if (slots.has(slot.slot)) diagnostics.push({ code: "app.fontSlotIndex", path: `${at}/slot`, message: `slot ${slot.slot} is bound twice` });
+    const pair = `${slot.px}/${slot.face}`;
+    if (pairs.has(pair)) diagnostics.push({ code: "app.fontSlotPair", path: at, message: `${slot.px}px ${slot.face} is bound twice` });
+    slots.add(slot.slot);
+    pairs.add(pair);
+  });
 }

@@ -300,7 +300,9 @@ token is a compile error.
 |---|---|
 | `text-{color}` | text color |
 | `text-2xs` \| `-xs` \| `-sm` \| `-base` \| `-lg` \| `-xl` \| `-2xl` \| `-4xl` \| `-5xl` | 10 / 12 / 14 / 16 / 18 / 20 / 24 / 36 / 54 px |
-| `font-bold` | bold weight of the same size |
+| `text-[Npx]` | a size the built-in ramp or `app.fonts.slots` binds |
+| `font-bold` \| `font-normal` | bold \| regular weight of the same size |
+| `font-<face>` | a face named in `app.fonts.faces`, at a size `app.fonts.slots` binds |
 | `font-mono` | JetBrains Mono at slots 16–18: sizes 12/14/16 only, regular weight only |
 | `text-left` \| `text-center` \| `text-right` | horizontal alignment |
 | `leading-N` | line height (spacing scale or arbitrary px) |
@@ -318,8 +320,11 @@ space a break leaves at the end of a row is dropped.
 A text-size utility selects a **baked font-atlas slot**, not a free number:
 slots 0–6 are the regular sizes, 7–13 their bold pairs, 14/15 the 54px pair,
 16–18 monospace, 19/20 the 10px pair (`text-2xs`, for labels under icons).
-There is no arbitrary font size. Text with no size or weight
-utility uses **16px regular**.
+Slots 24–63 are the application's: `app.fonts.slots` binds
+each to a size and a face ([Application config](/docs/app-config/#appfonts)),
+and `text-[Npx]` with `font-bold`, `font-mono` or `font-<face>` selects one.
+A size no slot binds fails the build. Text with no size or weight utility uses
+**16px regular**.
 
 `font-mono` overrides weight — `font-mono font-bold` lands on the mono slot for
 its size — and a mono size with no slot throws at build time: `text-lg font-mono`

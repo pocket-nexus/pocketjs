@@ -928,8 +928,10 @@ export const WIRE_MARK_FLAG_ENDED = 1 << 0;
 // carried in each atlas header; the core just indexes a table.
 
 // 0..6 regular / 7..13 bold (FONT_PX sizes), 14/15 the 54 px display pair,
-// 16..18 monospace regular (12/14/16 px — `font-mono`, code spans).
-export const MAX_FONT_SLOTS = 24;
+// 16..18 monospace regular (12/14/16 px — `font-mono`, code spans), 19/20 the
+// 10 px pair, 21/22 PocketUI's run-time faces, 24..63 the slots an
+// application binds in `app.fonts.slots` (contracts/spec/app-config.ts).
+export const MAX_FONT_SLOTS = 64;
 
 // ---------------------------------------------------------------------------
 // STYLE TABLE binary format — styles.bin  (version 2)

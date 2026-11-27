@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { parse as parseFont } from "opentype.js";
-import { bakeSlot, DEFAULT_REGULAR, type GlyphRasterCache } from "../framework/compiler/bake-font.ts";
+import { bakeAtlases, bakeSlot, DEFAULT_BOLD, DEFAULT_REGULAR, type GlyphRasterCache } from "../framework/compiler/bake-font.ts";
+import { registerFontSlots } from "../framework/compiler/tailwind.ts";
 import {
   FONT_CMAP_ENTRY_SIZE,
   FONT_HEADER_SIZE,
@@ -110,7 +111,7 @@ describe("monospace slots", () => {
     const { DEFAULT_MONO } = await import("../framework/compiler/bake-font.ts");
     expect(fontSlotFor(14, false, true)).toBe(17);
     expect(fontSlotFor(14, true, true)).toBe(17); // bold-under-mono lands on the mono slot
-    expect(fontSlotInfo(17)).toEqual({ px: 14, bold: false, mono: true });
+    expect(fontSlotInfo(17)).toEqual({ px: 14, bold: false, mono: true, face: "mono" });
     // Existing slots are untouched by the widening (byte-stability).
     expect(fontSlotFor(14, false)).toBe(1);
     expect(fontSlotFor(54, true)).toBe(15);
@@ -191,6 +192,22 @@ describe("glyph raster cache", () => {
       expect(reused.bytes).toEqual(bakeSlot(font, 0, 16, false, wide, density).bytes);
       expect(cache.size).toBe(held + 2);
       expect(bakeSlot(font, 0, 16, false, narrow, density, [], cache).bytes).toEqual(bakeSlot(font, 0, 16, false, narrow, density).bytes);
+    }
+  });
+});
+
+describe("application font slots", () => {
+  test("a slot bakes its named face at its size and declared line height", async () => {
+    registerFontSlots([{ slot: 24, px: 13, face: "display", lineHeight: 20 }, { slot: 25, px: 13, face: "regular" }], ["display"]);
+    try {
+      const [display, regular] = await bakeAtlases({ codepoints: [0x41], slots: [25, 24], faces: { display: DEFAULT_BOLD } });
+      expect([display!.slot, display!.px, display!.bytes[12], display!.bytes[11]]).toEqual([24, 13, 24, 20]);
+      // Without a declared line height the face's metrics set it.
+      expect(regular!.slot).toBe(25);
+      expect(regular!.bytes[11]).not.toBe(20);
+      await expect(bakeAtlases({ codepoints: [], slots: [24] })).rejects.toThrow(/app.fonts.faces/);
+    } finally {
+      registerFontSlots();
     }
   });
 });
