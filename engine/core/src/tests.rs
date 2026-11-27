@@ -6032,3 +6032,20 @@ fn layout_rect_bytes_reads_the_settled_box() {
     assert_eq!((f(0), f(1), f(2), f(3)), (0.0, 5.0, 30.0, 12.0));
     assert!(ui.layout_rect_bytes(n + 1000).is_empty());
 }
+
+#[test]
+fn hover_cursor_is_the_nearest_cursor_on_the_hovered_chain() {
+    let mut ui = Ui::new();
+    let button = ui.create_node(0);
+    ui.set_prop(button, spec::prop::CURSOR, spec::Cursor::Pointer as u8 as f64);
+    ui.insert_before(spec::ROOT_ID, button, 0);
+    let label = ui.create_node(0);
+    ui.insert_before(button, label, 0);
+    assert_eq!(ui.hover_cursor(), spec::Cursor::Default as u8);
+    ui.set_hover(label);
+    assert_eq!(ui.hover_cursor(), spec::Cursor::Pointer as u8);
+    ui.set_prop(label, spec::prop::CURSOR, spec::Cursor::Text as u8 as f64);
+    assert_eq!(ui.hover_cursor(), spec::Cursor::Text as u8);
+    ui.set_hover(0);
+    assert_eq!(ui.hover_cursor(), spec::Cursor::Default as u8);
+}

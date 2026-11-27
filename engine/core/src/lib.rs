@@ -1867,6 +1867,22 @@ impl Ui {
         }
     }
 
+    /// The system cursor for the pointer (spec::Cursor ordinal): the first
+    /// `cursor` set along the hovered chain, node first; Default when no
+    /// node under the pointer sets one. Hosts with input.pointer read it
+    /// after each frame and show the matching OS cursor.
+    pub fn hover_cursor(&self) -> u8 {
+        for &id in &self.hovered {
+            if let Some(slot) = self.tree.resolve(id) {
+                let cursor = style::resolve(&self.tree.slots[slot as usize], &self.styles, true).cursor;
+                if cursor != spec::Cursor::Inherit as u8 {
+                    return cursor;
+                }
+            }
+        }
+        spec::Cursor::Default as u8
+    }
+
     fn set_hovered_flag(&mut self, id: i32, hovered: bool) {
         let Some(slot) = self.tree.resolve(id) else {
             return;

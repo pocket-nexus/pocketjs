@@ -122,6 +122,9 @@ test("browser pointer, wheel and keyboard facts reach the guest frame",async()=>
   // A held primary button is a contact, hit at its DOWN edge.
   wasm.present();wasm.advance({pointer:{x:3,y:3,buttons:1}});
   expect(realm.lastFrame[2].length).toBe(1);expect(realm.lastFrame[3]).toEqual([wasm.ops.hitTestBounds!(3,3)]);
+  // The cursor follows the hovered node's cursor prop.
+  expect(wasm.hoverCursor()).toBe(1);
+  wasm.ops.setProp(wasm.ops.hitTestBounds!(3,3),PROP.cursor,2);wasm.ops.setHover!(wasm.ops.hitTestBounds!(3,3));expect(wasm.hoverCursor()).toBe(2);
   expect(()=>wasm.advance({text:[{kind:"bogus"}]})).toThrow();
   wasm.dispose();
 });

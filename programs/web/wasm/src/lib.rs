@@ -318,6 +318,12 @@ pub extern "C" fn web_auxiliary_root(h: &WasmHost) -> i32 {
 pub extern "C" fn web_focused(h: &WasmHost) -> i32 {
     h.ops.borrow().core().map(|c| c.focused()).unwrap_or(0)
 }
+/// The system cursor for the pointer (spec::Cursor ordinal) after the last
+/// frame: the page shows the matching CSS cursor.
+#[no_mangle]
+pub extern "C" fn web_hover_cursor(h: &WasmHost) -> u32 {
+    h.ops.borrow().core().map(|c| c.hover_cursor() as u32).unwrap_or(1)
+}
 #[no_mangle]
 pub extern "C" fn web_inspect(h: &WasmHost, id: i32) -> i32 {
     status(

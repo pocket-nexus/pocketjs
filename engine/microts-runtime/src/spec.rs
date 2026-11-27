@@ -57,6 +57,7 @@ pub const STYLE_PROPS: &[(&str, u8, &str)] = &[
     ("bevelWidth", 81, "f32"),
     ("gradVia", 82, "u32"),
     ("gradViaPos", 83, "f32"),
+    ("cursor", 84, "i32"),
     ("textColor", 96, "u32"),
     ("fontSlot", 97, "i32"),
     ("textAlign", 98, "i32"),

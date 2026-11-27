@@ -229,6 +229,10 @@ describe("text", () => {
     expect(f32Of(m, PROP.tracking)).toBeCloseTo(0.025 * 18, 5);
     expect(m.get(PROP.fontSlot)).toBe(fontSlotFor(18, false));
   });
+  test("cursor-*", () => {
+    expect(props(parseClassLiteral("cursor-pointer p-2")).get(PROP.cursor)).toBe(ENUMS.Cursor.Pointer);
+    expect(props(parseClassLiteral("cursor-text")).get(PROP.cursor)).toBe(ENUMS.Cursor.Text);
+  });
   test("text-wrap / text-nowrap", () => {
     expect(props(parseClassLiteral("text-wrap text-sm")).get(PROP.textWrap)).toBe(1);
     expect(props(parseClassLiteral("text-wrap text-nowrap")).get(PROP.textWrap)).toBe(0);

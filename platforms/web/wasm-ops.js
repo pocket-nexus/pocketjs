@@ -180,6 +180,8 @@ export function createWasmUiSync(wasm, options = {}) {
     createAuxiliarySurface(w,h){control();w=integer(w,"auxiliary width",1,4096);h=integer(h,"auxiliary height",1,4096);const root=ex.web_auxiliary(handle,w,h);if(!root)throw new Error("Auxiliary changes require an unbooted host");auxiliary=[w,h];const added=mountUi(transport,{host:options.host,hostAbi,tickHz:60,auxiliary:{root,w,h},viewport:{w:width,h:height}},{}).ui;Object.assign(ops, {hitTestAuxiliary:added.hitTestAuxiliary,hitTestBoundsAuxiliary:added.hitTestBoundsAuxiliary,__auxiliarySurface:added.__auxiliarySurface});return root;},
     tick(){control();check(ex.web_tick(handle));},
     focused(){control();return ex.web_focused(handle);},
+    /** spec::Cursor ordinal for the pointer after the last frame; 1 (Default) on a wasm that predates it. */
+    hoverCursor(){control();return ex.web_hover_cursor ? ex.web_hover_cursor(handle) : 1;},
     inspectNode(id){control();check(ex.web_inspect(handle,id));return JSON.parse(resultText());},
     layout(id){control();return withBytes(new Uint8Array(32),p=>{if(!ex.web_layout(handle,id,p))throw new Error(`Missing node ${id}`);return Array.from(new Float32Array(ex.memory.buffer,p,8));});},
     setLayoutMode(id,mode,x,y,w,h){control();ex.web_layout_mode(handle,id,mode,x,y,w,h);},

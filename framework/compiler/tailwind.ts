@@ -382,6 +382,11 @@ function parseUtility(tok: string, acc: VariantAcc): boolean {
     case "tracking-wide": acc.trackingWide = true; return true;
     // Soft wrap to the box width (CSS white-space: normal); text-nowrap
     // restores the '\n'-only default.
+    // The system cursor over the node (input.pointer hosts; Ui::hover_cursor).
+    case "cursor-default": D.push([PROP.cursor, int(ENUMS.Cursor.Default)]); return true;
+    case "cursor-pointer": D.push([PROP.cursor, int(ENUMS.Cursor.Pointer)]); return true;
+    case "cursor-text": D.push([PROP.cursor, int(ENUMS.Cursor.Text)]); return true;
+    case "cursor-not-allowed": D.push([PROP.cursor, int(ENUMS.Cursor.NotAllowed)]); return true;
     case "text-wrap": D.push([PROP.textWrap, int(1)]); return true;
     case "text-nowrap": D.push([PROP.textWrap, int(0)]); return true;
   }

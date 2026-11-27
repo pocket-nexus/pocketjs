@@ -52,6 +52,7 @@ export interface MicroTsStyleProps {
   bevelWidth?: Px | MicroTsIntegerInput;
   gradVia?: Color;
   gradViaPos?: MicroTsFloatInput;
+  cursor?: i32;
   textColor?: Color;
   fontSlot?: i32;
   textAlign?: i32;

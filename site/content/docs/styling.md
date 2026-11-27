@@ -146,6 +146,13 @@ transition.
 <View class="rounded-full bg-white hover:translate-y-[-1px] active:translate-y-[2px] transition-transform" onPress={open} />
 ```
 
+**`cursor-default`, `cursor-pointer`, `cursor-text` and `cursor-not-allowed`
+name the system cursor over a node** (PROP `cursor`, paint-only). The core
+answers `Ui::hover_cursor()` with the first cursor set along the hovered chain,
+node first, and `Default` when none is set; a host with `input.pointer` reads
+it after each frame and shows the matching OS cursor
+(`AppInstance.cursor()` returns the CSS name in a browser).
+
 Any utility below can carry a variant prefix, with one exception: motion and
 `animate-*` tokens are recognized on the base variant only, so `focus:transition`
 drops **the whole literal** to plain text. A prefix that is not `focus:`,

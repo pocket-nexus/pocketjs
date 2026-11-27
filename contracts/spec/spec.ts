@@ -380,6 +380,9 @@ export const PROP = {
   bevelWidth: 81, //      f32 px per ring (default 1)
   gradVia: 82, //         color u32 ABGR (optional middle gradient stop)
   gradViaPos: 83, //      f32 0..1; NAN = no middle stop
+  cursor: 84, //          enum Cursor: the system cursor while the pointer is
+  //                      over the node or a descendant without its own
+  //                      (input.pointer; Ui::hover_cursor). Paint-only.
 
   // -- text (96..127) --------------------------------------------------------
   textColor: 96, //     color u32 ABGR
@@ -548,7 +551,7 @@ export const PROP_VALUE_KIND: Record<PropName, number> = {
   bevelOuterLight: VALUE_KIND.color, bevelOuterDark: VALUE_KIND.color,
   bevelInnerLight: VALUE_KIND.color, bevelInnerDark: VALUE_KIND.color,
   bevelWidth: VALUE_KIND.f32,
-  gradVia: VALUE_KIND.color, gradViaPos: VALUE_KIND.f32,
+  gradVia: VALUE_KIND.color, gradViaPos: VALUE_KIND.f32, cursor: VALUE_KIND.int,
   textColor: VALUE_KIND.color, fontSlot: VALUE_KIND.int,
   textAlign: VALUE_KIND.int, lineHeight: VALUE_KIND.f32, tracking: VALUE_KIND.f32,
   textWrap: VALUE_KIND.int,
@@ -569,6 +572,7 @@ export const PROP_VALUE_KIND: Record<PropName, number> = {
 
 export const ENUMS = {
   FlexDir: { Row: 0, Col: 1 },
+  Cursor: { Inherit: 0, Default: 1, Pointer: 2, Text: 3, NotAllowed: 4 },
   Justify: { Start: 0, Center: 1, End: 2, Between: 3, Around: 4 },
   Align: { Start: 0, Center: 1, End: 2, Stretch: 3 },
   PosType: { Relative: 0, Absolute: 1 },

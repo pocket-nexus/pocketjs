@@ -132,6 +132,11 @@ export async function create(options) {
         globalThis.__pocketResizeViewport(width, height);
       }
     },
+    /** The CSS cursor for the pointer after the last step: the first `cursor-*`
+     *  along the node under the pointer and its ancestors (input.pointer). */
+    cursor() {
+      return ["auto", "default", "pointer", "text", "not-allowed"][wasm.hoverCursor ? wasm.hoverCursor() : 1] ?? "default";
+    },
     drawHash() {
       return wasm.drawHash ? wasm.drawHash() : 0n;
     },

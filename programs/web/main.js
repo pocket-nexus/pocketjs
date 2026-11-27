@@ -27,6 +27,7 @@ function tick() {
     if (facts.contacts?.some(contact => !contact.cancelled)) facts.buttons |= 8192;
     instance.stepInput(facts, 60 / metadata.simHz);
     context.putImageData(new ImageData(new Uint8ClampedArray(instance.render()), width, height), 0, 0);
+    if (features.has("input.pointer")) canvas.style.cursor = instance.cursor();
     // One logical turn per wake. Rendering or a suspended tab does not add turns.
     frame = setTimeout(tick, duration);
   } catch (error) {
