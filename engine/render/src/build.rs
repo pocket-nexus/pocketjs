@@ -17,7 +17,7 @@
 //! when the bound texture differs from the fill's texture, so a backend can
 //! keep a batch open by sampling an opaque patch of the bound image.
 
-use crate::{append_batch, quad, triangle, Batch, DrawOps, Record, Vertex};
+use crate::{append_batch, quad, triangle, Batch, DrawOps, Record, TextRun, Vertex};
 use alloc::vec::Vec;
 use pocket_drivers::{DamageRect, RenderError};
 
@@ -50,6 +50,17 @@ pub struct GlyphCell<T, D> {
     pub width: f32,
     pub height: f32,
     pub data: D,
+}
+
+/// A run of host-shaped text resolved by the backend: the texture holding its
+/// pixels, the logical rectangle `[x0, y0, x1, y1]` they cover, the UV
+/// rectangle `[u0, v0, u1, v1]`, and the colour the texture is modulated by.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TextQuad<T> {
+    pub texture: T,
+    pub rect: [f32; 4],
+    pub uv: [f32; 4],
+    pub color: u32,
 }
 
 /// What a run of emitted vertices draws.
@@ -92,6 +103,16 @@ pub trait Backend {
     fn accepts(&mut self, record: &Record<'_>) -> Result<bool, RenderError> {
         let _ = record;
         Ok(true)
+    }
+    /// The pixels of a `TEXT_RUN`, painted by the host text system that
+    /// measured it (docs/BACKENDS.md). `None` draws nothing. The default
+    /// rejects the operation: only a backend with a host text painter draws it.
+    fn text_run(
+        &mut self,
+        run: &TextRun<'_>,
+    ) -> Result<Option<TextQuad<Self::Texture>>, RenderError> {
+        let _ = run;
+        Err(RenderError::Unsupported)
     }
     /// The six vertices of an axis-aligned quad. The default is [`quad`].
     fn quad(
@@ -263,7 +284,42 @@ pub fn build<B: Backend>(
                     backend.emitted(emit.push(&corners), Source::Fill);
                 }
             }
-            Record::TextRun(_) => return Err(RenderError::Unsupported),
+            Record::TextRun(run) => {
+                let Some(text) = backend.text_run(&run)? else {
+                    continue;
+                };
+                emit.bind(text.texture);
+                match run.linear {
+                    None => {
+                        let corners = backend.quad(
+                            [text.rect[0], text.rect[1]],
+                            [text.rect[2], text.rect[3]],
+                            [text.uv[0], text.uv[1]],
+                            [text.uv[2], text.uv[3]],
+                            [text.color; 4],
+                        );
+                        backend.emitted(emit.push(&corners), Source::Image);
+                    }
+                    Some([a, b, c, d]) => {
+                        // the quad's corners through the run's transform about its origin
+                        let [ox, oy] = run.origin;
+                        let at = |x: f32, y: f32| {
+                            let (x, y) = (x - ox, y - oy);
+                            [ox + a * x + c * y, oy + b * x + d * y]
+                        };
+                        let [x0, y0, x1, y1] = text.rect;
+                        let [u0, v0, u1, v1] = text.uv;
+                        let (p00, p10, p11, p01) = (at(x0, y0), at(x1, y0), at(x1, y1), at(x0, y1));
+                        for (p, uv) in [
+                            ([p00, p10, p11], [[u0, v0], [u1, v0], [u1, v1]]),
+                            ([p00, p11, p01], [[u0, v0], [u1, v1], [u0, v1]]),
+                        ] {
+                            let corners = triangle(p, uv, [text.color; 3]);
+                            backend.emitted(emit.push(&corners), Source::Image);
+                        }
+                    }
+                }
+            }
         }
     }
     emit.flush();

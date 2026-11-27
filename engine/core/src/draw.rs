@@ -3536,10 +3536,10 @@ impl<'a> Walker<'a> {
         }
         // The node's measurement provider was RECORDED at layout time
         // (layout.rs build(): native iff a measurer is installed, tracking
-        // is 0 and the subtree declared no transform). Paint follows the
+        // is 0 and the subtree declared no 3D transform). Paint follows the
         // record — a node's painted glyphs always come from the provider
-        // that sized its box — but a paint-only transform (rotate/scale
-        // don't relayout) can leave the record stale in either direction:
+        // that sized its box — but a paint-only transform (rotateX/Y and
+        // perspective don't relayout) can leave the record stale in either direction:
         // flag it, and Ui::draw() relayouts and REPAINTS within this same
         // draw, so the frame that leaves is provider-correct. An animation
         // crossing exact identity re-decides twice per cycle.
@@ -3841,17 +3841,50 @@ impl<'a> Walker<'a> {
         // Alignment places lines inside box_w, so box_w ∪ measured width
         // bounds every glyph the backend can paint.
         let ext_w = box_w.max(mw);
-        if ox + ext_w <= clip.x0 || ox >= clip.x1 || oy + mh <= clip.y0 || oy >= clip.y1 {
+        // A 2D transform (rotate, scale, skew) travels with the run as its
+        // linear part; the bounds are the transformed box's.
+        let linear = [world.a, world.b, world.c, world.d];
+        let transformed = (linear[0] - 1.0).abs() > 1e-6
+            || linear[1].abs() > 1e-6
+            || linear[2].abs() > 1e-6
+            || (linear[3] - 1.0).abs() > 1e-6;
+        let (bx0, by0, bx1, by1) = if transformed {
+            let corners = [
+                world.apply(0.0, 0.0),
+                world.apply(ext_w, 0.0),
+                world.apply(ext_w, mh),
+                world.apply(0.0, mh),
+            ];
+            corners.iter().fold(
+                (
+                    f32::INFINITY,
+                    f32::INFINITY,
+                    f32::NEG_INFINITY,
+                    f32::NEG_INFINITY,
+                ),
+                |(x0, y0, x1, y1), &(x, y)| (x0.min(x), y0.min(y), x1.max(x), y1.max(y)),
+            )
+        } else {
+            (ox, oy, ox + ext_w, oy + mh)
+        };
+        if !(bx0.is_finite() && by0.is_finite() && bx1.is_finite() && by1.is_finite()) {
             return;
         }
-        let clipped = ox < clip.x0 || oy < clip.y0 || ox + ext_w > clip.x1 || oy + mh > clip.y1;
+        if bx1 <= clip.x0 || bx0 >= clip.x1 || by1 <= clip.y0 || by0 >= clip.y1 {
+            return;
+        }
+        let clipped = bx0 < clip.x0 || by0 < clip.y0 || bx1 > clip.x1 || by1 > clip.y1;
         if clipped {
             dl.words.push(spec::draw_op::SCISSOR);
             dl.words.push(xy_word(clip.x0, clip.y0));
             dl.words.push(wh_word(clip.x1 - clip.x0, clip.y1 - clip.y0));
         }
         let bytes = run.as_bytes();
-        dl.words.push(spec::draw_op::TEXT_RUN);
+        dl.words.push(if transformed {
+            spec::draw_op::TEXT_RUN_XF
+        } else {
+            spec::draw_op::TEXT_RUN
+        });
         dl.words.push((slot as u32) | ((r.text_align as u32) << 8));
         dl.words.push(ox.to_bits());
         dl.words.push(oy.to_bits());
@@ -3859,6 +3892,9 @@ impl<'a> Walker<'a> {
         dl.words.push(r.line_height.to_bits());
         dl.words.push(color);
         dl.words.push(bytes.len() as u32);
+        if transformed {
+            dl.words.extend(linear.iter().map(|v| v.to_bits()));
+        }
         for chunk in bytes.chunks(4) {
             let mut w = [0u8; 4];
             w[..chunk.len()].copy_from_slice(chunk);

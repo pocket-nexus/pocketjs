@@ -39,6 +39,7 @@
 #define POCKET_DRAW_OP_TRI 7U
 #define POCKET_DRAW_OP_TEX_TRI 8U
 #define POCKET_DRAW_OP_TEXT_RUN 9U
+#define POCKET_DRAW_OP_TEXT_RUN_XF 10U
 
 /* Portable operation numbers (contracts/spec/ui-ops.ts): what a program's
  * operation provider serves and pocket_runtime_op dispatches. */

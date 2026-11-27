@@ -36,9 +36,14 @@ Symbian GLES2 ports.
 `Ui::set_text_measure` and `Ui::set_text_wrap` before the guest mounts.
 The renderer must consume `TEXT_RUN` and paint with the provider that measured
 the run. The DrawList stores the run's UTF-8 bytes and style hash.
-Transformed or tracked runs use baked atlas metrics and `GLYPH_RUN`.
+Runs under a 2D transform (rotate, scale, skew) are `TEXT_RUN_XF`: the run
+plus the 2x2 linear part of its world transform, which the backend applies to
+the run's pixels. Tracked runs and runs under a 3D transform (rotateX/Y,
+perspective) use baked atlas metrics and `GLYPH_RUN`.
 The `text.layout.native` capability describes this embedding contract;
-no built-in host advertises it.
+no built-in host advertises it. The shared DrawList walk asks its backend for a
+run's pixels (`Backend::text_run` in `pocket-render`); `pocket-wgpu-render`
+answers through the host's `TextPainter`.
 
 **`text.layout.offload` uses package fonts in a separate worker.** The Rust
 text engine wraps, shapes and rasterizes text for native and WASM consumers.

@@ -1457,6 +1457,17 @@ export const FONT_FLAG_BOLD = 1 << 0;
 //                           i16 clip guarantee: a run may start off-viewport,
 //                           and the core brackets any partially-clipped run
 //                           in SCISSOR/SCISSOR_POP.
+//   TEXT_RUN_XF (12 + ceil(n/4) words):
+//                           TEXT_RUN's eight header words, then a, b, c, d
+//                           (f32 bits): the 2x2 linear part of the run's
+//                           world transform, which maps a point (x, y)
+//                           relative to (originX, originY) to
+//                           (originX + a*x + c*y, originY + b*x + d*y);
+//                           then the run string. Emitted instead of
+//                           TEXT_RUN for a native run under a 2D transform
+//                           (rotate, scale, skew); the backend draws the
+//                           run's pixels as a quad through that transform.
+//                           Runs under 3D transforms keep GLYPH_RUN.
 
 /** Closed DrawList operation generation; drivers and archives use matching headers. */
 export const DRAW_LIST_VERSION = 1;
@@ -1471,6 +1482,7 @@ export const DRAW_OP = {
   tri: 7,
   texTri: 8,
   textRun: 9,
+  textRunXf: 10,
 } as const;
 
 // ---------------------------------------------------------------------------

@@ -199,6 +199,8 @@ pub struct TextRun<'a> {
     pub color: u32,
     /// UTF-8 byte count of the run string.
     pub bytes: usize,
+    /// TEXT_RUN_XF: the 2x2 linear part `[a, b, c, d]` of the run's transform about its origin.
+    pub linear: Option<[f32; 4]>,
     payload: &'a [u32],
 }
 
@@ -206,6 +208,17 @@ impl<'a> TextRun<'a> {
     /// The run string's bytes packed little-endian, zero-padded to words.
     pub fn payload_words(&self) -> &'a [u32] {
         self.payload
+    }
+
+    /// The run string's UTF-8 bytes, unpacked from the payload words.
+    pub fn text_bytes(&self) -> alloc::vec::Vec<u8> {
+        let mut bytes: alloc::vec::Vec<u8> = self
+            .payload
+            .iter()
+            .flat_map(|word| word.to_le_bytes())
+            .collect();
+        bytes.truncate(self.bytes);
+        bytes
     }
 }
 
@@ -296,16 +309,20 @@ pub fn record(words: &[u32]) -> Result<Record<'_>, DecodeError> {
             }),
             color: words[11],
         }),
-        draw_op::TEXT_RUN => Record::TextRun(TextRun {
-            slot: (words[1] & 0xff) as u8,
-            align: ((words[1] >> 8) & 0xff) as u8,
-            origin: [f32::from_bits(words[2]), f32::from_bits(words[3])],
-            box_width: f32::from_bits(words[4]),
-            line_height: f32::from_bits(words[5]),
-            color: words[6],
-            bytes: words[7] as usize,
-            payload: &words[8..],
-        }),
+        draw_op::TEXT_RUN | draw_op::TEXT_RUN_XF => {
+            let xf = words[0] == draw_op::TEXT_RUN_XF;
+            Record::TextRun(TextRun {
+                slot: (words[1] & 0xff) as u8,
+                align: ((words[1] >> 8) & 0xff) as u8,
+                origin: [f32::from_bits(words[2]), f32::from_bits(words[3])],
+                box_width: f32::from_bits(words[4]),
+                line_height: f32::from_bits(words[5]),
+                color: words[6],
+                bytes: words[7] as usize,
+                linear: xf.then(|| core::array::from_fn(|i| f32::from_bits(words[8 + i]))),
+                payload: &words[if xf { 12 } else { 8 }..],
+            })
+        }
         _ => return Err(DecodeError::UnknownOperation),
     })
 }
