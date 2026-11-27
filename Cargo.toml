@@ -43,6 +43,7 @@ members = [
     "engine/drivers",
     "engine/driver-kit",
     "engine/guest-rquickjs",
+    "engine/guest-jsc",
     "platforms/apple",
     "engine/modules/media",
     "engine/package",
@@ -110,6 +111,7 @@ default-members = [
     "engine/drivers",
     "engine/driver-kit",
     "engine/guest-rquickjs",
+    "engine/guest-jsc",
     "engine/modules/media",
     "engine/package",
     "engine/physics",
@@ -178,6 +180,7 @@ pocket-gles1 = { path = "devices/gles/pocket-gles1", version = "0.17.0", default
 pocket-gles2 = { path = "devices/gles/pocket-gles2", version = "0.17.0", default-features = false }
 pocket-glyph-pages = { path = "engine/render/glyph-pages", version = "0.17.0", default-features = false }
 pocket-guest-rquickjs = { path = "engine/guest-rquickjs", version = "0.17.0", default-features = false }
+pocket-guest-jsc = { path = "engine/guest-jsc", version = "0.17.0", default-features = false }
 pocket-idf-runtime = { path = "programs/esp-idf/archive", version = "0.17.0", default-features = false }
 pocket-linux-alsa = { path = "platforms/linux/alsa", version = "0.17.0", default-features = false }
 pocket-linux-drm = { path = "platforms/linux/drm", version = "0.17.0", default-features = false }

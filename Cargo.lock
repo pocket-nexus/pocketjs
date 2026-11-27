@@ -2080,6 +2080,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "pocket-guest-jsc"
+version = "0.17.0"
+dependencies = [
+ "log",
+ "pocket-drivers",
+ "pocket-runtime",
+ "pocketjs-core",
+]
+
+[[package]]
 name = "pocket-guest-rquickjs"
 version = "0.17.0"
 dependencies = [

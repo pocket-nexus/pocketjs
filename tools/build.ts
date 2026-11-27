@@ -425,15 +425,22 @@ if (fallbackTtfs.length || fontConfig.codepoints.length)
 const buttonMarks = [...Object.values(BUTTON_GLYPHS[(buildPlan?.modality ?? PORTABLE_MODALITY).glyphs]).join("")]
   .map(ch => ch.codePointAt(0)!);
 
-const atlases = await bakeAtlases({
-  codepoints: new Set([...codepoints, ...fontConfig.codepoints, ...buttonMarks]),
-  slots: styles.usedFontSlots,
-  extraChars,
-  rasterDensity,
-  ...fontFaces,
-  onRead: path => buildInputs.add(path),
-  fallbackTtfs,
-});
+// A host with text.layout.native draws every run outside a 3D transform with its own text system:
+// its build bakes atlases only when the app declares characters (fonts.json) for text under 3D
+// transforms, and then only those, ASCII and the button marks; otherwise no atlases at all.
+const nativeText = buildPlan?.features?.["text.layout.native"] === true;
+const atlases = nativeText && fontConfig.codepoints.length === 0 && !extraChars
+  ? []
+  : await bakeAtlases({
+    codepoints: new Set([...(nativeText ? [] : codepoints), ...fontConfig.codepoints, ...buttonMarks]),
+    slots: styles.usedFontSlots,
+    extraChars,
+    rasterDensity,
+    ...fontFaces,
+    onRead: path => buildInputs.add(path),
+    fallbackTtfs,
+  });
+if (nativeText && atlases.length === 0) console.log("  fonts: none baked (text.layout.native)");
 for (const a of atlases) {
   console.log(
     `  font: slot ${a.slot} (${a.px}px${a.bold ? " bold" : ""}) ${a.glyphCount} glyphs, ` +

@@ -27,6 +27,7 @@ pocketjs/
 │  ├─ runtime/              instance lifecycle, admission, input, presentation and C ABI bodies
 │  ├─ guest-quickjs/        C guest lifecycle and generated operation bindings
 │  ├─ guest-rquickjs/       Rust guest lifecycle and generated operation bindings; std or no_std + alloc
+│  ├─ guest-jsc/            JavaScriptCore guest lifecycle and generated operation bindings (Apple)
 │  ├─ guest-web/            generated browser guest bindings
 │  ├─ modules/              media transport and shared offload queues
 │  ├─ mod/                  guest hosting for the runtime family
