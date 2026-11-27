@@ -625,6 +625,7 @@ const result = await Bun.build({
     entry,
     features: buildPlan?.features,
     generatedStyles,
+    alias: buildPlan?.app.alias,
   })],
 });
 if (!result.success) {

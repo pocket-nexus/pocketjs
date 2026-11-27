@@ -49,6 +49,8 @@ export interface ResolvedBuildPlanContent {
     /** The faces the glyph atlases are baked from, relative to the project
      *  root. */
     readonly fonts?: AppFonts;
+    /** Package specifiers resolved as others (`app.alias`). */
+    readonly alias?: Readonly<Record<string, string>>;
     readonly aot?: boolean;
     readonly model?: "rust" | "compiled";
     readonly recursionLimit?: number;

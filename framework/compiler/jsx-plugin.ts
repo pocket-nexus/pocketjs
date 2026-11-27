@@ -692,6 +692,8 @@ export function jsxPlugin(
     entry?: string;
     features?: BuildFeatures;
     generatedStyles?: string;
+    /** `app.alias`: package specifiers resolved as others, from the entry's directory. */
+    alias?: Readonly<Record<string, string>>;
   } = {},
 ): BunPlugin {
   return {
@@ -708,6 +710,13 @@ export function jsxPlugin(
       build.onResolve({ filter: /^solid-js\/universal$/ }, () => ({
         path: SOLID_UNIVERSAL_RUNTIME_PATH,
       }));
+      // app.alias: one module for a specifier wherever it is imported, the
+      // application's dependencies included (three's addons import "three").
+      for (const [from, to] of Object.entries(opts.alias ?? {})) {
+        const base = opts.entry ? dirname(opts.entry) : process.cwd();
+        const filter = new RegExp(`^${from.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")}$`);
+        build.onResolve({ filter }, () => ({ path: Bun.resolveSync(to, base) }));
+      }
       // The framework's style table is this build's, served from memory:
       // nothing is written into the framework directory, which an installed
       // framework may not allow, and concurrent builds share nothing. A

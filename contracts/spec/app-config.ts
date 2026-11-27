@@ -9,6 +9,10 @@ import type { FeatureId } from "./capabilities.ts";
 import { appViewportSchema, surfacesSchema, type AppViewport, type SurfacesSpec } from "./viewport.ts";
 import { workerDeclarationSchema, type WorkerDeclarationSource } from "./worker.ts";
 
+/** A package specifier: a package name and an optional subpath, never a
+ *  relative or absolute path (`three`, `three/webgpu`, `@scope/pkg/sub`). */
+const PACKAGE_SPECIFIER_PATTERN = "^(?:@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*(?:/[A-Za-z0-9._-]+)*$";
+
 export const POCKET_FRAMEWORKS = ["solid", "vue-vapor", "octane"] as const;
 export type PocketFramework = (typeof POCKET_FRAMEWORKS)[number];
 
@@ -85,6 +89,9 @@ export interface AppConfig {
   readonly theme?: AnimationTheme;
   /** The font faces the glyph atlases are baked from. */
   readonly fonts?: AppFonts;
+  /** Package specifiers the bundle resolves as other package specifiers, for
+   *  every importer including dependencies: `{ three: "three/webgpu" }`. */
+  readonly alias?: Readonly<Record<string, string>>;
   /** Admit the complete Solid component graph to the AOT view subset. */
   readonly aot?: boolean;
   readonly model?: "rust" | "compiled";
@@ -153,6 +160,10 @@ export const appConfigSchema = {
     features: { type: "array", items: capabilityIdSchema, uniqueItems: true },
     surfaces: surfacesSchema,
     theme: animationThemeSchema,
+    alias: {
+      type: "object",
+      additionalProperties: { type: "string", pattern: PACKAGE_SPECIFIER_PATTERN },
+    },
     fonts: {
       type: "object",
       additionalProperties: false,
@@ -203,7 +214,19 @@ export function validateAppConfig(app: unknown): readonly ContractDiagnostic[] {
   }
   validateSchema(value, appConfigSchema, "/app", diagnostics);
   if (diagnostics.length === 0) validateFontSlots((value as AppConfig).fonts, diagnostics);
+  if (diagnostics.length === 0) validateAlias((value as AppConfig).alias, diagnostics);
   return diagnostics;
+}
+
+/** `app.alias` keys are package specifiers too, and none maps to itself. */
+function validateAlias(alias: AppConfig["alias"], diagnostics: ContractDiagnostic[]): void {
+  for (const [from, to] of Object.entries(alias ?? {})) {
+    if (!new RegExp(PACKAGE_SPECIFIER_PATTERN).test(from)) {
+      diagnostics.push({ code: "app.aliasSpecifier", path: `/app/alias/${from}`, message: `${JSON.stringify(from)} is not a package specifier` });
+    } else if (from === to) {
+      diagnostics.push({ code: "app.aliasSelf", path: `/app/alias/${from}`, message: `${JSON.stringify(from)} maps to itself` });
+    }
+  }
 }
 
 /** Face names, slot indices and (px, face) pairs of `app.fonts`. */

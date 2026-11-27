@@ -149,6 +149,20 @@ test("pocket compile writes one bundle with the config's identity and icon", asy
   }
 }, 120_000);
 
+test("app.alias enters the plan and rejects paths and self-maps", () => {
+  const request = { target: "psp", configDirectory: resolve(ROOT, "apps/demo"), projectRoot: ROOT };
+  const plain = resolveAppPlan(application, request);
+  const aliased = resolveAppPlan({ ...application, alias: { three: "three/webgpu" } }, request);
+  if (!plain.ok || !aliased.ok) throw new Error("plans did not resolve");
+  expect(plain.plan.app.alias).toBeUndefined();
+  expect(aliased.plan.app.alias).toEqual({ three: "three/webgpu" });
+  expect(aliased.plan.planHash).not.toBe(plain.plan.planHash);
+  for (const alias of [{ three: "./three.js" }, { "./local": "three" }, { three: "three" }, { three: "/abs/three" }]) {
+    const rejected = resolveAppPlan({ ...application, alias }, request);
+    expect(rejected.ok).toBe(false);
+  }
+});
+
 test("app.fonts enters the plan relative to the project root", () => {
   const fonts = { regular: "fonts/Face-Regular.ttf", mono: "fonts/Face-Mono.otf" };
   const request = { target: "psp", configDirectory: resolve(ROOT, "apps/demo"), projectRoot: ROOT };

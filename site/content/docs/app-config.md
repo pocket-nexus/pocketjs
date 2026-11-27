@@ -361,6 +361,22 @@ and line height (`FONT_SLOTS`), which a host whose capabilities include
 `programs/web/app-instance.js` takes `slotFonts` (slot → CSS families, weight
 and style) for the characters `text.glyphs.runtime` draws at run time.
 
+### app.alias
+
+`alias` maps package specifiers to other package specifiers for the whole
+bundle, the application's dependencies included:
+
+```ts
+alias: { three: "three/webgpu" },
+```
+
+**Every import of the key resolves to the value's module**, resolved from the
+entry's directory. With the mapping above, three.js's addons (which import
+`three`) and the application share three.js's WebGPU build, and the WebGL build
+is not bundled. Keys and values are package names with optional subpaths;
+relative and absolute paths and a key mapped to itself fail the build. The
+mapping is part of the plan and its hash.
+
 ### app.tickHz
 
 A host presents the application at the largest cadence the rate is a whole

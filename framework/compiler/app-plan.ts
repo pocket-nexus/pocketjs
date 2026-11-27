@@ -708,6 +708,7 @@ export function resolveAppPlan(
       framework: app.framework,
       ...(theme !== undefined ? { theme } : {}),
       ...(fonts !== undefined ? { fonts } : {}),
+      ...(app.alias !== undefined ? { alias: app.alias } : {}),
       ...(app.aot !== undefined ? { aot: app.aot } : {}),
       ...(app.model !== undefined ? { model: app.model } : {}),
       ...(app.recursionLimit !== undefined ? { recursionLimit: app.recursionLimit } : {}),
