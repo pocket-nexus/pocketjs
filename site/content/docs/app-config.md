@@ -332,6 +332,51 @@ OpenType fails when a used slot loads it. The sizes and the mono slots come
 from the slot table ([Styling](/docs/styling/#text)). A `fallback` face in
 `fonts.json` supplies the code points the selected face does not map.
 
+**`faces` and `slots` extend the slot table.** `faces` names further faces,
+each a `.ttf` or `.otf` file under a lower-case name other than `regular`,
+`bold`, `mono` and `normal`. `slots` binds slot indices **24 to 63** to a size
+in logical px and a face (`regular`, `bold`, `mono` or a name in `faces`), with
+an optional default line height in px:
+
+```ts
+fonts: {
+  regular: "fonts/Nunito-SemiBold.ttf",
+  bold: "fonts/Nunito-ExtraBold.ttf",
+  faces: { display: "fonts/ZCOOLKuaiLe-Regular.ttf" },
+  slots: [
+    { slot: 24, px: 13, face: "regular" },
+    { slot: 25, px: 13, face: "bold" },
+    { slot: 26, px: 18, face: "display", lineHeight: 24 },
+  ],
+},
+```
+
+`text-[13px]` selects the 13 px regular slot, `text-[13px] font-bold` the bold
+one and `text-lg font-display` the display slot. A bound (px, face) pair wins
+over the built-in slot of the same pair; a size or face with no slot fails the
+build with the pair in the message. Each slot index and each (px, face) pair
+is bound once. The generated style module lists every used slot's size, face
+and line height (`FONT_SLOTS`), which a host whose capabilities include
+`text.layout.native` maps to its own fonts. In a browser,
+`programs/web/app-instance.js` takes `slotFonts` (slot → CSS families, weight
+and style) for the characters `text.glyphs.runtime` draws at run time.
+
+### app.alias
+
+`alias` maps package specifiers to other package specifiers for the whole
+bundle, the application's dependencies included:
+
+```ts
+alias: { three: "three/webgpu" },
+```
+
+**Every import of the key resolves to the value's module**, resolved from the
+entry's directory. With the mapping above, three.js's addons (which import
+`three`) and the application share three.js's WebGPU build, and the WebGL build
+is not bundled. Keys and values are package names with optional subpaths;
+relative and absolute paths and a key mapped to itself fail the build. The
+mapping is part of the plan and its hash.
+
 ### app.tickHz
 
 A host presents the application at the largest cadence the rate is a whole

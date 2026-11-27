@@ -39,7 +39,9 @@ export const build: RuntimeBuild = {
       writeFileSync(resolve(out, "program.json"), JSON.stringify({ output: context.output, packageId: application.plan.app.id, title: application.plan.app.title,
         host: context.profile.id, hostAbi: POCKET_BINDING_GENERATION, viewport: viewport.logical, rasterDensity: viewport.rasterDensity, simHz: cadenceFor(application.plan.profile.tickHz, context.profile.cadences) ?? application.plan.profile.tickHz,
         ...(application.plan.surfaces?.auxiliary ? { auxiliary: application.plan.surfaces?.auxiliary.logical } : {}),
-        ...(viewport.policy === "dynamic" ? { dynamic: context.profile.display.dynamicViewport } : {}) }));
+        ...(viewport.policy === "dynamic" ? { dynamic: context.profile.display.dynamicViewport } : {}),
+        // main.js chooses its input facts (pointer or contacts, wheel, keyboard text) from these.
+        features: Object.entries(application.plan.features ?? {}).filter(([, on]) => on).map(([id]) => id) }));
       files.push("index.html", "programs/web/main.js", "program.json");
     }
     await writeRuntimeManifest(out, { target: profile.id, profile: context.profile, hostAbi: POCKET_BINDING_GENERATION, files });

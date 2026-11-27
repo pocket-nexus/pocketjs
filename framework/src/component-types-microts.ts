@@ -52,11 +52,13 @@ export interface MicroTsStyleProps {
   bevelWidth?: Px | MicroTsIntegerInput;
   gradVia?: Color;
   gradViaPos?: MicroTsFloatInput;
+  cursor?: i32;
   textColor?: Color;
   fontSlot?: i32;
   textAlign?: i32;
   lineHeight?: Px | MicroTsIntegerInput;
   tracking?: Px | MicroTsIntegerInput;
+  textWrap?: i32;
   translateX?: Px | MicroTsIntegerInput;
   translateY?: Px | MicroTsIntegerInput;
   scale?: MicroTsFloatInput;

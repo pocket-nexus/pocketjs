@@ -74,6 +74,8 @@ export interface BakeOptions {
   regularTtf?: string;
   boldTtf?: string;
   monoTtf?: string;
+  /** Named faces (`app.fonts.faces`) for application slots that name them. */
+  faces?: Readonly<Record<string, string>>;
   /** Faces tried, in order, for a codepoint the slot's own face does not
    *  map — an icon font whose glyphs have to sit in the same atlas as the
    *  text they label. A fallback glyph keeps its own advance, scaled to the
@@ -313,6 +315,9 @@ export function bakeSlot(
   rasterDensity = 1,
   fallbacks: readonly Font[] = [],
   cache?: GlyphRasterCache,
+  /** Line height in logical px (an application slot's `lineHeight`);
+   *  absent, ascent + descent + line gap. */
+  lineHeightPx?: number,
 ): BakedAtlas {
   rasterDensity = checkedRasterDensity(rasterDensity);
   const upm = font.unitsPerEm;
@@ -323,7 +328,7 @@ export function bakeSlot(
   const cellH = Math.min(255, Math.max(1, baseline + Math.ceil(descent)));
   const hhea = (font.tables as Record<string, any>).hhea;
   const lineGap: number = (hhea?.lineGap ?? 0) * scale;
-  const lineHeight = Math.min(255, Math.round(ascent + descent + lineGap));
+  const lineHeight = Math.min(255, lineHeightPx ?? Math.round(ascent + descent + lineGap));
 
   // resolve glyphs first (skips codepoints the font doesn't map)
   interface G {
@@ -493,11 +498,7 @@ export async function bakeAtlases(opts: BakeOptions): Promise<BakedAtlas[]> {
   }
   const chars = [...cps].sort((a, b) => a - b);
 
-  const fonts: Record<"regular" | "bold" | "mono", Font | null> = {
-    regular: null,
-    bold: null,
-    mono: null,
-  };
+  const fonts = new Map<string, Font>();
   const fallbacks: Font[] = [];
   for (const path of opts.fallbackTtfs ?? []) {
     opts.onRead?.(path);
@@ -508,16 +509,19 @@ export async function bakeAtlases(opts: BakeOptions): Promise<BakedAtlas[]> {
     if (slot < 0 || slot >= MAX_FONT_SLOTS) {
       throw new Error(`PocketJS bake-font: slot ${slot} out of range (0..${MAX_FONT_SLOTS - 1})`);
     }
-    const { px, bold, mono } = fontSlotInfo(slot);
-    const key = mono ? "mono" : bold ? "bold" : "regular";
-    const path = mono
+    const { px, bold, face, lineHeight } = fontSlotInfo(slot);
+    const path = face === "mono"
         ? (opts.monoTtf ?? DEFAULT_MONO)
-        : bold
+        : face === "bold"
           ? (opts.boldTtf ?? DEFAULT_BOLD)
-          : (opts.regularTtf ?? DEFAULT_REGULAR);
+          : face === "regular"
+            ? (opts.regularTtf ?? DEFAULT_REGULAR)
+            : opts.faces?.[face];
+    if (path === undefined) throw new Error(`PocketJS bake-font: slot ${slot} names face ${face}, which app.fonts.faces does not list`);
     opts.onRead?.(path);
-    fonts[key] ??= await loadFont(path);
-    results.push(bakeSlot(fonts[key]!, slot, px, bold, chars, rasterDensity, fallbacks));
+    let font = fonts.get(path);
+    if (!font) fonts.set(path, font = await loadFont(path));
+    results.push(bakeSlot(font, slot, px, bold, chars, rasterDensity, fallbacks, undefined, lineHeight));
   }
   return results;
 }

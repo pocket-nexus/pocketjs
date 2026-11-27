@@ -41,8 +41,15 @@ export declare function parseAtlas(bytes: ArrayBuffer | Uint8Array): RuntimeAtla
 export declare function widenAtlas(atlas: RuntimeAtlas, cellW: number): void;
 export declare function appendGlyph(atlas: RuntimeAtlas, codepoint: number, glyph: RuntimeGlyph): boolean;
 export declare function serializeAtlas(atlas: RuntimeAtlas): Uint8Array;
+export interface SlotFace {
+  families?: string | readonly string[];
+  weight?: number;
+  italic?: boolean;
+}
+
 export declare function canvasRasterizer(options?: {
   families?: string;
+  slots?: Record<number, SlotFace>;
   createCanvas?: (width: number, height: number) => unknown;
 }): Rasterizer;
 

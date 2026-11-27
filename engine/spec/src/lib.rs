@@ -39,7 +39,7 @@ pub const TEX_MAX_DIM: u32 = 512;
 pub const TEX_SLOT_BITS: u32 = 20;
 pub const TEX_SLOT_MASK: u32 = 0xfffff;
 /// Max baked font-atlas slots.
-pub const MAX_FONT_SLOTS: usize = 24;
+pub const MAX_FONT_SLOTS: usize = 64;
 /// Transition mask value meaning "every animatable prop".
 pub const TRANSITION_MASK_ALL: u32 = 0xffffffff;
 /// Core tick timestep: exactly 1/60 s (fixed — enables byte-exact goldens).
@@ -117,6 +117,8 @@ pub mod op {
     pub const FONT_STREAM_BATCH: u8 = 59;
     pub const CAPTURE_TEXTS: u8 = 60;
     pub const CAPTURED_TEXTS: u8 = 61;
+    pub const SET_HOVER: u8 = 62;
+    pub const LAYOUT_OF: u8 = 63;
 }
 
 /// Property ids (u8, stable, append-only). Groups:
@@ -170,11 +172,13 @@ pub mod prop {
     pub const BEVEL_WIDTH: u8 = 81;
     pub const GRAD_VIA: u8 = 82;
     pub const GRAD_VIA_POS: u8 = 83;
+    pub const CURSOR: u8 = 84;
     pub const TEXT_COLOR: u8 = 96;
     pub const FONT_SLOT: u8 = 97;
     pub const TEXT_ALIGN: u8 = 98;
     pub const LINE_HEIGHT: u8 = 99;
     pub const TRACKING: u8 = 100;
+    pub const TEXT_WRAP: u8 = 101;
     pub const TRANSLATE_X: u8 = 128;
     pub const TRANSLATE_Y: u8 = 129;
     pub const SCALE: u8 = 130;
@@ -207,8 +211,8 @@ pub const PROP_VALUE_KIND: [u8; 256] = [
     0x02, 0x02, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
     0x01, 0x01, 0x01, 0x02, 0x00, 0x00, 0x01, 0x00, 0x02, 0xff, 0xff, 0xff, 0xff, 0x01, 0x01, 0x01,
-    0x01, 0x00, 0x01, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-    0x01, 0x02, 0x02, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0x01, 0x00, 0x01, 0x00, 0x02, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0x01, 0x02, 0x02, 0x00, 0x00, 0x02, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
@@ -244,7 +248,7 @@ pub const ANIM_BIT: [u8; 256] = [
 /// Bitset over prop ids: animatable props (tween/spring/transition targets).
 pub const ANIMATABLE_BITS: [u64; 4] = [0x000000001e41ff06, 0x00000019000000f7, 0x000000000000f73f, 0x0000000000000000];
 /// Bitset over prop ids: props whose change invalidates layout.
-pub const LAYOUT_DIRTY_BITS: [u64; 4] = [0x000000027fffff7e, 0x0000001e00000000, 0x0000000000000000, 0x0000000000000000];
+pub const LAYOUT_DIRTY_BITS: [u64; 4] = [0x000000027fffff7e, 0x0000003e00000000, 0x0000000000000000, 0x0000000000000000];
 
 pub const fn is_animatable(prop: u8) -> bool {
     ANIMATABLE_BITS[(prop >> 6) as usize] & (1u64 << (prop & 63)) != 0
@@ -259,6 +263,17 @@ pub const fn is_layout_dirtying(prop: u8) -> bool {
 pub enum FlexDir {
     Row = 0,
     Col = 1,
+}
+
+/// Cursor
+#[repr(u8)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Cursor {
+    Inherit = 0,
+    Default = 1,
+    Pointer = 2,
+    Text = 3,
+    NotAllowed = 4,
 }
 
 /// justify-content.
@@ -435,6 +450,7 @@ pub mod style_table {
     pub const VARIANT_BASE: u8 = 1;
     pub const VARIANT_FOCUS: u8 = 2;
     pub const VARIANT_ACTIVE: u8 = 4;
+    pub const VARIANT_HOVER: u8 = 32;
     pub const HAS_TRANSITION: u8 = 8;
     pub const HAS_ANIMATION: u8 = 16;
     pub const ANIM_ENTRY_HEADER_SIZE: usize = 8;

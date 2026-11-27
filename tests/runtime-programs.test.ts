@@ -90,17 +90,21 @@ test("explicit deploy stages only this completed artifact and verifies bytes on 
 });
 
 test("web program executes one turn per wake and keeps full-size pointer cancellation facts until consumed", async () => {
-  const source = readFileSync(resolve(root, "programs/web/main.js"), "utf8").replace('import { create } from "./app-instance.js";', "");
+  const source = readFileSync(resolve(root, "programs/web/main.js"), "utf8").replace('import { create } from "./app-instance.js";', "")
+    .replace('import { createBrowserInput } from "../../platforms/web/browser-input.js";', "");
+  const { createBrowserInput } = await import("../platforms/web/browser-input.js");
   const canvasEvents = new Map<string, (event: any) => void>(), windowEvents = new Map<string, (event: any) => void>();
   const turns: { facts: any; ticks: number }[] = [], timers: (() => void)[] = [];
   let disposed = 0;
-  const canvas = { width: 0, height: 0, getContext: () => ({ putImageData() {} }), focus() {}, setPointerCapture() {},
+  const windowStub = { addEventListener(name: string, handler: (event: any) => void) { windowEvents.set(name, handler); }, removeEventListener() {} };
+  const canvas = { width: 0, height: 0, getContext: () => ({ putImageData() {} }), focus() {}, setPointerCapture() {}, style: {},
+    ownerDocument: { defaultView: windowStub, body: { appendChild() {} } },
     getBoundingClientRect: () => ({ left: 0, top: 0, width: 2000, height: 1200 }),
-    addEventListener(name: string, handler: (event: any) => void) { canvasEvents.set(name, handler); } };
+    addEventListener(name: string, handler: (event: any) => void) { canvasEvents.set(name, handler); }, removeEventListener() {} };
   const instance = { stepInput(facts: any, ticks: number) { turns.push({ facts: structuredClone(facts), ticks }); }, render: () => new Uint8Array(4), dispose() { disposed++; } };
   const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-  await new AsyncFunction("create", "document", "window", "fetch", "ImageData", "setTimeout", "clearTimeout", source)(
-    async () => instance, { getElementById: () => canvas, title: "" }, { addEventListener(name: string, handler: (event: any) => void) { windowEvents.set(name, handler); } },
+  await new AsyncFunction("create", "createBrowserInput", "document", "window", "fetch", "ImageData", "setTimeout", "clearTimeout", source)(
+    async () => instance, createBrowserInput, { getElementById: () => canvas, title: "" }, windowStub,
     async () => ({ json: async () => ({ title: "Input", viewport: [2000, 1200], simHz: 30 }) }), class {},
     (callback: () => void, delay: number) => { expect(delay).toBe(1000 / 30); timers.push(callback); return timers.length; }, () => {},
   );

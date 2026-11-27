@@ -287,6 +287,15 @@ export const OP = {
   fontStreamBatch: 59,
   captureTexts: 60,
   capturedTexts: 61,
+  // -- desktop pointer (input.pointer) --------------------------------------
+  setHover: 62, //        (idOr0) — the node under the pointer: it and its
+  //                      ancestors take their `hover:` variant (CSS :hover);
+  //                      0 clears. The framework sets it from the frame's
+  //                      pointer and hitTest; stale ids clear.
+  // -- layout readback (cold path) ------------------------------------------
+  layoutOf: 63, //        (id) -> bytes: the node's rounded layout box as four
+  //                      LE f32 (x, y relative to the parent, w, h) after
+  //                      settling pending layout; empty for a missing node.
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -371,6 +380,9 @@ export const PROP = {
   bevelWidth: 81, //      f32 px per ring (default 1)
   gradVia: 82, //         color u32 ABGR (optional middle gradient stop)
   gradViaPos: 83, //      f32 0..1; NAN = no middle stop
+  cursor: 84, //          enum Cursor: the system cursor while the pointer is
+  //                      over the node or a descendant without its own
+  //                      (input.pointer; Ui::hover_cursor). Paint-only.
 
   // -- text (96..127) --------------------------------------------------------
   textColor: 96, //     color u32 ABGR
@@ -378,6 +390,10 @@ export const PROP = {
   textAlign: 98, //     enum TextAlign
   lineHeight: 99, //    f32 px (overrides the atlas default)
   tracking: 100, //     f32 px extra advance per glyph
+  textWrap: 101, //     0|1. 1 = soft-wrap the run to the box width at layout
+  //                    and paint (CSS white-space: normal): breaks come from
+  //                    wrapText over the provider that measures the node;
+  //                    '\n' still breaks. 0 = break at '\n' only.
 
   // -- transform (128..159) — paint-only, never relayouts ---------------------
   translateX: 128, //   f32 px
@@ -493,7 +509,7 @@ export const LAYOUT_DIRTYING: readonly PropName[] = [
   "marginT", "marginR", "marginB", "marginL",
   "gap", "flexDir", "justify", "align", "grow", "shrink", "basis", "flexWrap",
   "posType", "insetT", "insetR", "insetB", "insetL", "display", "overflow", "contain",
-  "fontSlot", "textAlign", "lineHeight", "tracking",
+  "fontSlot", "textAlign", "lineHeight", "tracking", "textWrap",
 ];
 
 // ---------------------------------------------------------------------------
@@ -535,9 +551,10 @@ export const PROP_VALUE_KIND: Record<PropName, number> = {
   bevelOuterLight: VALUE_KIND.color, bevelOuterDark: VALUE_KIND.color,
   bevelInnerLight: VALUE_KIND.color, bevelInnerDark: VALUE_KIND.color,
   bevelWidth: VALUE_KIND.f32,
-  gradVia: VALUE_KIND.color, gradViaPos: VALUE_KIND.f32,
+  gradVia: VALUE_KIND.color, gradViaPos: VALUE_KIND.f32, cursor: VALUE_KIND.int,
   textColor: VALUE_KIND.color, fontSlot: VALUE_KIND.int,
   textAlign: VALUE_KIND.int, lineHeight: VALUE_KIND.f32, tracking: VALUE_KIND.f32,
+  textWrap: VALUE_KIND.int,
   translateX: VALUE_KIND.f32, translateY: VALUE_KIND.f32,
   scale: VALUE_KIND.f32, rotate: VALUE_KIND.f32,
   scaleX: VALUE_KIND.f32, scaleY: VALUE_KIND.f32,
@@ -555,6 +572,7 @@ export const PROP_VALUE_KIND: Record<PropName, number> = {
 
 export const ENUMS = {
   FlexDir: { Row: 0, Col: 1 },
+  Cursor: { Inherit: 0, Default: 1, Pointer: 2, Text: 3, NotAllowed: 4 },
   Justify: { Start: 0, Center: 1, End: 2, Between: 3, Around: 4 },
   Align: { Start: 0, Center: 1, End: 2, Stretch: 3 },
   PosType: { Relative: 0, Absolute: 1 },
@@ -923,8 +941,10 @@ export const WIRE_MARK_FLAG_ENDED = 1 << 0;
 // carried in each atlas header; the core just indexes a table.
 
 // 0..6 regular / 7..13 bold (FONT_PX sizes), 14/15 the 54 px display pair,
-// 16..18 monospace regular (12/14/16 px — `font-mono`, code spans).
-export const MAX_FONT_SLOTS = 24;
+// 16..18 monospace regular (12/14/16 px — `font-mono`, code spans), 19/20 the
+// 10 px pair, 21/22 PocketUI's run-time faces, 24..63 the slots an
+// application binds in `app.fonts.slots` (contracts/spec/app-config.ts).
+export const MAX_FONT_SLOTS = 64;
 
 // ---------------------------------------------------------------------------
 // STYLE TABLE binary format — styles.bin  (version 2)
@@ -950,7 +970,9 @@ export const MAX_FONT_SLOTS = 24;
 //              bit 2  STYLE_VARIANT_ACTIVE  active: variant present
 //              bit 3  STYLE_HAS_TRANSITION  transition block present
 //              bit 4  STYLE_HAS_ANIMATION   animation block present
-//              bits 5-7 reserved (0)
+//              bit 5  STYLE_VARIANT_HOVER   hover: variant present (a build
+//                                           whose target has input.pointer)
+//              bits 6-7 reserved (0)
 //     [if STYLE_HAS_TRANSITION] transition block (12 bytes):
 //       +0  u32  mask     anim-bit mask of props that transition (see
 //                         ANIMATABLE order; TRANSITION_MASK_ALL = all)
@@ -968,7 +990,8 @@ export const MAX_FONT_SLOTS = 24;
 //                             extension — plain CSS cannot loop a multi-
 //                             animation choreography without a remount.
 //       then n x u16 animId (index into the ANIM TABLE)
-//     Then, for each PRESENT variant in order base, focus, active:
+//     Then, for each PRESENT variant in order base, focus, active, hover
+//     (hover is last on the wire and applies between base and focus):
 //       +0  u8   propCount
 //       then propCount x 6-byte prop records:
 //         +0  u8   propId    (PROP value)
@@ -1023,6 +1046,7 @@ export const STYLE_VARIANT_FOCUS = 1 << 1;
 export const STYLE_VARIANT_ACTIVE = 1 << 2;
 export const STYLE_HAS_TRANSITION = 1 << 3;
 export const STYLE_HAS_ANIMATION = 1 << 4;
+export const STYLE_VARIANT_HOVER = 1 << 5;
 
 export const ANIM_ENTRY_HEADER_SIZE = 8;
 export const ANIM_SEGMENT_SIZE = 14;
@@ -1059,6 +1083,7 @@ export interface StyleRecord {
   base?: StyleProp[];
   focus?: StyleProp[];
   active?: StyleProp[];
+  hover?: StyleProp[];
   transition?: StyleTransition;
   animation?: StyleAnimation;
 }
@@ -1136,7 +1161,7 @@ export function encodeStyleTable(
       }
       size += 3 + s.animation.anims.length * 2;
     }
-    for (const v of [s.base, s.focus, s.active]) {
+    for (const v of [s.base, s.focus, s.active, s.hover]) {
       if (!v) continue;
       if (v.length > 0xff) throw new Error("styles.bin: >255 props in a variant");
       size += 1 + v.length * STYLE_PROP_RECORD_SIZE;
@@ -1166,6 +1191,7 @@ export function encodeStyleTable(
     if (s.base) flags |= STYLE_VARIANT_BASE;
     if (s.focus) flags |= STYLE_VARIANT_FOCUS;
     if (s.active) flags |= STYLE_VARIANT_ACTIVE;
+    if (s.hover) flags |= STYLE_VARIANT_HOVER;
     if (s.transition) flags |= STYLE_HAS_TRANSITION;
     if (s.animation) flags |= STYLE_HAS_ANIMATION;
     out[o++] = flags;
@@ -1187,7 +1213,7 @@ export function encodeStyleTable(
         o += 2;
       }
     }
-    for (const v of [s.base, s.focus, s.active]) {
+    for (const v of [s.base, s.focus, s.active, s.hover]) {
       if (!v) continue;
       out[o++] = v.length;
       for (const p of v) {
@@ -1266,10 +1292,11 @@ export function decodeStyleTable(bytes: Uint8Array): DecodedStyleTable {
       }
       s.animation = { anims: ids, loopFrames };
     }
-    const variants: Array<"base" | "focus" | "active"> = [];
+    const variants: Array<"base" | "focus" | "active" | "hover"> = [];
     if (flags & STYLE_VARIANT_BASE) variants.push("base");
     if (flags & STYLE_VARIANT_FOCUS) variants.push("focus");
     if (flags & STYLE_VARIANT_ACTIVE) variants.push("active");
+    if (flags & STYLE_VARIANT_HOVER) variants.push("hover");
     for (const name of variants) {
       const n = bytes[o++];
       const props: StyleProp[] = [];

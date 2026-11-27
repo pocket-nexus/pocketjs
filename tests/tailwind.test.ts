@@ -1,12 +1,15 @@
 // Unit tests for the Tailwind-subset token parser (framework/compiler/tailwind.ts).
 // Run: bun test tests/tailwind.test.ts   (wired into `bun run test`).
 
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import {
   DEFAULT_FONT_SLOT,
   compileClasses,
   fontSlotFor,
   fontSlotInfo,
+  generateStylesModule,
+  registerClassTarget,
+  registerFontSlots,
   paletteColor,
   parseClassLiteral,
   suspectClassLiteral,
@@ -34,7 +37,7 @@ import {
   setAnimationTickRate,
 } from "../framework/compiler/animation.ts";
 
-function props(rec: StyleRecord | null, variant: "base" | "focus" | "active" = "base"): Map<number, number> {
+function props(rec: StyleRecord | null, variant: "base" | "focus" | "active" | "hover" = "base"): Map<number, number> {
   expect(rec).not.toBeNull();
   const list: StyleProp[] = rec![variant] ?? [];
   return new Map(list.map((p) => [p.prop, p.value]));
@@ -204,7 +207,7 @@ describe("text", () => {
   test("text-2xs is the 10px pair at slots 19 and 20, after monospace", () => {
     expect(fontSlotFor(10, false)).toBe(19);
     expect(fontSlotFor(10, true)).toBe(20);
-    expect(fontSlotInfo(20)).toEqual({ px: 10, bold: true, mono: false });
+    expect(fontSlotInfo(20)).toEqual({ px: 10, bold: true, mono: false, face: "bold" });
     expect(props(parseClassLiteral("text-2xs font-bold")).get(PROP.fontSlot)).toBe(20);
     expect(fontSlotFor(12, false)).toBe(0);
   });
@@ -225,6 +228,14 @@ describe("text", () => {
     expect(f32Of(m, PROP.lineHeight)).toBe(24);
     expect(f32Of(m, PROP.tracking)).toBeCloseTo(0.025 * 18, 5);
     expect(m.get(PROP.fontSlot)).toBe(fontSlotFor(18, false));
+  });
+  test("cursor-*", () => {
+    expect(props(parseClassLiteral("cursor-pointer p-2")).get(PROP.cursor)).toBe(ENUMS.Cursor.Pointer);
+    expect(props(parseClassLiteral("cursor-text")).get(PROP.cursor)).toBe(ENUMS.Cursor.Text);
+  });
+  test("text-wrap / text-nowrap", () => {
+    expect(props(parseClassLiteral("text-wrap text-sm")).get(PROP.textWrap)).toBe(1);
+    expect(props(parseClassLiteral("text-wrap text-nowrap")).get(PROP.textWrap)).toBe(0);
   });
 });
 
@@ -247,8 +258,22 @@ describe("variants", () => {
     expect(props(rec, "focus").get(PROP.bgColor)).toBe(abgr(0xa5, 0xb4, 0xfc));
     expect(bitsF32(props(rec, "active").get(PROP.scale)!)).toBeCloseTo(0.95, 5);
   });
-  test("hover: is a loud error in an otherwise-valid literal", () => {
-    expect(() => parseClassLiteral("p-2 hover:bg-white")).toThrow(/hover/);
+  test("hover: is a loud error in an otherwise-valid literal for a target without a pointer", () => {
+    expect(() => parseClassLiteral("p-2 hover:bg-white")).toThrow(/input\.pointer/);
+  });
+  test("hover: compiles into its own block for a target with input.pointer", () => {
+    registerClassTarget({ pointer: true });
+    try {
+      const rec = parseClassLiteral("bg-white hover:bg-amber-50 hover:translate-y-[-1px] active:translate-y-[2px] transition-transform")!;
+      expect(props(rec, "hover").get(PROP.bgColor)).toBe(abgr(0xff, 0xfb, 0xeb));
+      expect(bitsF32(props(rec, "hover").get(PROP.translateY)!)).toBe(-1);
+      expect(bitsF32(props(rec, "active").get(PROP.translateY)!)).toBe(2);
+      // The record round-trips through styles.bin with the hover flag.
+      const table = decodeStyleTable(compileClasses(["bg-white hover:bg-amber-50"]).bin);
+      expect(table.styles[0]!.hover).toEqual([{ prop: PROP.bgColor, value: abgr(0xff, 0xfb, 0xeb) }]);
+    } finally {
+      registerClassTarget();
+    }
   });
 });
 
@@ -594,5 +619,37 @@ describe("literals that do not compile", () => {
     expect(suspectClassLiteral("bob 0.9s ease-in-out infinite")).toBeNull();
     // As many unsupported tokens as supported ones reads as text, not as a class string.
     expect(suspectClassLiteral("flex wrong-one")).toBeNull();
+  });
+});
+
+describe("application font slots", () => {
+  afterEach(() => registerFontSlots());
+  test("text-[Npx] and font-<face> select the slots app.fonts.slots binds", () => {
+    registerFontSlots([
+      { slot: 24, px: 13, face: "regular" },
+      { slot: 25, px: 13, face: "bold", lineHeight: 18 },
+      { slot: 26, px: 18, face: "display" },
+      { slot: 27, px: 16, face: "regular", lineHeight: 22 },
+    ], ["display"]);
+    expect(props(parseClassLiteral("text-[13px]")).get(PROP.fontSlot)).toBe(24);
+    expect(props(parseClassLiteral("text-[13] font-bold")).get(PROP.fontSlot)).toBe(25);
+    expect(props(parseClassLiteral("text-lg font-display")).get(PROP.fontSlot)).toBe(26);
+    // A bound pair wins over the built-in slot of the same pair.
+    expect(props(parseClassLiteral("text-base")).get(PROP.fontSlot)).toBe(27);
+    // Built-in sizes without a binding keep the ramp.
+    expect(props(parseClassLiteral("text-sm font-bold")).get(PROP.fontSlot)).toBe(fontSlotFor(14, true));
+    expect(props(parseClassLiteral("font-bold font-normal text-sm")).get(PROP.fontSlot)).toBe(fontSlotFor(14, false));
+    expect(fontSlotInfo(25)).toEqual({ px: 13, bold: true, mono: false, face: "bold", lineHeight: 18 });
+    expect(fontSlotInfo(26).face).toBe("display");
+    const generated = generateStylesModule(compileClasses(["text-lg font-display", "text-[13] font-bold"]));
+    expect(generated).toContain(`26: { px: 18, bold: false, face: "display" }`);
+    expect(generated).toContain(`25: { px: 13, bold: true, lineHeight: 18 }`);
+  });
+  test("an unbound size or face is a build error, an unknown face is not a utility", () => {
+    registerFontSlots([{ slot: 24, px: 18, face: "display" }], ["display"]);
+    expect(() => parseClassLiteral("text-[13px]")).toThrow(/no font slot for 13px/);
+    expect(() => parseClassLiteral("text-sm font-display")).toThrow(/no font slot for 14px display/);
+    expect(parseClassLiteral("text-lg font-script")).toBeNull();
+    expect(() => registerFontSlots([{ slot: 12, px: 13, face: "regular" }])).toThrow(/outside 24/);
   });
 });

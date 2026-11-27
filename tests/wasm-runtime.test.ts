@@ -107,3 +107,24 @@ test("registered public services use generated dispatch and explicit host identi
   guarded.boot("globalThis.frame=()=>ui.svcOpen('x')",{global:g,evaluate:evaluator(g),providers:{svcOpen:()=>guarded.ops.createNode(0)>0}});
   expect(()=>guarded.advance()).toThrow("Busy");guarded.dispose();
 });
+
+test("browser pointer, wheel and keyboard facts reach the guest frame",async()=>{
+  const wasm=await make(),realm:Record<string,any>={};
+  wasm.boot(source,{global:realm,evaluate:evaluator(realm)});wasm.present();
+  wasm.advance({pointer:{x:20.5,y:7,buttons:0},scroll:[0,48],text:[
+    {kind:"key",key:"w",pressed:true,repeat:false},{kind:"commit",text:"w岛"},
+    {kind:"composition",text:"da",selectionStart:2,selectionEnd:2},{kind:"compositionEnd"},{kind:"key",key:"w",pressed:false}]});
+  // Ninth argument: text events; tenth: the pointer with its scroll.
+  expect(realm.lastFrame[8].map((e:any)=>[e.kind,e.text])).toEqual([[0,"w"],[2,"w岛"],[3,"da"],[4,undefined],[1,"w"]].map(([kind,text])=>text===undefined?[kind,expect.anything()]:[kind,text]) as any);
+  expect(realm.lastFrame[9]).toMatchObject({x:20.5,y:7,buttons:0,scrollX:0,scrollY:48});
+  // No button: a hover is not a contact.
+  expect(realm.lastFrame[2]).toEqual([]);
+  // A held primary button is a contact, hit at its DOWN edge.
+  wasm.present();wasm.advance({pointer:{x:3,y:3,buttons:1}});
+  expect(realm.lastFrame[2].length).toBe(1);expect(realm.lastFrame[3]).toEqual([wasm.ops.hitTestBounds!(3,3)]);
+  // The cursor follows the hovered node's cursor prop.
+  expect(wasm.hoverCursor()).toBe(1);
+  wasm.ops.setProp(wasm.ops.hitTestBounds!(3,3),PROP.cursor,2);wasm.ops.setHover!(wasm.ops.hitTestBounds!(3,3));expect(wasm.hoverCursor()).toBe(2);
+  expect(()=>wasm.advance({text:[{kind:"bogus"}]})).toThrow();
+  wasm.dispose();
+});

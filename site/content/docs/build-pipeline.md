@@ -323,7 +323,8 @@ variant (the PSP has no pointer — use `focus:`/`active:`).
 (`styles.usedFontSlots`, which always includes the 16px‑regular default slot).
 A slot is a pinned (size, weight, family) triple chosen by the `text-*`,
 `font-bold`, and `font-mono` utilities. The table lives in
-`framework/compiler/tailwind.ts` and holds up to `MAX_FONT_SLOTS` = 24 entries.
+`framework/compiler/tailwind.ts` and holds up to `MAX_FONT_SLOTS` = 64 entries;
+slots 24–63 are the ones `app.fonts.slots` binds.
 The assigned slots:
 
 | Slots | Face | Sizes |

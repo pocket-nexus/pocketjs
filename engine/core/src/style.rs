@@ -64,6 +64,9 @@ pub struct StyleRecord {
     pub base: Vec<(u8, u32)>,
     pub focus: Vec<(u8, u32)>,
     pub active: Vec<(u8, u32)>,
+    /// `hover:` — applied between base and focus while the node or one of
+    /// its descendants is under the pointer (`Ui::set_hover`).
+    pub hover: Vec<(u8, u32)>,
 }
 
 /// One baked animation segment: `prop` goes from→to over frames [t0, t1).
@@ -148,11 +151,12 @@ impl StyleTable {
                 }
                 rec.animation = Some(StyleAnimation { loop_frames, anims });
             }
-            for v in 0..3u8 {
+            for v in 0..4u8 {
                 let bit = match v {
                     0 => st::VARIANT_BASE,
                     1 => st::VARIANT_FOCUS,
-                    _ => st::VARIANT_ACTIVE,
+                    2 => st::VARIANT_ACTIVE,
+                    _ => st::VARIANT_HOVER,
                 };
                 if flags & bit == 0 {
                     continue;
@@ -169,7 +173,8 @@ impl StyleTable {
                 match v {
                     0 => rec.base = props,
                     1 => rec.focus = props,
-                    _ => rec.active = props,
+                    2 => rec.active = props,
+                    _ => rec.hover = props,
                 }
             }
             records.push(rec);
@@ -281,12 +286,16 @@ pub struct Resolved {
     pub bevel_inner_light: u32,
     pub bevel_inner_dark: u32,
     pub bevel_width: f32,
+    /// spec::Cursor ordinal; 0 inherits the parent's (PROP cursor).
+    pub cursor: u8,
     pub text_color: u32,
     pub font_slot: u32,
     pub text_align: u8,
     /// NAN = use the atlas default.
     pub line_height: f32,
     pub tracking: f32,
+    /// 1 = soft-wrap the run to the box width (PROP textWrap).
+    pub text_wrap: u8,
     pub translate_x: f32,
     pub translate_y: f32,
     pub scale: f32,
@@ -354,11 +363,13 @@ impl Default for Resolved {
             bevel_inner_light: 0,
             bevel_inner_dark: 0,
             bevel_width: 1.0,
+            cursor: 0,
             text_color: 0xffff_ffff,
             font_slot: 0,
             text_align: spec::TextAlign::Left as u8,
             line_height: f32::NAN,
             tracking: 0.0,
+            text_wrap: 0,
             translate_x: 0.0,
             translate_y: 0.0,
             scale: 1.0,
@@ -443,11 +454,13 @@ impl Resolved {
             p::BEVEL_INNER_LIGHT => self.bevel_inner_light = bits,
             p::BEVEL_INNER_DARK => self.bevel_inner_dark = bits,
             p::BEVEL_WIDTH => self.bevel_width = f,
+            p::CURSOR => self.cursor = bits as u8,
             p::TEXT_COLOR => self.text_color = bits,
             p::FONT_SLOT => self.font_slot = bits,
             p::TEXT_ALIGN => self.text_align = bits as u8,
             p::LINE_HEIGHT => self.line_height = f,
             p::TRACKING => self.tracking = f,
+            p::TEXT_WRAP => self.text_wrap = (bits != 0) as u8,
             p::TRANSLATE_X => self.translate_x = f,
             p::TRANSLATE_Y => self.translate_y = f,
             p::SCALE => self.scale = f,
@@ -521,11 +534,13 @@ impl Resolved {
             p::BEVEL_INNER_LIGHT => self.bevel_inner_light,
             p::BEVEL_INNER_DARK => self.bevel_inner_dark,
             p::BEVEL_WIDTH => self.bevel_width.to_bits(),
+            p::CURSOR => self.cursor as u32,
             p::TEXT_COLOR => self.text_color,
             p::FONT_SLOT => self.font_slot,
             p::TEXT_ALIGN => self.text_align as u32,
             p::LINE_HEIGHT => self.line_height.to_bits(),
             p::TRACKING => self.tracking.to_bits(),
+            p::TEXT_WRAP => self.text_wrap as u32,
             p::TRANSLATE_X => self.translate_x.to_bits(),
             p::TRANSLATE_Y => self.translate_y.to_bits(),
             p::SCALE => self.scale.to_bits(),
@@ -623,6 +638,11 @@ fn for_each_entry(node: &Node, table: &StyleTable, layers: Layers, mut apply: im
     if let Some(rec) = table.record(node.style_id) {
         for &(p, v) in &rec.base {
             apply(p, v);
+        }
+        if node.hovered {
+            for &(p, v) in &rec.hover {
+                apply(p, v);
+            }
         }
         if node.focused {
             for &(p, v) in &rec.focus {

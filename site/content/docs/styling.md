@@ -129,6 +129,30 @@ pressed look drops away when the list starts scrolling
 ([/docs/touch-gestures/](/docs/touch-gestures/) for the claim model,
 [/docs/input-focus/](/docs/input-focus/) for how focus moves).
 
+### `hover:` on a pointer target
+
+**`hover:` compiles when the build's plan turns on `input.pointer`**, and is a
+build error on every other target. It is a third variant block in the same
+record. Once per frame the framework hit-tests the frame's pointer (`hitTest`,
+op 27) and passes the topmost painted node to `setHover` (op 62); the core
+applies `hover:` to that node and to each of its ancestors, as CSS `:hover`
+does, and clears it when the pointer leaves the surface. Resolution order is
+base, `hover:`, `focus:`, `active:`, so a focused or pressed control shows its
+focus or press look under the pointer. A record without a `hover:` block flips
+the flag without retargeting, so the pointer crossing it restarts no
+transition.
+
+```tsx
+<View class="rounded-full bg-white hover:translate-y-[-1px] active:translate-y-[2px] transition-transform" onPress={open} />
+```
+
+**`cursor-default`, `cursor-pointer`, `cursor-text` and `cursor-not-allowed`
+name the system cursor over a node** (PROP `cursor`, paint-only). The core
+answers `Ui::hover_cursor()` with the first cursor set along the hovered chain,
+node first, and `Default` when none is set; a host with `input.pointer` reads
+it after each frame and shows the matching OS cursor
+(`AppInstance.cursor()` returns the CSS name in a browser).
+
 Any utility below can carry a variant prefix, with one exception: motion and
 `animate-*` tokens are recognized on the base variant only, so `focus:transition`
 drops **the whole literal** to plain text. A prefix that is not `focus:`,
@@ -171,7 +195,7 @@ text:
 |---|---|---|
 | `classList={{ … }}` | pass-1 babel | Ternary of full literals |
 | ``class={`a ${b}`}`` (template-interpolated) | pass-1 babel | Ternary of full literals |
-| `hover:…` | class compiler | `focus:` / `active:` — no pointer on PSP |
+| `hover:…` on a target without `input.pointer` | class compiler | `focus:` / `active:`, or list `input.pointer` |
 | `rounded-full` with no `w-N`/`h-N` in the same literal | class compiler | Pin a build-time size |
 | `bevel-*` together with any `rounded*` | class compiler | Drop one — bevels are square-only |
 | `animate-loop-[…]` with no `animate-<name>` | class compiler | Name the animation in the same literal |
@@ -300,17 +324,31 @@ token is a compile error.
 |---|---|
 | `text-{color}` | text color |
 | `text-2xs` \| `-xs` \| `-sm` \| `-base` \| `-lg` \| `-xl` \| `-2xl` \| `-4xl` \| `-5xl` | 10 / 12 / 14 / 16 / 18 / 20 / 24 / 36 / 54 px |
-| `font-bold` | bold weight of the same size |
+| `text-[Npx]` | a size the built-in ramp or `app.fonts.slots` binds |
+| `font-bold` \| `font-normal` | bold \| regular weight of the same size |
+| `font-<face>` | a face named in `app.fonts.faces`, at a size `app.fonts.slots` binds |
 | `font-mono` | JetBrains Mono at slots 16–18: sizes 12/14/16 only, regular weight only |
 | `text-left` \| `text-center` \| `text-right` | horizontal alignment |
 | `leading-N` | line height (spacing scale or arbitrary px) |
 | `tracking-wide` | letter spacing = `0.025 × font-size` |
+| `text-wrap` \| `text-nowrap` | soft-wrap the run to its box width \| break at `\n` only (default) |
+
+**`text-wrap` wraps a run where CSS `white-space: normal` would.** Layout
+measures the leaf under the width taffy offers it (min-content takes every
+break opportunity) and the painter inserts the same breaks under the solved box
+width, so the painted rows are the measured rows. Breaks come from `wrapText`
+over the provider that measures the node: before a word that overflows, and on
+either side of a CJK ideograph or kana, never before closing punctuation. A
+space a break leaves at the end of a row is dropped.
 
 A text-size utility selects a **baked font-atlas slot**, not a free number:
 slots 0–6 are the regular sizes, 7–13 their bold pairs, 14/15 the 54px pair,
 16–18 monospace, 19/20 the 10px pair (`text-2xs`, for labels under icons).
-There is no arbitrary font size. Text with no size or weight
-utility uses **16px regular**.
+Slots 24–63 are the application's: `app.fonts.slots` binds
+each to a size and a face ([Application config](/docs/app-config/#appfonts)),
+and `text-[Npx]` with `font-bold`, `font-mono` or `font-<face>` selects one.
+A size no slot binds fails the build. Text with no size or weight utility uses
+**16px regular**.
 
 `font-mono` overrides weight — `font-mono font-bold` lands on the mono slot for
 its size — and a mono size with no slot throws at build time: `text-lg font-mono`

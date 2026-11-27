@@ -271,9 +271,15 @@ describe("platform registry", () => {
         rasterDensity: 1,
         animation: "composited",
       },
+      // programs/web/main.js and platforms/web/browser-input.js send the
+      // pointer, its wheel and the keyboard's keys, text and composition.
       capabilities: [
         "display.viewport.live",
         "input.buttons",
+        "input.ime",
+        "input.pointer",
+        "input.scroll",
+        "input.text",
         "io.offload",
         "text.glyphs.baked",
         "text.glyphs.runtime",

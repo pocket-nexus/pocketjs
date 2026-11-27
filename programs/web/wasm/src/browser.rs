@@ -10,6 +10,10 @@ const BROWSER_CAPABILITIES: &[Cow<'static, str>] = &[
     Cow::Borrowed("input.analog.right"),
     Cow::Borrowed("input.axis.relative"),
     Cow::Borrowed("input.buttons"),
+    Cow::Borrowed("input.ime"),
+    Cow::Borrowed("input.pointer"),
+    Cow::Borrowed("input.scroll"),
+    Cow::Borrowed("input.text"),
     Cow::Borrowed("input.touch"),
     Cow::Borrowed("input.touch.auxiliary"),
     Cow::Borrowed("text.glyphs.baked"),
@@ -77,6 +81,34 @@ impl Guest for BrowserGuest {
             .iter()
             .map(|a| json!({"axis":a.id,"delta":a.delta}))
             .collect::<Vec<_>>();
+        // Ninth to eleventh arguments, shaped as the QuickJS guests shape
+        // them: text events, the pointer with its scroll, exact positions.
+        let text = f
+            .text
+            .iter()
+            .filter_map(|event| {
+                let (kind, text, start, end, repeat) = match event {
+                    TextEvent::Key { key, pressed, repeat } => (
+                        if *pressed { POCKET_TEXT_KEY_DOWN } else { POCKET_TEXT_KEY_UP },
+                        key.as_str(),
+                        0,
+                        0,
+                        *repeat,
+                    ),
+                    TextEvent::Commit(text) => (POCKET_TEXT_COMMIT, text.as_str(), 0, 0, false),
+                    TextEvent::Composition { text, selection_start, selection_end } => {
+                        (POCKET_TEXT_COMPOSITION, text.as_str(), *selection_start, *selection_end, false)
+                    }
+                    TextEvent::CompositionEnd => (POCKET_TEXT_COMPOSITION_END, "", 0, 0, false),
+                    _ => return None,
+                };
+                Some(json!({"kind":kind,"text":text,"selectionStart":start,"selectionEnd":end,"repeat":repeat}))
+            })
+            .collect::<Vec<_>>();
+        let pointer = match f.pointer {
+            Some(p) => json!({"surface":p.surface,"x":p.x,"y":p.y,"buttons":p.buttons,"scrollX":f.scroll[0],"scrollY":f.scroll[1]}),
+            None => Value::Null,
+        };
         self.call(
             2,
             &serde_json::to_vec(&json!([
@@ -87,7 +119,10 @@ impl Guest for BrowserGuest {
                 f.touch_surfaces,
                 f.right_analog,
                 deltas,
-                null
+                null,
+                text,
+                pointer,
+                f.touch_positions
             ]))
             .unwrap(),
             &[],
@@ -107,6 +142,8 @@ impl InputSource for BrowserInput {
             | InputClasses::AXIS_ABSOLUTE
             | InputClasses::CONTACT
             | InputClasses::AXIS_RELATIVE
+            | InputClasses::POINTER
+            | InputClasses::TEXT
     }
     fn poll(&mut self, f: &mut InputFrameBuilder) {
         let src = self.0.borrow();
@@ -114,6 +151,12 @@ impl InputSource for BrowserInput {
         f.axes.extend_from_slice(&src.axes);
         f.contacts.extend_from_slice(&src.contacts);
         f.relative.extend_from_slice(&src.relative);
+        if src.pointer.is_some() {
+            f.pointer = src.pointer;
+        }
+        f.text.extend(src.text.iter().cloned());
+        f.scroll[0] += src.scroll[0];
+        f.scroll[1] += src.scroll[1];
     }
 }
 #[derive(Clone, Copy, Default)]
@@ -367,6 +410,43 @@ pub unsafe extern "C" fn web_advance(h: &WasmHost, p: *const u8, n: usize, ticks
                         x: c["x"].as_f64().ok_or(RuntimeError::InvalidInput)? as f32,
                         y: c["y"].as_f64().ok_or(RuntimeError::InvalidInput)? as f32,
                         cancelled: c["cancelled"].as_bool().unwrap_or(false),
+                    });
+                }
+            }
+            // A real pointer (input.pointer): logical px of its surface with
+            // the held DOM buttons; button 0 becomes a contact in Runtime.
+            if let Some(pointer) = value["pointer"].as_object() {
+                facts.pointer = Some(Pointer {
+                    surface: pointer.get("surface").and_then(Value::as_u64).unwrap_or(0) as u32,
+                    x: pointer.get("x").and_then(Value::as_f64).ok_or(RuntimeError::InvalidInput)? as f32,
+                    y: pointer.get("y").and_then(Value::as_f64).ok_or(RuntimeError::InvalidInput)? as f32,
+                    buttons: pointer.get("buttons").and_then(Value::as_u64).unwrap_or(0) as u32,
+                });
+            }
+            // Wheel and trackpad deltas since the last sample (input.scroll).
+            if let Some(scroll) = value["scroll"].as_array() {
+                for (axis, delta) in scroll.iter().take(2).enumerate() {
+                    facts.scroll[axis] = delta.as_f64().ok_or(RuntimeError::InvalidInput)? as f32;
+                }
+            }
+            // Keyboard and composition events (input.text, input.ime), in order.
+            if let Some(events) = value["text"].as_array() {
+                for event in events {
+                    let text = || event["text"].as_str().map(String::from).ok_or(RuntimeError::InvalidInput);
+                    facts.text.push(match event["kind"].as_str() {
+                        Some("key") => TextEvent::Key {
+                            key: event["key"].as_str().map(String::from).ok_or(RuntimeError::InvalidInput)?,
+                            pressed: event["pressed"].as_bool().unwrap_or(true),
+                            repeat: event["repeat"].as_bool().unwrap_or(false),
+                        },
+                        Some("commit") => TextEvent::Commit(text()?),
+                        Some("composition") => TextEvent::Composition {
+                            text: text()?,
+                            selection_start: event["selectionStart"].as_u64().unwrap_or(0) as u32,
+                            selection_end: event["selectionEnd"].as_u64().unwrap_or(0) as u32,
+                        },
+                        Some("compositionEnd") => TextEvent::CompositionEnd,
+                        _ => return Err(RuntimeError::InvalidInput),
                     });
                 }
             }

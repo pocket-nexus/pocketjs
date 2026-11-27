@@ -132,3 +132,31 @@ describe("runtime glyphs: the core lays them out", () => {
     expect(installed.stats().reloads).toBe(0);
   });
 });
+
+describe("runtime glyphs: the canvas rasterizer", () => {
+  test("a slot's own face, weight and style set its run-time glyphs", () => {
+    const fonts: string[] = [];
+    const context = {
+      font: "",
+      fillStyle: "",
+      textBaseline: "",
+      measureText: () => ({ width: 10, actualBoundingBoxLeft: 0, actualBoundingBoxRight: 10 }),
+      clearRect: () => {},
+      fillText: function (this: { font: string }) { fonts.push(this.font); },
+      getImageData: (_x: number, _y: number, w: number, h: number) => ({ data: new Uint8ClampedArray(w * h * 4) }),
+    };
+    const createCanvas = (width: number, height: number) => ({ width, height, getContext: () => context });
+    const rasterize = glyphs.canvasRasterizer({
+      families: "sans-serif",
+      slots: { 24: { families: ["ZCOOL KuaiLe", "PingFang SC", "sans-serif"], weight: 400, italic: true } },
+      createCanvas,
+    });
+    const atlas = (slot: number, flags: number): glyphs.RuntimeAtlas => ({
+      cellW: 24, cellH: 24, baseline: 18, lineHeight: 24, slot, flags, density: 1,
+      glyphs: [], known: new Set(), coverage: new Uint8Array(0), em: 20, bilevel: false,
+    });
+    rasterize(0x4e00, atlas(24, 1));
+    rasterize(0x4e00, atlas(2, 1));
+    expect(fonts).toEqual([`italic 400 20px "ZCOOL KuaiLe", "PingFang SC", sans-serif`, "700 20px sans-serif"]);
+  });
+});

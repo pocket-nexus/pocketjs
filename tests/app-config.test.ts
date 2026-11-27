@@ -149,6 +149,20 @@ test("pocket compile writes one bundle with the config's identity and icon", asy
   }
 }, 120_000);
 
+test("app.alias enters the plan and rejects paths and self-maps", () => {
+  const request = { target: "psp", configDirectory: resolve(ROOT, "apps/demo"), projectRoot: ROOT };
+  const plain = resolveAppPlan(application, request);
+  const aliased = resolveAppPlan({ ...application, alias: { three: "three/webgpu" } }, request);
+  if (!plain.ok || !aliased.ok) throw new Error("plans did not resolve");
+  expect(plain.plan.app.alias).toBeUndefined();
+  expect(aliased.plan.app.alias).toEqual({ three: "three/webgpu" });
+  expect(aliased.plan.planHash).not.toBe(plain.plan.planHash);
+  for (const alias of [{ three: "./three.js" }, { "./local": "three" }, { three: "three" }, { three: "/abs/three" }]) {
+    const rejected = resolveAppPlan({ ...application, alias }, request);
+    expect(rejected.ok).toBe(false);
+  }
+});
+
 test("app.fonts enters the plan relative to the project root", () => {
   const fonts = { regular: "fonts/Face-Regular.ttf", mono: "fonts/Face-Mono.otf" };
   const request = { target: "psp", configDirectory: resolve(ROOT, "apps/demo"), projectRoot: ROOT };
@@ -164,6 +178,32 @@ test("app.fonts enters the plan relative to the project root", () => {
     [{ bold: "/fonts/Face.ttf" }, "/app/fonts/bold"],
     [{ mono: "fonts/Face.woff2" }, "/app/fonts/mono"],
     [{ italic: "fonts/Face.ttf" }, "/app/fonts/italic"],
+  ] as const) {
+    expect(validateAppConfig({ ...application, fonts: invalid }).map(item => item.path)).toEqual([path]);
+  }
+});
+
+test("app.fonts.faces and app.fonts.slots enter the plan and are checked", () => {
+  const fonts = {
+    regular: "fonts/Face-Regular.ttf",
+    faces: { display: "fonts/Display.ttf" },
+    slots: [{ slot: 24, px: 13, face: "regular" }, { slot: 25, px: 18, face: "display", lineHeight: 24 }],
+  };
+  const request = { target: "psp", configDirectory: resolve(ROOT, "apps/demo"), projectRoot: ROOT };
+  const selected = resolveAppPlan({ ...application, fonts }, request);
+  if (!selected.ok) throw new Error("plan did not resolve");
+  expect(selected.plan.app.fonts).toEqual({
+    regular: "apps/demo/fonts/Face-Regular.ttf",
+    faces: { display: "apps/demo/fonts/Display.ttf" },
+    slots: fonts.slots,
+  });
+  for (const [invalid, path] of [
+    [{ slots: [{ slot: 12, px: 13, face: "regular" }] }, "/app/fonts/slots/0/slot"],
+    [{ slots: [{ slot: 24, px: 13, face: "script" }] }, "/app/fonts/slots/0/face"],
+    [{ slots: [{ slot: 24, px: 13, face: "regular" }, { slot: 24, px: 14, face: "regular" }] }, "/app/fonts/slots/1/slot"],
+    [{ slots: [{ slot: 24, px: 13, face: "regular" }, { slot: 25, px: 13, face: "regular" }] }, "/app/fonts/slots/1"],
+    [{ faces: { Bold2: "fonts/B.ttf" } }, "/app/fonts/faces/Bold2"],
+    [{ faces: { mono: "fonts/B.ttf" } }, "/app/fonts/faces/mono"],
   ] as const) {
     expect(validateAppConfig({ ...application, fonts: invalid }).map(item => item.path)).toEqual([path]);
   }

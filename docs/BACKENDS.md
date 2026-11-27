@@ -35,7 +35,9 @@ Symbian GLES2 ports.
 **A custom renderer can install its text measure and wrap providers** through
 `Ui::set_text_measure` and `Ui::set_text_wrap` before the guest mounts.
 The renderer must consume `TEXT_RUN` and paint with the provider that measured
-the run. The DrawList stores the run's UTF-8 bytes and style hash.
+the run. The DrawList stores the run's UTF-8 bytes and style hash. A run with
+`textWrap` carries a `\n` at each soft break the core computed under the box
+width, so the renderer breaks rows only at `\n`.
 `TEXT_RUN` carries the run's tracking (word1 bits 16-31, signed 8.8 fixed-point
 px), which the measurer received too. Runs under a 2D transform (rotate, scale,
 skew) are `TEXT_RUN_XF`: the run plus the 2x2 linear part of its world
@@ -62,6 +64,22 @@ own wasm `Ui`** (`programs/web/app-instance.js`, the AppInstance). The page
 that creates the iframe owns scheduling and composition through the
 instance object; the package receives no other realm or framebuffer. This
 repository's web program runs one application.
+
+**The browser's pointer, wheel and keyboard reach the guest as input
+facts** (`platforms/web/browser-input.js`): the pointer in logical px with its
+held buttons, hovering or not (`input.pointer`), wheel deltas in px
+(`input.scroll`), key events named as `KeyboardEvent.key`, typed text as
+commits and IME composition from a hidden textarea (`input.text`,
+`input.ime`). `programs/web/main.js` sends a pointer when the plan has
+`input.pointer` and touch contacts otherwise; the wasm program forwards them as
+the ninth to eleventh frame arguments, shaped as the QuickJS guests shape them.
+
+**A page lays an interface over content of its own with
+`platforms/web/ui-layer.js`**: a WebGL2 canvas with `premultipliedAlpha`
+shows `renderPremultiplied` and re-uploads it when the draw hash or size
+changes. The layer takes the pointer; the guest tells a press on its
+interface from one on the content beneath by the press's DOWN-edge hit fact
+(0: no painted node).
 
 **Each AppInstance draws codepoints its baked atlases lack**
 (`text.glyphs.runtime`, `platforms/web/runtime-glyphs.js`): the realm appends a

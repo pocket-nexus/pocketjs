@@ -525,8 +525,13 @@ export function resolveAppPlan(
   };
   const entry = planPath(app.entry, "/app/entry");
   // The faces travel in the plan relative to the project root, like the entry.
-  const fonts: AppFonts | undefined = app.fonts && Object.fromEntries(APP_FONT_FACES.flatMap(face =>
-    app.fonts![face] === undefined ? [] : [[face, planPath(app.fonts![face]!, `/app/fonts/${face}`)]]));
+  const fonts: AppFonts | undefined = app.fonts && {
+    ...Object.fromEntries(APP_FONT_FACES.flatMap(face =>
+      app.fonts![face] === undefined ? [] : [[face, planPath(app.fonts![face]!, `/app/fonts/${face}`)]])),
+    ...(app.fonts.faces ? { faces: Object.fromEntries(Object.entries(app.fonts.faces).map(([name, path]) =>
+      [name, planPath(path, `/app/fonts/faces/${name}`)])) } : {}),
+    ...(app.fonts.slots ? { slots: app.fonts.slots } : {}),
+  };
   const modality = deriveModality(profile);
   const presentation = { id: "default", entry };
   const resolvedViewport = resolveViewport(app.viewport, "/app/viewport", profile, diagnostics);
@@ -703,6 +708,7 @@ export function resolveAppPlan(
       framework: app.framework,
       ...(theme !== undefined ? { theme } : {}),
       ...(fonts !== undefined ? { fonts } : {}),
+      ...(app.alias !== undefined ? { alias: app.alias } : {}),
       ...(app.aot !== undefined ? { aot: app.aot } : {}),
       ...(app.model !== undefined ? { model: app.model } : {}),
       ...(app.recursionLimit !== undefined ? { recursionLimit: app.recursionLimit } : {}),
