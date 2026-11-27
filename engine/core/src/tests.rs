@@ -4938,7 +4938,7 @@ fn native_measure_routes_layout_and_emits_text_run() {
 }
 
 #[test]
-fn tracked_runs_use_the_baked_pair_and_2d_transformed_runs_stay_native() {
+fn tracked_and_2d_transformed_runs_stay_native() {
     let mut ui = Ui::new();
     ui.load_font_atlas(&encode_atlas(
         0,
@@ -4950,13 +4950,13 @@ fn tracked_runs_use_the_baked_pair_and_2d_transformed_runs_stay_native() {
         &[(0xfffd, 0, 8), ('A' as u32, 1, 6), ('B' as u32, 2, 5)],
     ));
     ui.set_text_measure(Some(fake_native_measure()));
-    // Tracked run: baked measurement AND baked glyphs (consistent pair).
+    // Tracked run: native measurement, and TEXT_RUN carries the tracking
+    // (word1 bits 16-31, signed 8.8 fixed point) to the host's painter.
     let tracked = ui.create_node(spec::NodeType::Text as u8);
-    ui.set_prop(tracked, spec::prop::TRACKING, 2.0);
+    ui.set_prop(tracked, spec::prop::TRACKING, 2.5);
     ui.set_text(tracked, "AB");
     ui.insert_before(spec::ROOT_ID, tracked, 0);
-    // Rotated run: native measurement, and TEXT_RUN_XF carries the rotation
-    // to the backend — one provider on both sides.
+    // Rotated run: native measurement, and TEXT_RUN_XF carries the rotation.
     let rotated = ui.create_node(spec::NodeType::Text as u8);
     ui.set_prop(rotated, spec::prop::WIDTH, 20.0);
     ui.set_prop(rotated, spec::prop::ROTATE, 45.0);
@@ -4972,13 +4972,11 @@ fn tracked_runs_use_the_baked_pair_and_2d_transformed_runs_stay_native() {
     ui.tick();
     let words = ui.draw().words.clone();
     let counts = validate_drawlist(&words);
-    assert_eq!(counts[spec::draw_op::TEXT_RUN as usize], 0);
+    assert_eq!(counts[spec::draw_op::TEXT_RUN as usize], 1, "the tracked run");
     assert_eq!(counts[spec::draw_op::TEXT_RUN_XF as usize], 2);
-    assert_eq!(
-        counts[spec::draw_op::GLYPH_RUN as usize],
-        1,
-        "the tracked run"
-    );
+    assert_eq!(counts[spec::draw_op::GLYPH_RUN as usize], 0);
+    let at = words.iter().position(|w| *w == spec::draw_op::TEXT_RUN).unwrap();
+    assert_eq!((words[at + 1] >> 16) as u16 as i16, 640, "2.5 px as 8.8 fixed point");
     // The rotated run's matrix is the rotation; the nested run's the scale.
     let xf: Vec<[f32; 4]> = words
         .iter()
@@ -4987,15 +4985,11 @@ fn tracked_runs_use_the_baked_pair_and_2d_transformed_runs_stay_native() {
         .map(|(i, _)| core::array::from_fn(|k| f32::from_bits(words[i + 8 + k])))
         .collect();
     let (s, c) = (45f32.to_radians().sin(), 45f32.to_radians().cos());
-    assert!(xf
-        .iter()
-        .any(|m| (m[0] - c).abs() < 1e-4 && (m[1] - s).abs() < 1e-4 && (m[2] + s).abs() < 1e-4));
-    assert!(xf
-        .iter()
-        .any(|m| (m[0] - 0.5).abs() < 1e-6 && (m[3] - 0.5).abs() < 1e-6 && m[1] == 0.0));
+    assert!(xf.iter().any(|m| (m[0] - c).abs() < 1e-4 && (m[1] - s).abs() < 1e-4 && (m[2] + s).abs() < 1e-4));
+    assert!(xf.iter().any(|m| (m[0] - 0.5).abs() < 1e-6 && (m[3] - 0.5).abs() < 1e-6 && m[1] == 0.0));
     // Column layout: width cross-stretches, so the measurement provider is
-    // observable through the main-axis HEIGHT: atlas 10 px, native 12 px.
-    assert_eq!(ui.layout_of(tracked).unwrap().3, 10.0);
+    // observable through the main-axis HEIGHT: native lines are 12 px.
+    assert_eq!(ui.layout_of(tracked).unwrap().3, 12.0);
     assert_eq!(ui.layout_of(rotated).unwrap().3, 12.0);
     assert_eq!(ui.layout_of(nested).unwrap().3, 12.0);
 }

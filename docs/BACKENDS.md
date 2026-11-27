@@ -36,15 +36,16 @@ Symbian GLES2 ports.
 `Ui::set_text_measure` and `Ui::set_text_wrap` before the guest mounts.
 The renderer must consume `TEXT_RUN` and paint with the provider that measured
 the run. The DrawList stores the run's UTF-8 bytes and style hash.
-Runs under a 2D transform (rotate, scale, skew) are `TEXT_RUN_XF`: the run
-plus the 2x2 linear part of its world transform, which the backend applies to
-the run's pixels. Tracked runs and runs under a 3D transform (rotateX/Y,
-perspective) use baked atlas metrics and `GLYPH_RUN`.
+`TEXT_RUN` carries the run's tracking (word1 bits 16-31, signed 8.8 fixed-point
+px), which the measurer received too. Runs under a 2D transform (rotate, scale,
+skew) are `TEXT_RUN_XF`: the run plus the 2x2 linear part of its world
+transform, which the backend applies to the run's pixels. Runs under a 3D
+transform (rotateX/Y, perspective) use baked atlas metrics and `GLYPH_RUN`.
 The `text.layout.native` capability describes this embedding contract;
-no built-in host advertises it. **A build for a host with it bakes atlases
-with ASCII and the declared characters only** (`fonts.json`), not the
-characters the source spells: the atlases draw tracked runs and runs under 3D
-transforms. The shared DrawList walk asks its backend for a
+no built-in host advertises it. **A build for a host with it bakes no atlases**
+unless the application declares characters (`fonts.json`); then it bakes those,
+ASCII and the button marks, for runs under 3D transforms. Without atlases, text
+under a 3D transform is not drawn. The shared DrawList walk asks its backend for a
 run's pixels (`Backend::text_run` in `pocket-render`); `pocket-wgpu-render`
 answers through the host's `TextPainter`.
 

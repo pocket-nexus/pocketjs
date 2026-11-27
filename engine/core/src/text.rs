@@ -369,10 +369,11 @@ pub struct Fonts {
     /// cmap-miss counter (Cell: measurement is `&self` per the pinned `Ui`
     /// signature but a miss must still count).
     pub misses: Cell<u32>,
-    /// Native measurer; when present, tracking-0 runs measure through it
-    /// (and draw.rs emits TEXT_RUN instead of GLYPH_RUN for them). Tracked
-    /// runs keep the baked path on BOTH sides so a node's measured metrics
-    /// always match its painted glyphs.
+    /// Native measurer; when present, runs measure through it with their
+    /// tracking (and draw.rs emits TEXT_RUN, which carries the tracking,
+    /// instead of GLYPH_RUN for them). Runs under 3D transforms keep the
+    /// baked path on BOTH sides so a node's measured metrics always match
+    /// its painted glyphs.
     native: Option<MeasureFn>,
     /// Native line wrapper (OP wrapText); absent = greedy over `measure_run`.
     wrap_native: Option<WrapFn>,
@@ -470,7 +471,7 @@ impl Fonts {
 
     /// Measure a run: (max line width, line count x line height). Empty text
     /// or an unregistered slot measures (0, 0). With a native measurer
-    /// installed, tracking-0 runs route to it — the auto-gate the JS-facing
+    /// installed, runs route to it — the auto-gate the JS-facing
     /// `measureText` op uses. Layout does NOT call this: it picks a provider
     /// per node and records it (`measure_run_provider`; layout.rs build()).
     pub fn measure_run(
@@ -481,7 +482,7 @@ impl Fonts {
         line_h_override: f32,
     ) -> (f32, f32) {
         self.measure_run_provider(
-            self.native.is_some() && tracking == 0.0,
+            self.native.is_some(),
             text,
             slot,
             tracking,

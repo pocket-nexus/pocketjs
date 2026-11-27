@@ -22,6 +22,8 @@ pub struct TextRunRequest<'a> {
     pub box_width: f32,
     /// The line pitch; NaN means the slot's default.
     pub line_height: f32,
+    /// px added after each character.
+    pub tracking: f32,
     /// ABGR with alpha 255. The renderer applies the run's alpha when it draws.
     pub color: u32,
     /// Device px per logical px.
@@ -52,6 +54,7 @@ struct TextKey {
     align: u8,
     box_width: u32,
     line_height: u32,
+    tracking: u32,
     color: u32,
     scale: u32,
 }
@@ -171,6 +174,7 @@ impl WgpuRenderer {
             align: run.align,
             box_width: run.box_width.to_bits(),
             line_height: run.line_height.to_bits(),
+            tracking: run.tracking.to_bits(),
             color: run.color | 0xff00_0000,
             scale: scale.to_bits(),
         };
@@ -186,6 +190,7 @@ impl WgpuRenderer {
                     align: run.align,
                     box_width: run.box_width,
                     line_height: run.line_height,
+                    tracking: run.tracking,
                     color: key.color,
                     scale,
                 };

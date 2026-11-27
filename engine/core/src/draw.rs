@@ -3535,8 +3535,8 @@ impl<'a> Walker<'a> {
             }
         }
         // The node's measurement provider was RECORDED at layout time
-        // (layout.rs build(): native iff a measurer is installed, tracking
-        // is 0 and the subtree declared no 3D transform). Paint follows the
+        // (layout.rs build(): native iff a measurer is installed and the
+        // subtree declared no 3D transform). Paint follows the
         // record — a node's painted glyphs always come from the provider
         // that sized its box — but a paint-only transform (rotateX/Y and
         // perspective don't relayout) can leave the record stale in either direction:
@@ -3544,7 +3544,7 @@ impl<'a> Walker<'a> {
         // draw, so the frame that leaves is provider-correct. An animation
         // crossing exact identity re-decides twice per cycle.
         let desired_native =
-            !self.in_3d && self.fonts.native_active() && r.tracking == 0.0 && !in_transform;
+            !self.in_3d && self.fonts.native_active() && !in_transform;
         if desired_native != node.text_native {
             self.provider_stale = true;
         }
@@ -3829,8 +3829,6 @@ impl<'a> Walker<'a> {
         box_w: f32,
     ) {
         let slot = r.font_slot as u8;
-        // Routes to the native measurer (the recorded-provider gate holds
-        // tracking at 0 on this path).
         let (mw, mh) = self
             .fonts
             .measure_run(&run, slot, r.tracking, r.line_height);
@@ -3885,7 +3883,7 @@ impl<'a> Walker<'a> {
         } else {
             spec::draw_op::TEXT_RUN
         });
-        dl.words.push((slot as u32) | ((r.text_align as u32) << 8));
+        dl.words.push((slot as u32) | ((r.text_align as u32) << 8) | (tracking_bits(r.tracking) << 16));
         dl.words.push(ox.to_bits());
         dl.words.push(oy.to_bits());
         dl.words.push(box_w.to_bits());
@@ -3904,6 +3902,14 @@ impl<'a> Walker<'a> {
             dl.words.push(spec::draw_op::SCISSOR_POP);
         }
     }
+}
+
+/// TEXT_RUN's tracking: signed 8.8 fixed-point px in word1 bits 16-31.
+fn tracking_bits(tracking: f32) -> u32 {
+    let v = tracking * 256.0;
+    // round half away from zero (no_std: no f32::round); the cast saturates
+    let rounded = if v >= 0.0 { v + 0.5 } else { v - 0.5 };
+    (rounded.clamp(-32768.0, 32767.0) as i16 as u16) as u32
 }
 
 /// Concatenated inline run of a text element (own text + text-type

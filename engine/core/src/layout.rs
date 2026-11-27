@@ -581,7 +581,7 @@ fn build(
             tree.slots[slot as usize].text_native = false;
             return None; // empty text nodes never consume gap/flex space [R]
         }
-        let native = fonts.native_active() && resolved.tracking == 0.0 && !in_transform;
+        let native = fonts.native_active() && !in_transform;
         tree.slots[slot as usize].text_native = native;
         let ctx = MeasureCtx::shaped(
             fonts,
@@ -769,7 +769,7 @@ fn sync_node(
             return None;
         }
     }
-    let native = is_text && fonts.native_active() && resolved.tracking == 0.0 && !in_transform;
+    let native = is_text && fonts.native_active() && !in_transform;
     let old = entry(eng, tree, slot);
     let handle = if let Some(old) = old {
         update_style(eng, old.handle, &resolved);
@@ -1180,9 +1180,7 @@ fn restyle(
         if tree.slots[slot as usize].node_type == spec::NodeType::Text as u8 {
             let mut run = String::new();
             tree.collect_run(slot, &mut run);
-            let native = fonts.native_active()
-                && resolved.tracking == 0.0
-                && !in_transform(tree, styles, slot, root_id);
+            let native = fonts.native_active() && !in_transform(tree, styles, slot, root_id);
             update_measure(eng, fonts, old.handle, run, &resolved, native, true);
         } else if tree.slots[slot as usize].region_root {
             // The region's own root carries the structural half of this style.

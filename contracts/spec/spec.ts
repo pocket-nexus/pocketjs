@@ -1437,6 +1437,9 @@ export const FONT_FLAG_BOLD = 1 << 0;
 //                           op,
 //                           word1: bits 0-7 fontSlot,
 //                                  bits 8-15 TextAlign ordinal,
+//                                  bits 16-31 tracking (signed 8.8
+//                                  fixed-point px added after each
+//                                  character; 0 = none),
 //                           originX, originY, boxW, lineHeight (f32 bits;
 //                           content-box top-left + width in logical px;
 //                           lineHeight NaN = the slot's default),

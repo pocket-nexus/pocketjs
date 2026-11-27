@@ -21,7 +21,7 @@ Glyph atlas, image, gradient, triangle and scissor operations use the shared
 DrawList vocabulary. **`TEXT_RUN` draws through a host `TextPainter`**
 (`set_text_painter`): the host text system that measured a run paints one
 straight-alpha RGBA8 bitmap per distinct run (text, slot, alignment, box width,
-line height, opaque colour, scale); the renderer keeps it as a texture, places
+line height, tracking, opaque colour, scale); the renderer keeps it as a texture, places
 it on whole device pixels and modulates it by the run's alpha. A
 `TEXT_RUN_XF` draws the same bitmap as two triangles through the run's 2x2
 matrix about its origin. Bitmaps no

@@ -201,6 +201,8 @@ pub struct TextRun<'a> {
     pub bytes: usize,
     /// TEXT_RUN_XF: the 2x2 linear part `[a, b, c, d]` of the run's transform about its origin.
     pub linear: Option<[f32; 4]>,
+    /// px added after each character (word1 bits 16-31, signed 8.8 fixed point).
+    pub tracking: f32,
     payload: &'a [u32],
 }
 
@@ -320,6 +322,7 @@ pub fn record(words: &[u32]) -> Result<Record<'_>, DecodeError> {
                 color: words[6],
                 bytes: words[7] as usize,
                 linear: xf.then(|| core::array::from_fn(|i| f32::from_bits(words[8 + i]))),
+                tracking: (words[1] >> 16) as u16 as i16 as f32 / 256.0,
                 payload: &words[if xf { 12 } else { 8 }..],
             })
         }
