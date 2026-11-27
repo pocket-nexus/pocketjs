@@ -40,7 +40,7 @@ export function createBrowserInput(element, options = {}) {
   const listeners = [];
   const on = (target, type, handler, opts) => { target.addEventListener(type, handler, opts); listeners.push([target, type, handler, opts]); };
   let position = null, held = 0, scrollX = 0, scrollY = 0;
-  const textEvents = [], contacts = new Map(), cancellations = [], retired = new Set(), keys = new Set();
+  const textEvents = [], contacts = new Map(), cancellations = [], retired = new Set(), keys = new Set(), down = new Set();
 
   const logical = event => {
     const rect = element.getBoundingClientRect();
@@ -93,7 +93,11 @@ export function createBrowserInput(element, options = {}) {
   };
   const key = pressed => event => {
     if (event.isComposing || event.key === "Process" || event.key === "Unidentified") return;
-    if (wantText) textEvents.push({ kind: "key", key: keyName(event), pressed, repeat: pressed && event.repeat });
+    if (wantText) {
+      const name = keyName(event);
+      textEvents.push({ kind: "key", key: name, pressed, repeat: pressed && event.repeat });
+      if (pressed) down.add(name); else down.delete(name);
+    }
     if (buttonMap[event.code] !== undefined) { if (pressed) keys.add(event.code); else keys.delete(event.code); }
     // Tab stays in the application; the page's focus order does not move.
     if (event.key === "Tab" || buttonMap[event.code] !== undefined) event.preventDefault();
@@ -150,6 +154,9 @@ export function createBrowserInput(element, options = {}) {
   }
   on(doc.defaultView, "blur", () => {
     held = 0;
+    // A key held while the window loses focus never sends its key-up here.
+    for (const key of down) textEvents.push({ kind: "key", key, pressed: false, repeat: false });
+    down.clear();
     for (const name of [...keys]) keys.delete(name);
     for (const c of contacts.values()) { retired.add(c.id); cancellations.push({ ...c, cancelled: true }); }
     contacts.clear();
