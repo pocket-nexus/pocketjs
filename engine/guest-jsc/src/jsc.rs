@@ -5,7 +5,7 @@
 //! [`Persistent`]. Hosts use this module to mount their own namespaces next to `ui`.
 #![allow(non_camel_case_types, clippy::missing_safety_doc)]
 
-use std::ffi::c_void;
+use std::ffi::{c_char, c_void};
 use std::ptr::{null, null_mut};
 
 #[repr(C)]
@@ -41,7 +41,7 @@ pub type JSTypedArrayBytesDeallocator = Option<unsafe extern "C" fn(*mut c_void,
 pub struct JSClassDefinition {
     pub version: i32,
     pub attributes: u32,
-    pub class_name: *const i8,
+    pub class_name: *const c_char,
     pub parent_class: JSClassRef,
     pub static_values: *const c_void,
     pub static_functions: *const c_void,
@@ -89,7 +89,10 @@ pub enum TypedArrayType {
     BigUint64,
 }
 
-#[link(name = "JavaScriptCore", kind = "framework")]
+#[cfg_attr(
+    target_vendor = "apple",
+    link(name = "JavaScriptCore", kind = "framework")
+)]
 unsafe extern "C" {
     pub fn JSGlobalContextCreate(global_class: JSClassRef) -> JSGlobalContextRef;
     pub fn JSGlobalContextRelease(ctx: JSGlobalContextRef);
@@ -106,7 +109,7 @@ unsafe extern "C" {
     pub fn JSGarbageCollect(ctx: JSContextRef);
 
     pub fn JSStringCreateWithCharacters(chars: *const u16, len: usize) -> JSStringRef;
-    pub fn JSStringCreateWithUTF8CString(s: *const i8) -> JSStringRef;
+    pub fn JSStringCreateWithUTF8CString(s: *const c_char) -> JSStringRef;
     pub fn JSStringRelease(s: JSStringRef);
     pub fn JSStringGetLength(s: JSStringRef) -> usize;
     pub fn JSStringGetCharactersPtr(s: JSStringRef) -> *const u16;

@@ -5,7 +5,7 @@ homepage = "https://pocketjs.pocket.nexus"
 keywords = ["pocketjs", "javascriptcore", "javascript"]
 categories = ["gui", "api-bindings"]
 edition = "2021"
-description = "Generated PocketJS UI bindings and guest lifecycle for JavaScriptCore (Apple platforms)"
+description = "Generated PocketJS UI bindings and guest lifecycle for JavaScriptCore (Apple platforms and Linux)"
 
 version.workspace = true
 repository.workspace = true
