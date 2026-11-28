@@ -1,4 +1,5 @@
-//! A PocketJS guest on JavaScriptCore, the engine Apple platforms ship.
+//! A PocketJS guest on JavaScriptCore (Apple platforms and Linux via WebKitGTK's
+//! `javascriptcoregtk`).
 //!
 //! [`JscGuest`] implements [`pocket_runtime::Guest`]: the runtime's generated
 //! operation table becomes `globalThis.ui`, the package script evaluates in a
@@ -12,8 +13,9 @@
 //!
 //! On macOS the engine JIT-compiles only in processes signed with the
 //! `com.apple.security.cs.allow-jit` entitlement; without it the interpreter
-//! runs the same code.
-#![cfg(target_vendor = "apple")]
+//! runs the same code. On Linux `javascriptcoregtk-6.0` or `4.1` runs with JIT
+//! out of the box.
+#![cfg(any(target_vendor = "apple", pocket_guest_jsc_linux))]
 
 mod guest;
 pub mod jsc;

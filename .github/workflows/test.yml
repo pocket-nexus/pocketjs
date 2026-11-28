@@ -102,9 +102,9 @@ jobs:
         with:
           bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
-      # wgpu tests render through Mesa's Vulkan driver; audio fixtures link ALSA.
+      # wgpu tests render through Mesa's Vulkan driver; audio fixtures link ALSA; guest-jsc links WebKitGTK JSC.
       - name: Install headless GPU and media libraries
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libvulkan1 mesa-vulkan-drivers libasound2-dev pkg-config
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libvulkan1 mesa-vulkan-drivers libasound2-dev libjavascriptcoregtk-4.1-dev pkg-config
       - name: Format
         run: cargo fmt --manifest-path Cargo.toml -p pocket-text -p pocket3d -p pocket3d-world -p pocket3d-anim -p pocket3d-mesh -p pocket-ui-wgpu -p pocket-wgpu-render -p pocket-sim -- --check
       - name: Test the workspace default members
